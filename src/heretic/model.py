@@ -47,6 +47,7 @@ class Model:
                 self.generate([settings.test_prompt], max_new_tokens=1)
             except Exception as error:
                 self.model = None
+                empty_cache()
                 print(f"[red]Failed[/] ({error})")
                 continue
 

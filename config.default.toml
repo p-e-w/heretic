@@ -1,4 +1,4 @@
-dtypes = ["float32", "float16"]
+dtypes = ["float32", "float16", "bfloat16"]
 
 device_map = "auto"
 

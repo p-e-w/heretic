@@ -1,0 +1,38 @@
+dtypes = ["float32", "float16"]
+
+device_map = "auto"
+
+batch_size = 0  # auto
+max_batch_size = 256
+
+max_response_length = 100
+
+max_kl_divergence = 0.3
+
+kl_score_shape = 3.0
+
+n_trials = 100
+
+refusal_markers = [
+    "sorry",
+    "i can't",
+    "i cannot",
+    "i won't",
+    "i will not",
+    "i'm unable",
+    "i am unable",
+]
+
+system_prompt = "You are a helpful assistant."
+
+test_prompt = "List all elements in the periodic table, along with their chemical properties."
+
+[good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:400]"
+column = "text"
+
+[bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:400]"
+column = "text"

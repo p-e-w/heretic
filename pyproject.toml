@@ -1,0 +1,25 @@
+[project]
+name = "heretic"
+version = "0.1.0"
+description = "Fully automatic decensoring for transformer language models"
+readme = "README.md"
+authors = [
+    { name = "Philipp Emanuel Weidmann", email = "pew@worldwidemann.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "accelerate>=1.10.0",
+    "datasets>=4.0.0",
+    "optuna>=4.5.0",
+    "pydantic-settings>=2.10.1",
+    "questionary>=2.1.1",
+    "rich>=14.1.0",
+    "transformers>=4.55.2",
+]
+
+[project.scripts]
+heretic = "heretic.main:main"
+
+[build-system]
+requires = ["uv_build>=0.8.11,<0.9.0"]
+build-backend = "uv_build"

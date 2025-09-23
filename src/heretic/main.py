@@ -82,6 +82,10 @@ def main():
         while batch_size <= settings.max_batch_size:
             print(f"* Trying batch size [bold]{batch_size}[/]... ", end="")
 
+            # FIXME: Using the same prompt across the batch is a poor benchmark for MoE models,
+            #        because it means that the same experts are active for all prompts at each
+            #        token position (since we use deterministic decoding), which is substantially
+            #        faster than if different experts must be accessed for each prompt.
             prompts = [settings.test_prompt] * batch_size
 
             try:
@@ -141,7 +145,7 @@ def main():
         )
         min_weight = trial.suggest_float("min_weight", 0, max_weight)
         min_weight_distance = trial.suggest_float(
-            "min_weight_distance", 0, len(model.model.model.layers) - 1
+            "min_weight_distance", 1, len(model.model.model.layers) - 1
         )
 
         print()
@@ -173,6 +177,26 @@ def main():
         return -score
 
     study = optuna.create_study()
+
+    # Educated guesses for parameter values to get the optimizer started.
+    for max_weight, max_weight_position, min_weight, min_weight_distance in [
+        (0.0, 0.0, 0.0, 0.5),
+        (1.0, 0.5, 0.0, 0.25),
+        (0.8, 0.7, 0.3, 0.4),
+        (0.9, 0.3, 0.1, 0.1),
+        (1.0, 1.0, 1.0, 1.0),
+    ]:
+        study.enqueue_trial(
+            {
+                "max_weight": max_weight,
+                "max_weight_position": max_weight_position
+                * (len(model.model.model.layers) - 1),
+                "min_weight": min_weight,
+                "min_weight_distance": min_weight_distance
+                * (len(model.model.model.layers) - 1),
+            }
+        )
+
     study.optimize(objective, n_trials=settings.n_trials)
 
     print()

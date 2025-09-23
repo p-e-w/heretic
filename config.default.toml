@@ -1,4 +1,12 @@
-dtypes = ["float32", "float16", "bfloat16"]
+dtypes = [
+    # In practice, "auto" almost always means bfloat16.
+    "auto",
+    # If that doesn't work (e.g. on pre-Ampere hardware), fall back to float16.
+    "float16",
+    # If that still doesn't work (e.g. due to https://github.com/meta-llama/llama/issues/380),
+    # fall back to float32.
+    "float32",
+]
 
 device_map = "auto"
 

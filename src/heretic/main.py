@@ -198,6 +198,8 @@ def main():
     )
     print(f"  * Score: [bold]{-study.best_value:.4f}[/]")
 
+    return
+
     print()
     action = questionary.select(
         "What do you want to do with the optimized model?",

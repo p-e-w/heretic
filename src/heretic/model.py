@@ -12,6 +12,7 @@ from transformers import (
     AutoTokenizer,
     BatchEncoding,
     PreTrainedTokenizerBase,
+    TextStreamer,
 )
 from transformers.generation.utils import GenerateOutput
 
@@ -251,3 +252,31 @@ class Model:
             logprobs.append(self.get_logprobs(batch))
 
         return torch.cat(logprobs, dim=0)
+
+    def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
+        chat_prompt: str = self.tokenizer.apply_chat_template(
+            chat,
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+
+        inputs = self.tokenizer(
+            chat_prompt,
+            return_tensors="pt",
+        ).to(self.model.device)
+
+        streamer = TextStreamer(
+            self.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+        )
+
+        outputs = self.model.generate(
+            **inputs,
+            streamer=streamer,
+        )
+
+        return self.tokenizer.decode(
+            outputs[0, inputs["input_ids"].shape[1] :],
+            skip_special_tokens=True,
+        )

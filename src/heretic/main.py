@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+import sys
 import time
 from importlib.metadata import version
 
@@ -31,6 +32,16 @@ def main():
         "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/]"
     )
     print()
+
+    if (
+        # An odd number of arguments have been passed (argv[0] is the program name),
+        # so that after accounting for "--param VALUE" pairs, there is one left over.
+        len(sys.argv) % 2 == 0
+        # The leftover argument is a parameter value rather than a flag (such as "--help").
+        and not sys.argv[-1].startswith("-")
+    ):
+        # Assume the last argument is the model.
+        sys.argv.insert(-1, "--model")
 
     settings = Settings()
 

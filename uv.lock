@@ -479,6 +479,7 @@ source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
     { name = "datasets" },
+    { name = "huggingface-hub" },
     { name = "optuna" },
     { name = "pydantic-settings" },
     { name = "questionary" },
@@ -490,6 +491,7 @@ dependencies = [
 requires-dist = [
     { name = "accelerate", specifier = ">=1.10.0" },
     { name = "datasets", specifier = ">=4.0.0" },
+    { name = "huggingface-hub", specifier = ">=0.34.4" },
     { name = "optuna", specifier = ">=4.5.0" },
     { name = "pydantic-settings", specifier = ">=2.10.1" },
     { name = "questionary", specifier = ">=2.1.1" },

@@ -19,11 +19,12 @@ from accelerate.utils import (
     is_sdaa_available,
     is_xpu_available,
 )
+from huggingface_hub import ModelCard
 
 from .config import Settings
 from .evaluator import Evaluator
 from .model import Model
-from .utils import print
+from .utils import get_readme_intro, print
 
 
 def main():
@@ -303,8 +304,29 @@ def main():
                     private = visibility == "Private"
 
                     print("Uploading model...")
+
                     model.model.push_to_hub(repo_id, private=private, token=token)
                     model.tokenizer.push_to_hub(repo_id, private=private, token=token)
+
+                    # If the model path doesn't exist locally, it can be assumed
+                    # to be a model hosted on the Hugging Face Hub, in which case
+                    # we can retrieve the model card.
+                    if not Path(settings.model).exists():
+                        card = ModelCard.load(settings.model)
+                        card.data.tags.append("heretic")
+                        card.data.tags.append("uncensored")
+                        card.data.tags.append("decensored")
+                        card.text = (
+                            get_readme_intro(
+                                settings,
+                                study,
+                                evaluator.base_refusals,
+                                evaluator.bad_prompts,
+                            )
+                            + card.text
+                        )
+                        card.push_to_hub(repo_id, token=token)
+
                     print(f"Model uploaded to [bold]{repo_id}[/].")
 
                 case "Chat with the model":

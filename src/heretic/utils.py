@@ -4,6 +4,7 @@
 import gc
 from typing import TypeVar
 
+import optuna
 import torch
 from accelerate.utils import (
     is_mlu_available,
@@ -14,7 +15,7 @@ from accelerate.utils import (
 from datasets import load_dataset
 from rich.console import Console
 
-from .config import DatasetSpecification
+from .config import DatasetSpecification, Settings
 
 print = Console(highlight=False).print
 
@@ -44,3 +45,37 @@ def empty_cache():
         torch.musa.empty_cache()
 
     gc.collect()
+
+
+def get_readme_intro(
+    settings: Settings,
+    study: optuna.Study,
+    base_refusals: int,
+    bad_prompts: list[str],
+) -> str:
+    refusal_percentage = (
+        study.best_trial.user_attrs["refusals"] / len(bad_prompts) * 100
+    )
+    base_refusal_percentage = base_refusals / len(bad_prompts) * 100
+
+    return f"""# This is a decensored version of [{settings.model}](https://huggingface.co/{settings.model}), made using [Heretic](https://github.com/p-e-w/heretic)
+
+## Abliteration parameters
+
+| Parameter               | Value                                          |
+| :---------------------- | :--------------------------------------------: |
+| **max_weight**          | {study.best_params["max_weight"]:.4f}          |
+| **max_weight_position** | {study.best_params["max_weight_position"]:.4f} |
+| **min_weight**          | {study.best_params["min_weight"]:.4f}          |
+| **min_weight_distance** | {study.best_params["min_weight_distance"]:.4f} |
+
+## Performance
+
+| Metric            | This model                                         | Original model ([{settings.model}](https://huggingface.co/{settings.model})) |
+| :---------------- | :------------------------------------------------: | :--------------------------------------------------------------------------: |
+| **KL divergence** | {study.best_trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)*                                                          |
+| **Refusals**      | {refusal_percentage:.1f} %                         | {base_refusal_percentage:.1f} %                                              |
+
+-----
+
+"""

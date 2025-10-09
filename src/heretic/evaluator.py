@@ -14,16 +14,20 @@ class Evaluator:
         self.model = model
 
         print()
-        print(f"Loading good prompts from [bold]{settings.good_prompts.dataset}[/]...")
-        self.good_prompts = load_prompts(settings.good_prompts)
+        print(
+            f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."
+        )
+        self.good_prompts = load_prompts(settings.good_evaluation_prompts)
         print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
 
         print("* Obtaining first-token probability distributions...")
         self.base_logprobs = model.get_logprobs_batched(self.good_prompts)
 
         print()
-        print(f"Loading bad prompts from [bold]{settings.bad_prompts.dataset}[/]...")
-        self.bad_prompts = load_prompts(settings.bad_prompts)
+        print(
+            f"Loading bad evaluation prompts from [bold]{settings.bad_evaluation_prompts.dataset}[/]..."
+        )
+        self.bad_prompts = load_prompts(settings.bad_evaluation_prompts)
         print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
 
         print("* Counting model refusals...")

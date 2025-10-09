@@ -63,16 +63,20 @@ class Settings(BaseSettings):
         description="System prompt to use when prompting the model"
     )
 
-    test_prompt: str = Field(
-        description="Prompt to use for testing model function and determining the batch size"
-    )
-
     good_prompts: DatasetSpecification = Field(
-        description="Dataset of prompts that do not result in refusals from the model"
+        description="Dataset of prompts that tend to not result in refusals (used for calculating refusal directions)"
     )
 
     bad_prompts: DatasetSpecification = Field(
-        description="Dataset of prompts that result in refusals from the model"
+        description="Dataset of prompts that tend to result in refusals (used for calculating refusal directions)"
+    )
+
+    good_evaluation_prompts: DatasetSpecification = Field(
+        description="Dataset of prompts that tend to not result in refusals (used for evaluating model performance)"
+    )
+
+    bad_evaluation_prompts: DatasetSpecification = Field(
+        description="Dataset of prompts that tend to result in refusals (used for evaluating model performance)"
     )
 
     # "Model" refers to the Pydantic model of the settings class here,

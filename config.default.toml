@@ -11,7 +11,7 @@ dtypes = [
 device_map = "auto"
 
 batch_size = 0  # auto
-max_batch_size = 256
+max_batch_size = 128
 
 max_response_length = 100
 
@@ -33,8 +33,6 @@ refusal_markers = [
 
 system_prompt = "You are a helpful assistant."
 
-test_prompt = "List all elements in the periodic table, along with their chemical properties."
-
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "train[:400]"
@@ -43,4 +41,14 @@ column = "text"
 [bad_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "train[:400]"
+column = "text"
+
+[good_evaluation_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[:100]"
+column = "text"
+
+[bad_evaluation_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "test[:100]"
 column = "text"

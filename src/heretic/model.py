@@ -46,7 +46,7 @@ class Model:
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
                 # (https://github.com/meta-llama/llama/issues/380).
-                self.generate([settings.test_prompt], max_new_tokens=1)
+                self.generate(["Test"], max_new_tokens=1)
             except Exception as error:
                 self.model = None
                 empty_cache()

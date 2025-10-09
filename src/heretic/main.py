@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+import math
 import sys
 import time
 from importlib.metadata import version
@@ -24,7 +25,7 @@ from huggingface_hub import ModelCard
 from .config import Settings
 from .evaluator import Evaluator
 from .model import Model
-from .utils import get_readme_intro, print
+from .utils import get_readme_intro, load_prompts, print
 
 
 def main():
@@ -85,6 +86,16 @@ def main():
 
     model = Model(settings)
 
+    print()
+    print(f"Loading good prompts from [bold]{settings.good_prompts.dataset}[/]...")
+    good_prompts = load_prompts(settings.good_prompts)
+    print(f"* [bold]{len(good_prompts)}[/] prompts loaded")
+
+    print()
+    print(f"Loading bad prompts from [bold]{settings.bad_prompts.dataset}[/]...")
+    bad_prompts = load_prompts(settings.bad_prompts)
+    print(f"* [bold]{len(bad_prompts)}[/] prompts loaded")
+
     if settings.batch_size == 0:
         print()
         print("Determining optimal batch size...")
@@ -96,11 +107,8 @@ def main():
         while batch_size <= settings.max_batch_size:
             print(f"* Trying batch size [bold]{batch_size}[/]... ", end="")
 
-            # FIXME: Using the same prompt across the batch is a poor benchmark for MoE models,
-            #        because it means that the same experts are active for all prompts at each
-            #        token position (since we use deterministic decoding), which is substantially
-            #        faster than if different experts must be accessed for each prompt.
-            prompts = [settings.test_prompt] * batch_size
+            prompts = good_prompts * math.ceil(batch_size / len(good_prompts))
+            prompts = prompts[:batch_size]
 
             try:
                 # Warmup run to build the computation graph so that part isn't benchmarked.
@@ -134,17 +142,17 @@ def main():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
-    evaluator = Evaluator(settings, model)
-
     print()
     print("Calculating per-layer refusal directions...")
     print("* Obtaining residuals for good prompts...")
-    good_residuals = model.get_residuals_batched(evaluator.good_prompts)
+    good_residuals = model.get_residuals_batched(good_prompts)
     print("* Obtaining residuals for bad prompts...")
-    bad_residuals = model.get_residuals_batched(evaluator.bad_prompts)
+    bad_residuals = model.get_residuals_batched(bad_prompts)
     refusal_directions = F.normalize(
         bad_residuals.mean(dim=0) - good_residuals.mean(dim=0), p=2, dim=1
     )
+
+    evaluator = Evaluator(settings, model)
 
     trial_index = 0
 

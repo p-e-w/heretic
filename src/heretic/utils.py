@@ -2,6 +2,7 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 import gc
+from importlib.metadata import version
 from typing import TypeVar
 
 import optuna
@@ -58,7 +59,7 @@ def get_readme_intro(
     )
     base_refusal_percentage = base_refusals / len(bad_prompts) * 100
 
-    return f"""# This is a decensored version of [{settings.model}](https://huggingface.co/{settings.model}), made using [Heretic](https://github.com/p-e-w/heretic)
+    return f"""# This is a decensored version of [{settings.model}](https://huggingface.co/{settings.model}), made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic")}
 
 ## Abliteration parameters
 

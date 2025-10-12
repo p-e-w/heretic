@@ -21,6 +21,7 @@ from accelerate.utils import (
     is_xpu_available,
 )
 from huggingface_hub import ModelCard
+from pydantic import ValidationError
 
 from .config import Settings
 from .evaluator import Evaluator
@@ -47,7 +48,19 @@ def main():
         # Assume the last argument is the model.
         sys.argv.insert(-1, "--model")
 
-    settings = Settings()
+    try:
+        settings = Settings()
+    except ValidationError as error:
+        print(f"[red]Configuration contains [bold]{error.error_count()}[/] errors:[/]")
+
+        for error in error.errors():
+            print(f"[bold]{error['loc'][0]}[/]: [yellow]{error['msg']}[/]")
+
+        print()
+        print(
+            "Run [bold]heretic --help[/] or see [bold]config.default.toml[/] for details about configuration parameters."
+        )
+        return
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():

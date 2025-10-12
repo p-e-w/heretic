@@ -22,6 +22,7 @@ from accelerate.utils import (
 )
 from huggingface_hub import ModelCard
 from pydantic import ValidationError
+from rich.traceback import install
 
 from .config import Settings
 from .evaluator import Evaluator
@@ -29,7 +30,7 @@ from .model import Model
 from .utils import get_readme_intro, load_prompts, print
 
 
-def main():
+def run():
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
@@ -377,3 +378,22 @@ def main():
 
         except Exception as error:
             print(f"[red]Error: {error}[/]")
+
+
+def main():
+    # Install Rich traceback handler.
+    install()
+
+    try:
+        run()
+    except BaseException as error:
+        # Transformers appears to handle KeyboardInterrupt (or BaseException)
+        # internally in some places, which can re-raise a different error in the handler,
+        # masking the root cause. We therefore check both the error itself and its context.
+        if isinstance(error, KeyboardInterrupt) or isinstance(
+            error.__context__, KeyboardInterrupt
+        ):
+            print()
+            print("[red]Shutting down...[/]")
+        else:
+            raise

@@ -106,6 +106,12 @@ class Model:
                 for expert in layer.mlp.experts:
                     try_add(expert.down_proj.weight)
 
+        # Phi-3.5-MoE (and possibly others).
+        if not matrices:
+            with suppress(Exception):
+                for expert in layer.block_sparse_moe.experts:
+                    try_add(expert.w2.weight)
+
         # We need at least one MLP down-projection.
         assert matrices
 

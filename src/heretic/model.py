@@ -7,6 +7,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 from torch import LongTensor
+from torch.nn import ModuleList
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -59,9 +60,7 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        print(
-            f"* Transformer model with [bold]{len(self.model.model.layers)}[/] layers"
-        )
+        print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print(
             f"* [bold]{len(self.get_layer_matrices(0))}[/] abliterable matrices per layer"
         )
@@ -79,8 +78,16 @@ class Model:
             device_map=self.settings.device_map,
         )
 
+    def get_layers(self) -> ModuleList:
+        # Most multimodal models.
+        with suppress(Exception):
+            return self.model.model.language_model.layers
+
+        # Text-only models.
+        return self.model.model.layers
+
     def get_layer_matrices(self, layer_index: int) -> list[torch.Tensor]:
-        layer = self.model.model.layers[layer_index]
+        layer = self.get_layers()[layer_index]
 
         matrices = []
 
@@ -118,7 +125,7 @@ class Model:
     ):
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
-        for layer_index in range(len(self.model.model.layers)):
+        for layer_index in range(len(self.get_layers())):
             distance = abs(layer_index - max_weight_position)
 
             # Don't orthogonalize layers that are more than

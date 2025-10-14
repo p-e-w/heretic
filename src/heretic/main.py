@@ -177,11 +177,11 @@ def run():
 
         max_weight = trial.suggest_float("max_weight", 0, 1)
         max_weight_position = trial.suggest_float(
-            "max_weight_position", 0, len(model.model.model.layers) - 1
+            "max_weight_position", 0, len(model.get_layers()) - 1
         )
         min_weight = trial.suggest_float("min_weight", 0, max_weight)
         min_weight_distance = trial.suggest_float(
-            "min_weight_distance", 1, len(model.model.model.layers) - 1
+            "min_weight_distance", 1, len(model.get_layers()) - 1
         )
 
         print()
@@ -226,10 +226,10 @@ def run():
             {
                 "max_weight": max_weight,
                 "max_weight_position": max_weight_position
-                * (len(model.model.model.layers) - 1),
+                * (len(model.get_layers()) - 1),
                 "min_weight": min_weight,
                 "min_weight_distance": min_weight_distance
-                * (len(model.model.model.layers) - 1),
+                * (len(model.get_layers()) - 1),
             }
         )
 

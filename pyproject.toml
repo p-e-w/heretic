@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "accelerate>=1.10.0",
     "datasets>=4.0.0",
+    "hf-transfer>=0.1.9",
     "huggingface-hub>=0.34.4",
     "optuna>=4.5.0",
     "pydantic-settings>=2.10.1",

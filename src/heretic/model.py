@@ -112,6 +112,14 @@ class Model:
                 for expert in layer.block_sparse_moe.experts:
                     try_add(expert.w2.weight)
 
+        # gpt-oss MoE.
+        if not matrices:
+            with suppress(Exception):
+                # The implementation of gpt-oss in Transformers differs from many other MoE models
+                # in that it stores the down-projections for all experts in a single 3D tensor,
+                # but thanks to PyTorch's broadcasting magic, it all just works anyway.
+                try_add(layer.mlp.experts.down_proj)
+
         # We need at least one MLP down-projection.
         assert matrices
 

@@ -309,6 +309,7 @@ class Model:
         outputs = self.model.generate(
             **inputs,
             streamer=streamer,
+            max_new_tokens=4096,
         )
 
         return self.tokenizer.decode(

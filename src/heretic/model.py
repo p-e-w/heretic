@@ -2,6 +2,7 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 from contextlib import suppress
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -19,6 +20,14 @@ from transformers.generation.utils import GenerateOutput
 
 from .config import Settings
 from .utils import batchify, empty_cache, print
+
+
+@dataclass
+class AbliterationParameters:
+    max_weight: float
+    max_weight_position: float
+    min_weight: float
+    min_weight_distance: float
 
 
 class Model:
@@ -61,9 +70,11 @@ class Model:
             raise Exception("Failed to load model with all configured dtypes.")
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
-        print(
-            f"* [bold]{len(self.get_layer_matrices(0))}[/] abliterable matrices per layer"
-        )
+        print("* Abliterable components:")
+        for component, matrices in self.get_layer_matrices(0).items():
+            print(
+                f"  * [bold]{component}[/]: [bold]{len(matrices)}[/] matrices per layer"
+            )
 
     def reload_model(self):
         dtype = self.model.dtype
@@ -86,84 +97,87 @@ class Model:
         # Text-only models.
         return self.model.model.layers
 
-    def get_layer_matrices(self, layer_index: int) -> list[torch.Tensor]:
+    def get_layer_matrices(self, layer_index: int) -> dict[str, list[torch.Tensor]]:
         layer = self.get_layers()[layer_index]
 
-        matrices = []
+        matrices = {}
 
-        def try_add(matrix: Any):
+        def try_add(component: str, matrix: Any):
             assert torch.is_tensor(matrix)
-            matrices.append(matrix)
 
-        # Most dense models.
-        if not matrices:
-            with suppress(Exception):
-                try_add(layer.mlp.down_proj.weight)
+            if component not in matrices:
+                matrices[component] = []
 
-        # Some MoE models (e.g. Qwen3).
-        if not matrices:
-            with suppress(Exception):
-                for expert in layer.mlp.experts:
-                    try_add(expert.down_proj.weight)
-
-        # Phi-3.5-MoE (and possibly others).
-        if not matrices:
-            with suppress(Exception):
-                for expert in layer.block_sparse_moe.experts:
-                    try_add(expert.w2.weight)
-
-        # gpt-oss MoE.
-        if not matrices:
-            with suppress(Exception):
-                # The implementation of gpt-oss in Transformers differs from many other MoE models
-                # in that it stores the down-projections for all experts in a single 3D tensor,
-                # but thanks to PyTorch's broadcasting magic, it all just works anyway.
-                try_add(layer.mlp.experts.down_proj)
-
-        # We need at least one MLP down-projection.
-        assert matrices
+            matrices[component].append(matrix)
 
         # Exceptions aren't suppressed here, because there is currently
         # no alternative location for the attention out-projection.
-        try_add(layer.self_attn.o_proj.weight)
+        try_add("attn.o_proj", layer.self_attn.o_proj.weight)
+
+        # Most dense models.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.down_proj.weight)
+
+        # Some MoE models (e.g. Qwen3).
+        with suppress(Exception):
+            for expert in layer.mlp.experts:
+                try_add("mlp.down_proj", expert.down_proj.weight)
+
+        # Phi-3.5-MoE (and possibly others).
+        with suppress(Exception):
+            for expert in layer.block_sparse_moe.experts:
+                try_add("mlp.down_proj", expert.w2.weight)
+
+        # gpt-oss MoE.
+        with suppress(Exception):
+            # The implementation of gpt-oss in Transformers differs from many other MoE models
+            # in that it stores the down-projections for all experts in a single 3D tensor,
+            # but thanks to PyTorch's broadcasting magic, it all just works anyway.
+            try_add("mlp.down_proj", layer.mlp.experts.down_proj)
+
+        # We need at least one MLP down-projection.
+        assert matrices["mlp.down_proj"]
 
         return matrices
+
+    def get_abliterable_components(self) -> list[str]:
+        return list(self.get_layer_matrices(0).keys())
 
     def abliterate(
         self,
         refusal_directions: torch.Tensor,
-        max_weight: float,
-        max_weight_position: float,
-        min_weight: float,
-        min_weight_distance: float,
+        parameters: dict[str, AbliterationParameters],
     ):
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
         for layer_index in range(len(self.get_layers())):
-            distance = abs(layer_index - max_weight_position)
+            for component, matrices in self.get_layer_matrices(layer_index).items():
+                params = parameters[component]
 
-            # Don't orthogonalize layers that are more than
-            # min_weight_distance away from max_weight_position.
-            if distance > min_weight_distance:
-                continue
+                distance = abs(layer_index - params.max_weight_position)
 
-            # Interpolate linearly between max_weight and min_weight
-            # over min_weight_distance.
-            weight = max_weight + (distance / min_weight_distance) * (
-                min_weight - max_weight
-            )
+                # Don't orthogonalize layers that are more than
+                # min_weight_distance away from max_weight_position.
+                if distance > params.min_weight_distance:
+                    continue
 
-            # The index must be shifted by 1 because the first element
-            # of refusal_directions is the direction for the embeddings.
-            refusal_direction = refusal_directions[layer_index + 1]
+                # Interpolate linearly between max_weight and min_weight
+                # over min_weight_distance.
+                weight = params.max_weight + (distance / params.min_weight_distance) * (
+                    params.min_weight - params.max_weight
+                )
 
-            # Projects any right-multiplied vector(s) onto the subspace
-            # spanned by the refusal direction.
-            projector = torch.outer(refusal_direction, refusal_direction)
+                # The index must be shifted by 1 because the first element
+                # of refusal_directions is the direction for the embeddings.
+                refusal_direction = refusal_directions[layer_index + 1]
 
-            for matrix in self.get_layer_matrices(layer_index):
-                # In-place subtraction is safe as we're not using Autograd.
-                matrix.sub_(weight * (projector @ matrix))
+                # Projects any right-multiplied vector(s) onto the subspace
+                # spanned by the refusal direction.
+                projector = torch.outer(refusal_direction, refusal_direction)
+
+                for matrix in matrices:
+                    # In-place subtraction is safe as we're not using Autograd.
+                    matrix.sub_(weight * (projector @ matrix))
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

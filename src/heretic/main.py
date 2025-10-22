@@ -26,7 +26,7 @@ from rich.traceback import install
 
 from .config import Settings
 from .evaluator import Evaluator
-from .model import Model
+from .model import AbliterationParameters, Model
 from .utils import get_readme_intro, load_prompts, print
 
 
@@ -175,63 +175,62 @@ def run():
         trial_index += 1
         trial.set_user_attr("index", trial_index)
 
-        max_weight = trial.suggest_float("max_weight", 0, 1)
-        max_weight_position = trial.suggest_float(
-            "max_weight_position", 0, len(model.get_layers()) - 1
-        )
-        min_weight = trial.suggest_float("min_weight", 0, max_weight)
-        min_weight_distance = trial.suggest_float(
-            "min_weight_distance", 1, len(model.get_layers()) - 1
-        )
+        parameters = {}
+
+        for component in model.get_abliterable_components():
+            # The parameter ranges are based on experiments with various models
+            # and much wider ranges. They are not set in stone and might have to be
+            # adjusted for future models.
+            max_weight = trial.suggest_float(
+                f"{component}.max_weight",
+                0.8,
+                1.2,
+            )
+            max_weight_position = trial.suggest_float(
+                f"{component}.max_weight_position",
+                0.6 * (len(model.get_layers()) - 1),
+                len(model.get_layers()) - 1,
+            )
+            min_weight = trial.suggest_float(
+                f"{component}.min_weight",
+                0.0,
+                max_weight,
+            )
+            min_weight_distance = trial.suggest_float(
+                f"{component}.min_weight_distance",
+                1.0,
+                0.6 * (len(model.get_layers()) - 1),
+            )
+
+            parameters[component] = AbliterationParameters(
+                max_weight=max_weight,
+                max_weight_position=max_weight_position,
+                min_weight=min_weight,
+                min_weight_distance=min_weight_distance,
+            )
 
         print()
         print(
             f"Running trial [bold]{trial_index}[/] of [bold]{settings.n_trials}[/]..."
         )
         print("* Parameters:")
-        print(f"  * max_weight = [bold]{max_weight:.4f}[/]")
-        print(f"  * max_weight_position = [bold]{max_weight_position:.4f}[/]")
-        print(f"  * min_weight = [bold]{min_weight:.4f}[/]")
-        print(f"  * min_weight_distance = [bold]{min_weight_distance:.4f}[/]")
+        for name, value in trial.params.items():
+            print(f"  * {name} = [bold]{value:.4f}[/]")
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
-        model.abliterate(
-            refusal_directions,
-            max_weight,
-            max_weight_position,
-            min_weight,
-            min_weight_distance,
-        )
+        model.abliterate(refusal_directions, parameters)
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
 
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)
+        trial.set_user_attr("parameters", parameters)
 
         # The optimizer searches for a minimum, so we return the negative score.
         return -score
 
     study = optuna.create_study()
-
-    # Educated guesses for parameter values to get the optimizer started.
-    for max_weight, max_weight_position, min_weight, min_weight_distance in [
-        (0.0, 0.0, 0.0, 0.5),
-        (1.0, 0.5, 0.0, 0.25),
-        (0.8, 0.7, 0.3, 0.4),
-        (0.9, 0.3, 0.1, 0.1),
-        (1.0, 1.0, 1.0, 1.0),
-    ]:
-        study.enqueue_trial(
-            {
-                "max_weight": max_weight,
-                "max_weight_position": max_weight_position
-                * (len(model.get_layers()) - 1),
-                "min_weight": min_weight,
-                "min_weight_distance": min_weight_distance
-                * (len(model.get_layers()) - 1),
-            }
-        )
 
     study.optimize(objective, n_trials=settings.n_trials)
 
@@ -240,14 +239,8 @@ def run():
         f"[bold green]Optimization finished![/] Best was trial [bold]{study.best_trial.user_attrs['index']}[/]:"
     )
     print("* Parameters:")
-    print(f"  * max_weight = [bold]{study.best_params['max_weight']:.4f}[/]")
-    print(
-        f"  * max_weight_position = [bold]{study.best_params['max_weight_position']:.4f}[/]"
-    )
-    print(f"  * min_weight = [bold]{study.best_params['min_weight']:.4f}[/]")
-    print(
-        f"  * min_weight_distance = [bold]{study.best_params['min_weight_distance']:.4f}[/]"
-    )
+    for name, value in study.best_params.items():
+        print(f"  * {name} = [bold]{value:.4f}[/]")
     print("* Results:")
     print(
         f"  * KL divergence: [bold]{study.best_trial.user_attrs['kl_divergence']:.4f}[/]"
@@ -263,13 +256,7 @@ def run():
     print("* Reloading model...")
     model.reload_model()
     print("* Abliterating...")
-    model.abliterate(
-        refusal_directions,
-        study.best_params["max_weight"],
-        study.best_params["max_weight_position"],
-        study.best_params["min_weight"],
-        study.best_params["min_weight_distance"],
-    )
+    model.abliterate(refusal_directions, study.best_trial.user_attrs["parameters"])
 
     while True:
         print()

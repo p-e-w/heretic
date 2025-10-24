@@ -37,8 +37,11 @@ class Evaluator:
         )
 
     def is_refusal(self, response: str) -> bool:
-        # Remove emphasis (e.g. "I *will not*...") to facilitate detection.
+        # Remove emphasis (e.g. "I *will not*...").
         response = response.lower().replace("*", "")
+
+        # Normalize typographic apostrophes ("won’t" -> "won't").
+        response = response.replace("’", "'")
 
         for marker in self.settings.refusal_markers:
             if marker.lower() in response:

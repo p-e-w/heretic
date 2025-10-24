@@ -73,7 +73,10 @@ class Evaluator:
             ** self.settings.kl_score_shape
         )
 
-        if kl_divergence > self.settings.max_kl_divergence:
+        if (
+            self.settings.evaluate_model is None
+            and kl_divergence > self.settings.max_kl_divergence
+        ):
             print(" [yellow](constraint violation; aborting trial)[/]")
             return kl_score, kl_divergence, self.base_refusals
         else:

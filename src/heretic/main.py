@@ -156,6 +156,17 @@ def run():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
+    evaluator = Evaluator(settings, model)
+
+    if settings.evaluate_model is not None:
+        print()
+        print(f"Loading model [bold]{settings.evaluate_model}[/]...")
+        settings.model = settings.evaluate_model
+        model.reload_model()
+        print("* Evaluating...")
+        evaluator.get_score()
+        return
+
     print()
     print("Calculating per-layer refusal directions...")
     print("* Obtaining residuals for good prompts...")
@@ -165,8 +176,6 @@ def run():
     refusal_directions = F.normalize(
         bad_residuals.mean(dim=0) - good_residuals.mean(dim=0), p=2, dim=1
     )
-
-    evaluator = Evaluator(settings, model)
 
     trial_index = 0
 

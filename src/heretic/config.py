@@ -23,6 +23,11 @@ class DatasetSpecification(BaseModel):
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk")
 
+    evaluate_model: str | None = Field(
+        default=None,
+        description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model",
+    )
+
     dtypes: list[str] = Field(
         description="List of PyTorch dtypes to try when loading model tensors. If loading with a dtype fails, the next dtype in the list will be tried."
     )

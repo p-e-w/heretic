@@ -15,9 +15,9 @@ max_batch_size = 128
 
 max_response_length = 100
 
-max_kl_divergence = 0.3
+max_kl_divergence = 0.5
 
-kl_score_shape = 3.0
+kl_score_shape = 5.0
 
 n_trials = 100
 

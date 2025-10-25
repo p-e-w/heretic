@@ -21,6 +21,19 @@ from .config import DatasetSpecification, Settings
 print = Console(highlight=False).print
 
 
+def format_duration(seconds: float) -> str:
+    seconds = round(seconds)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    elif minutes > 0:
+        return f"{minutes}m {seconds}s"
+    else:
+        return f"{seconds}s"
+
+
 def load_prompts(specification: DatasetSpecification) -> list[str]:
     dataset = load_dataset(specification.dataset, split=specification.split)
     return list(dataset[specification.column])

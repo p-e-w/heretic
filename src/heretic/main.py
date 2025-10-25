@@ -27,7 +27,7 @@ from rich.traceback import install
 from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
-from .utils import get_readme_intro, load_prompts, print
+from .utils import format_duration, get_readme_intro, load_prompts, print
 
 
 def run():
@@ -178,6 +178,7 @@ def run():
     )
 
     trial_index = 0
+    start_time = time.perf_counter()
 
     def objective(trial: optuna.Trial):
         nonlocal trial_index
@@ -231,6 +232,17 @@ def run():
         model.abliterate(refusal_directions, parameters)
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
+
+        elapsed_time = time.perf_counter() - start_time
+        remaining_time = (elapsed_time / trial_index) * (
+            settings.n_trials - trial_index
+        )
+        print()
+        print(f"[grey50]Elapsed time: [bold]{format_duration(elapsed_time)}[/][/]")
+        if trial_index < settings.n_trials:
+            print(
+                f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
+            )
 
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)

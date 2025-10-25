@@ -346,6 +346,7 @@ def run():
                         card.data.tags.append("heretic")
                         card.data.tags.append("uncensored")
                         card.data.tags.append("decensored")
+                        card.data.tags.append("abliterated")
                         card.text = (
                             get_readme_intro(
                                 settings,

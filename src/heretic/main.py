@@ -20,7 +20,7 @@ from accelerate.utils import (
     is_sdaa_available,
     is_xpu_available,
 )
-from huggingface_hub import ModelCard
+from huggingface_hub import ModelCard, ModelCardData
 from pydantic import ValidationError
 from rich.traceback import install
 
@@ -343,6 +343,10 @@ def run():
                     # we can retrieve the model card.
                     if not Path(settings.model).exists():
                         card = ModelCard.load(settings.model)
+                        if card.data is None:
+                            card.data = ModelCardData()
+                        if card.data.tags is None:
+                            card.data.tags = []
                         card.data.tags.append("heretic")
                         card.data.tags.append("uncensored")
                         card.data.tags.append("decensored")

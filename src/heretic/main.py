@@ -185,6 +185,26 @@ def run():
         trial_index += 1
         trial.set_user_attr("index", trial_index)
 
+        direction_scope = trial.suggest_categorical(
+            "direction_scope",
+            [
+                "global",
+                "per layer",
+            ],
+        )
+
+        if direction_scope == "global":
+            # Discrimination between "harmful" and "harmless" inputs is usually strongest
+            # in layers slightly past the midpoint of the layer stack. See the original
+            # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
+            direction_index = trial.suggest_float(
+                "direction_index",
+                0.4 * (len(model.get_layers()) - 1),
+                0.9 * (len(model.get_layers()) - 1),
+            )
+        else:
+            direction_index = None
+
         parameters = {}
 
         for component in model.get_abliterable_components():
@@ -194,7 +214,7 @@ def run():
             max_weight = trial.suggest_float(
                 f"{component}.max_weight",
                 0.8,
-                1.2,
+                1.5,
             )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
@@ -225,11 +245,14 @@ def run():
         )
         print("* Parameters:")
         for name, value in trial.params.items():
-            print(f"  * {name} = [bold]{value:.4f}[/]")
+            if isinstance(value, float):
+                print(f"  * {name} = [bold]{value:.4f}[/]")
+            else:
+                print(f"  * {name} = [bold]{value}[/]")
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, parameters)
+        model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
 
@@ -261,7 +284,10 @@ def run():
     )
     print("* Parameters:")
     for name, value in study.best_params.items():
-        print(f"  * {name} = [bold]{value:.4f}[/]")
+        if isinstance(value, float):
+            print(f"  * {name} = [bold]{value:.4f}[/]")
+        else:
+            print(f"  * {name} = [bold]{value}[/]")
     print("* Results:")
     print(
         f"  * KL divergence: [bold]{study.best_trial.user_attrs['kl_divergence']:.4f}[/]"
@@ -277,7 +303,11 @@ def run():
     print("* Reloading model...")
     model.reload_model()
     print("* Abliterating...")
-    model.abliterate(refusal_directions, study.best_trial.user_attrs["parameters"])
+    model.abliterate(
+        refusal_directions,
+        study.best_params.get("direction_index", None),
+        study.best_trial.user_attrs["parameters"],
+    )
 
     while True:
         print()

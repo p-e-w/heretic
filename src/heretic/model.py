@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+import math
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -146,8 +147,20 @@ class Model:
     def abliterate(
         self,
         refusal_directions: torch.Tensor,
+        direction_index: float | None,
         parameters: dict[str, AbliterationParameters],
     ):
+        if direction_index is None:
+            refusal_direction = None
+        else:
+            # The index must be shifted by 1 because the first element
+            # of refusal_directions is the direction for the embeddings.
+            weight, index = math.modf(direction_index + 1)
+            refusal_direction = refusal_directions[int(index)].lerp(
+                refusal_directions[int(index) + 1],
+                weight,
+            )
+
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
         for layer_index in range(len(self.get_layers())):
@@ -167,13 +180,19 @@ class Model:
                     params.min_weight - params.max_weight
                 )
 
-                # The index must be shifted by 1 because the first element
-                # of refusal_directions is the direction for the embeddings.
-                refusal_direction = refusal_directions[layer_index + 1]
+                if refusal_direction is None:
+                    # The index must be shifted by 1 because the first element
+                    # of refusal_directions is the direction for the embeddings.
+                    layer_refusal_direction = refusal_directions[layer_index + 1]
+                else:
+                    layer_refusal_direction = refusal_direction
 
                 # Projects any right-multiplied vector(s) onto the subspace
                 # spanned by the refusal direction.
-                projector = torch.outer(refusal_direction, refusal_direction)
+                projector = torch.outer(
+                    layer_refusal_direction,
+                    layer_refusal_direction,
+                )
 
                 for matrix in matrices:
                     # In-place subtraction is safe as we're not using Autograd.

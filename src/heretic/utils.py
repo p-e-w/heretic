@@ -84,7 +84,11 @@ def get_readme_intro(
 {
         chr(10).join(
             [
-                f"| **{name}** | {value:.4f} |"
+                (
+                    f"| **{name}** | {value:.4f} |"
+                    if isinstance(value, float)
+                    else f"| **{name}** | {value} |"
+                )
                 for name, value in study.best_params.items()
             ]
         )

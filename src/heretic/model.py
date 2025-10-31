@@ -156,9 +156,13 @@ class Model:
             # The index must be shifted by 1 because the first element
             # of refusal_directions is the direction for the embeddings.
             weight, index = math.modf(direction_index + 1)
-            refusal_direction = refusal_directions[int(index)].lerp(
-                refusal_directions[int(index) + 1],
-                weight,
+            refusal_direction = F.normalize(
+                refusal_directions[int(index)].lerp(
+                    refusal_directions[int(index) + 1],
+                    weight,
+                ),
+                p=2,
+                dim=0,
             )
 
         # Note that some implementations of abliteration also orthogonalize

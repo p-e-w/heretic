@@ -60,6 +60,10 @@ class Settings(BaseSettings):
         description="Number of abliteration trials to run during optimization"
     )
 
+    n_startup_trials: int = Field(
+        description="Number of trials that use random sampling for the purpose of exploration"
+    )
+
     refusal_markers: list[str] = Field(
         description="Strings whose presence in a response (case insensitive) identifies the response as a refusal"
     )

@@ -17,9 +17,11 @@ max_response_length = 100
 
 max_kl_divergence = 0.5
 
-kl_score_shape = 5.0
+kl_score_shape = 3.0
 
-n_trials = 100
+n_trials = 200
+
+n_startup_trials = 60
 
 refusal_markers = [
     "sorry",

@@ -174,7 +174,9 @@ def run():
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
     refusal_directions = F.normalize(
-        bad_residuals.mean(dim=0) - good_residuals.mean(dim=0), p=2, dim=1
+        bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
+        p=2,
+        dim=1,
     )
 
     trial_index = 0
@@ -274,7 +276,12 @@ def run():
         # The optimizer searches for a minimum, so we return the negative score.
         return -score
 
-    study = optuna.create_study()
+    study = optuna.create_study(
+        sampler=optuna.samplers.TPESampler(
+            n_startup_trials=settings.n_startup_trials,
+            multivariate=True,
+        )
+    )
 
     study.optimize(objective, n_trials=settings.n_trials)
 

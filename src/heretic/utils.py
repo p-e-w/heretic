@@ -2,6 +2,7 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 import gc
+from dataclasses import asdict
 from importlib.metadata import version
 from typing import TypeVar
 
@@ -61,6 +62,21 @@ def empty_cache():
     gc.collect()
 
 
+def get_trial_parameters(trial: optuna.Trial) -> dict[str, str]:
+    params = {}
+
+    direction_index = trial.user_attrs["direction_index"]
+    params["direction_index"] = (
+        "per layer" if (direction_index is None) else f"{direction_index:.4f}"
+    )
+
+    for component, parameters in trial.user_attrs["parameters"].items():
+        for name, value in asdict(parameters).items():
+            params[f"{component}.{name}"] = f"{value:.4f}"
+
+    return params
+
+
 def get_readme_intro(
     settings: Settings,
     study: optuna.Study,
@@ -84,12 +100,8 @@ def get_readme_intro(
 {
         chr(10).join(
             [
-                (
-                    f"| **{name}** | {value:.4f} |"
-                    if isinstance(value, float)
-                    else f"| **{name}** | {value} |"
-                )
-                for name, value in study.best_params.items()
+                f"| **{name}** | {value} |"
+                for name, value in get_trial_parameters(study.best_trial).items()
             ]
         )
     }

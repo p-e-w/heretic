@@ -4,6 +4,7 @@
 import math
 import sys
 import time
+import warnings
 from importlib.metadata import version
 from pathlib import Path
 
@@ -27,7 +28,13 @@ from rich.traceback import install
 from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
-from .utils import format_duration, get_readme_intro, load_prompts, print
+from .utils import (
+    format_duration,
+    get_readme_intro,
+    get_trial_parameters,
+    load_prompts,
+    print,
+)
 
 
 def run():
@@ -97,6 +104,9 @@ def run():
     # We do our own trial logging, so we don't need the INFO messages
     # about parameters and results.
     optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    # Silence the warning about multivariate TPE being experimental.
+    warnings.filterwarnings("ignore", category=optuna.exceptions.ExperimentalWarning)
 
     model = Model(settings)
 
@@ -195,16 +205,20 @@ def run():
             ],
         )
 
-        if direction_scope == "global":
-            # Discrimination between "harmful" and "harmless" inputs is usually strongest
-            # in layers slightly past the midpoint of the layer stack. See the original
-            # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
-            direction_index = trial.suggest_float(
-                "direction_index",
-                0.4 * (len(model.get_layers()) - 1),
-                0.9 * (len(model.get_layers()) - 1),
-            )
-        else:
+        # Discrimination between "harmful" and "harmless" inputs is usually strongest
+        # in layers slightly past the midpoint of the layer stack. See the original
+        # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
+        #
+        # Note that we always sample this parameter even though we only need it for
+        # the "global" direction scope. The reason is that multivariate TPE doesn't
+        # work with conditional or variable-range parameters.
+        direction_index = trial.suggest_float(
+            "direction_index",
+            0.4 * (len(model.get_layers()) - 1),
+            0.9 * (len(model.get_layers()) - 1),
+        )
+
+        if direction_scope == "per layer":
             direction_index = None
 
         parameters = {}
@@ -223,10 +237,13 @@ def run():
                 0.6 * (len(model.get_layers()) - 1),
                 len(model.get_layers()) - 1,
             )
+            # For sampling purposes, min_weight is expressed as a fraction of max_weight,
+            # again because multivariate TPE doesn't support variable-range parameters.
+            # The value is transformed into the actual min_weight value below.
             min_weight = trial.suggest_float(
                 f"{component}.min_weight",
                 0.0,
-                max_weight,
+                1.0,
             )
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",
@@ -237,20 +254,20 @@ def run():
             parameters[component] = AbliterationParameters(
                 max_weight=max_weight,
                 max_weight_position=max_weight_position,
-                min_weight=min_weight,
+                min_weight=(min_weight * max_weight),
                 min_weight_distance=min_weight_distance,
             )
+
+        trial.set_user_attr("direction_index", direction_index)
+        trial.set_user_attr("parameters", parameters)
 
         print()
         print(
             f"Running trial [bold]{trial_index}[/] of [bold]{settings.n_trials}[/]..."
         )
         print("* Parameters:")
-        for name, value in trial.params.items():
-            if isinstance(value, float):
-                print(f"  * {name} = [bold]{value:.4f}[/]")
-            else:
-                print(f"  * {name} = [bold]{value}[/]")
+        for name, value in get_trial_parameters(trial).items():
+            print(f"  * {name} = [bold]{value}[/]")
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
@@ -271,7 +288,6 @@ def run():
 
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)
-        trial.set_user_attr("parameters", parameters)
 
         # The optimizer searches for a minimum, so we return the negative score.
         return -score
@@ -290,11 +306,8 @@ def run():
         f"[bold green]Optimization finished![/] Best was trial [bold]{study.best_trial.user_attrs['index']}[/]:"
     )
     print("* Parameters:")
-    for name, value in study.best_params.items():
-        if isinstance(value, float):
-            print(f"  * {name} = [bold]{value:.4f}[/]")
-        else:
-            print(f"  * {name} = [bold]{value}[/]")
+    for name, value in get_trial_parameters(study.best_trial).items():
+        print(f"  * {name} = [bold]{value}[/]")
     print("* Results:")
     print(
         f"  * KL divergence: [bold]{study.best_trial.user_attrs['kl_divergence']:.4f}[/]"
@@ -312,7 +325,7 @@ def run():
     print("* Abliterating...")
     model.abliterate(
         refusal_directions,
-        study.best_params.get("direction_index", None),
+        study.best_trial.user_attrs["direction_index"],
         study.best_trial.user_attrs["parameters"],
     )
 

@@ -3,10 +3,24 @@ name = "heretic"
 version = "1.0.0"
 description = "Fully automatic decensoring for transformer language models"
 readme = "README.md"
+license = "AGPL-3.0-or-later"
 authors = [
     { name = "Philipp Emanuel Weidmann", email = "pew@worldwidemann.com" }
 ]
 requires-python = ">=3.10"
+keywords = ["llm", "transformer", "abliteration"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: GPU",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "accelerate>=1.10.0",
     "datasets>=4.0.0",
@@ -18,6 +32,13 @@ dependencies = [
     "rich>=14.1.0",
     "transformers>=4.55.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/p-e-w/heretic"
+Documentation = "https://github.com/p-e-w/heretic"
+Repository = "https://github.com/p-e-w/heretic.git"
+Issues = "https://github.com/p-e-w/heretic/issues"
+Changelog = "https://github.com/p-e-w/heretic/commits/master/"
 
 [project.scripts]
 heretic = "heretic.main:main"

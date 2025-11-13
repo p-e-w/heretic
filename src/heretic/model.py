@@ -42,6 +42,11 @@ class Model:
             settings.model
         )
 
+        # Fallback for tokenizers that don't declare a special pad token.
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            self.tokenizer.padding_side = "left"
+
         self.model = None
 
         for dtype in settings.dtypes:
@@ -225,6 +230,7 @@ class Model:
             chat_prompts,
             return_tensors="pt",
             padding=True,
+            return_token_type_ids=False,
         ).to(self.model.device)
 
         return inputs, self.model.generate(

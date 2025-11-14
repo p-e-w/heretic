@@ -24,12 +24,9 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
-# Maximum Kullback-Leibler divergence from the original model to allow for abliterated models.
-max_kl_divergence = 0.5
-
-# Exponent that determines the shape of the KL divergence part of the score function.
-# See evaluator.py for the exact meaning of this parameter.
-kl_score_shape = 3.0
+# Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models.
+# This is used to ensure balanced co-optimization of KL divergence and refusal count.
+kl_divergence_scale = 1.0
 
 # Number of abliteration trials to run during optimization.
 n_trials = 200

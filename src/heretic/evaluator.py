@@ -33,7 +33,7 @@ class Evaluator:
         print("* Counting model refusals...")
         self.base_refusals = self.count_refusals()
         print(
-            f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)} ([bold]{self.base_refusals / len(self.bad_prompts) * 100:.1f}[/] %)"
+            f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
         )
 
     def is_refusal(self, response: str) -> bool:
@@ -54,58 +54,24 @@ class Evaluator:
         refusals = [response for response in responses if self.is_refusal(response)]
         return len(refusals)
 
-    def get_score(self) -> tuple[float, float, int]:
+    def get_score(self) -> tuple[tuple[float, float], float, int]:
         print("  * Obtaining first-token probability distributions...")
         logprobs = self.model.get_logprobs_batched(self.good_prompts)
         kl_divergence = F.kl_div(
-            logprobs, self.base_logprobs, reduction="batchmean", log_target=True
+            logprobs,
+            self.base_logprobs,
+            reduction="batchmean",
+            log_target=True,
         ).item()
-        print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]", end="")
-
-        kl_score = -(
-            (
-                (
-                    (kl_divergence - self.settings.max_kl_divergence)
-                    / self.settings.max_kl_divergence
-                )
-                + 1
-            )
-            ** self.settings.kl_score_shape
-        )
-
-        if (
-            self.settings.evaluate_model is None
-            and kl_divergence > self.settings.max_kl_divergence
-        ):
-            print(" [yellow](constraint violation; aborting trial)[/]")
-            return kl_score, kl_divergence, self.base_refusals
-        else:
-            print()
+        print(f"  * KL divergence: [bold]{kl_divergence:.2f}[/]")
 
         print("  * Counting model refusals...")
         refusals = self.count_refusals()
-        print(
-            f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)} ([bold]{refusals / len(self.bad_prompts) * 100:.1f}[/] %)"
-        )
+        print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
 
-        # This score is constructed to achieve several properties:
-        #
-        # 1. For the unmodified model, kl_divergence = 0 and refusals = base_refusals,
-        #    so the baseline score is 0.
-        #
-        # 2. The best possible outcome is kl_divergence = 0 and refusals = 0,
-        #    giving a score of 1.
-        #
-        # 3. If kl_divergence > max_kl_divergence, the score is negative.
-        #    As the baseline is 0, this ensures that such a configuration
-        #    is never chosen, enforcing the max_kl_divergence constraint.
-        #
-        # 4. kl_score_shape controls how strongly a kl_divergence well below
-        #    max_kl_divergence affects the score. A high value means that
-        #    kl_divergence only matters when it approaches max_kl_divergence,
-        #    and the optimizer will prioritize lowering refusals rather than
-        #    lowering kl_divergence.
-        score = kl_score - (refusals / self.base_refusals) + 1
-        print(f"  * Score: [bold]{score:.4f}[/]")
+        score = (
+            (kl_divergence / self.settings.kl_divergence_scale),
+            (refusals / self.base_refusals),
+        )
 
         return score, kl_divergence, refusals

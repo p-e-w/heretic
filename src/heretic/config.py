@@ -61,14 +61,12 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
-    max_kl_divergence: float = Field(
-        default=0.5,
-        description="Maximum Kullback-Leibler divergence from the original model to allow for abliterated models.",
-    )
-
-    kl_score_shape: float = Field(
-        default=3.0,
-        description="Exponent that determines the shape of the KL divergence part of the score function. See evaluator.py for the exact meaning of this parameter.",
+    kl_divergence_scale: float = Field(
+        default=1.0,
+        description=(
+            'Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models. '
+            "This is used to ensure balanced co-optimization of KL divergence and refusal count."
+        ),
     )
 
     n_trials: int = Field(

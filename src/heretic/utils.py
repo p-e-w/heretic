@@ -6,7 +6,6 @@ from dataclasses import asdict
 from importlib.metadata import version
 from typing import TypeVar
 
-import optuna
 import torch
 from accelerate.utils import (
     is_mlu_available,
@@ -15,6 +14,7 @@ from accelerate.utils import (
     is_xpu_available,
 )
 from datasets import load_dataset
+from optuna import Trial
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
@@ -62,32 +62,28 @@ def empty_cache():
     gc.collect()
 
 
-def get_trial_parameters(trial: optuna.Trial) -> dict[str, str]:
+def get_trial_parameters(trial: Trial) -> dict[str, str]:
     params = {}
 
     direction_index = trial.user_attrs["direction_index"]
     params["direction_index"] = (
-        "per layer" if (direction_index is None) else f"{direction_index:.4f}"
+        "per layer" if (direction_index is None) else f"{direction_index:.2f}"
     )
 
     for component, parameters in trial.user_attrs["parameters"].items():
         for name, value in asdict(parameters).items():
-            params[f"{component}.{name}"] = f"{value:.4f}"
+            params[f"{component}.{name}"] = f"{value:.2f}"
 
     return params
 
 
 def get_readme_intro(
     settings: Settings,
-    study: optuna.Study,
+    trial: Trial,
     base_refusals: int,
     bad_prompts: list[str],
 ) -> str:
     model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
-    refusal_percentage = (
-        study.best_trial.user_attrs["refusals"] / len(bad_prompts) * 100
-    )
-    base_refusal_percentage = base_refusals / len(bad_prompts) * 100
 
     return f"""# This is a decensored version of {
         model_link
@@ -101,7 +97,7 @@ def get_readme_intro(
         chr(10).join(
             [
                 f"| **{name}** | {value} |"
-                for name, value in get_trial_parameters(study.best_trial).items()
+                for name, value in get_trial_parameters(trial).items()
             ]
         )
     }
@@ -110,9 +106,10 @@ def get_readme_intro(
 
 | Metric | This model | Original model ({model_link}) |
 | :----- | :--------: | :---------------------------: |
-| **KL divergence** | {
-        study.best_trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
-| **Refusals** | {refusal_percentage:.1f} % | {base_refusal_percentage:.1f} % |
+| **KL divergence** | {trial.user_attrs["kl_divergence"]:.2f} | 0 *(by definition)* |
+| **Refusals** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
+        len(bad_prompts)
+    } |
 
 -----
 

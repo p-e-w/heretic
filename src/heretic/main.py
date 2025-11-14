@@ -22,7 +22,12 @@ from accelerate.utils import (
     is_xpu_available,
 )
 from huggingface_hub import ModelCard, ModelCardData
+from optuna import Trial
+from optuna.exceptions import ExperimentalWarning
+from optuna.samplers import TPESampler
+from optuna.study import StudyDirection
 from pydantic import ValidationError
+from questionary import Choice
 from rich.traceback import install
 
 from .config import Settings
@@ -106,7 +111,7 @@ def run():
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     # Silence the warning about multivariate TPE being experimental.
-    warnings.filterwarnings("ignore", category=optuna.exceptions.ExperimentalWarning)
+    warnings.filterwarnings("ignore", category=ExperimentalWarning)
 
     model = Model(settings)
 
@@ -155,7 +160,7 @@ def run():
             ]
             performance = sum(response_lengths) / (end_time - start_time)
 
-            print(f"[green]Ok[/] ([bold]{performance:.2f}[/] tokens/s)")
+            print(f"[green]Ok[/] ([bold]{performance:.0f}[/] tokens/s)")
 
             if performance > best_performance:
                 best_batch_size = batch_size
@@ -192,7 +197,7 @@ def run():
     trial_index = 0
     start_time = time.perf_counter()
 
-    def objective(trial: optuna.Trial):
+    def objective(trial: Trial) -> tuple[float, float]:
         nonlocal trial_index
         trial_index += 1
         trial.set_user_attr("index", trial_index)
@@ -289,158 +294,205 @@ def run():
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)
 
-        # The optimizer searches for a minimum, so we return the negative score.
-        return -score
+        return score
 
     study = optuna.create_study(
-        sampler=optuna.samplers.TPESampler(
+        sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
+            n_ei_candidates=128,
             multivariate=True,
-        )
+        ),
+        directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
     )
 
     study.optimize(objective, n_trials=settings.n_trials)
 
-    print()
-    print(
-        f"[bold green]Optimization finished![/] Best was trial [bold]{study.best_trial.user_attrs['index']}[/]:"
+    best_trials = sorted(
+        study.best_trials,
+        key=lambda trial: trial.user_attrs["refusals"],
     )
-    print("* Parameters:")
-    for name, value in get_trial_parameters(study.best_trial).items():
-        print(f"  * {name} = [bold]{value}[/]")
-    print("* Results:")
-    print(
-        f"  * KL divergence: [bold]{study.best_trial.user_attrs['kl_divergence']:.4f}[/]"
+
+    choices = [
+        Choice(
+            title=(
+                f"Trial {trial.user_attrs['index']:>3}:  "
+                f"Refusals {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)},  "
+                f"KL divergence {trial.user_attrs['kl_divergence']:.2f}"
+            ),
+            value=trial,
+        )
+        for trial in best_trials
+    ]
+
+    choices.append(
+        Choice(
+            title="None (exit program)",
+            value="",
+        )
     )
-    refusals = study.best_trial.user_attrs["refusals"]
-    print(
-        f"  * Refusals: [bold]{refusals}[/]/{len(evaluator.bad_prompts)} ([bold]{refusals / len(evaluator.bad_prompts) * 100:.1f}[/] %)"
-    )
-    print(f"  * Score: [bold]{-study.best_value:.4f}[/]")
 
     print()
-    print("Restoring best model...")
-    print("* Reloading model...")
-    model.reload_model()
-    print("* Abliterating...")
-    model.abliterate(
-        refusal_directions,
-        study.best_trial.user_attrs["direction_index"],
-        study.best_trial.user_attrs["parameters"],
+    print("[bold green]Optimization finished![/]")
+    print()
+    print(
+        (
+            "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
+            "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
+            "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
+            "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"
+        )
     )
 
     while True:
         print()
-        action = questionary.select(
-            "What do you want to do with the optimized model?",
-            choices=[
-                "Save the model to a local folder",
-                "Upload the model to Hugging Face",
-                "Chat with the model",
-                "Nothing (Quit)",
-            ],
+        trial = questionary.select(
+            "Which trial do you want to use?",
+            choices=choices,
         ).ask()
 
-        # All actions are wrapped in a try/except block so that if an error occurs,
-        # another action can be tried, instead of the program crashing and losing
-        # the optimized model.
-        try:
-            match action:
-                case "Save the model to a local folder":
-                    save_directory = questionary.path("Path to the folder:").ask()
-                    if not save_directory:
-                        continue
+        if trial is None or trial == "":
+            break
 
-                    print("Saving model...")
-                    model.model.save_pretrained(save_directory)
-                    model.tokenizer.save_pretrained(save_directory)
-                    print(f"Model saved to [bold]{save_directory}[/].")
+        print()
+        print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
+        print("* Reloading model...")
+        model.reload_model()
+        print("* Abliterating...")
+        model.abliterate(
+            refusal_directions,
+            trial.user_attrs["direction_index"],
+            trial.user_attrs["parameters"],
+        )
 
-                case "Upload the model to Hugging Face":
-                    # We don't use huggingface_hub.login() because that stores the token on disk,
-                    # and since this program will often be run on rented or shared GPU servers,
-                    # it's better to not persist credentials.
-                    token = huggingface_hub.get_token()
-                    if not token:
-                        token = questionary.password("Hugging Face access token:").ask()
-                    if not token:
-                        continue
+        while True:
+            print()
+            action = questionary.select(
+                "What do you want to do with the decensored model?",
+                choices=[
+                    "Save the model to a local folder",
+                    "Upload the model to Hugging Face",
+                    "Chat with the model",
+                    "Nothing (return to trial selection menu)",
+                ],
+            ).ask()
 
-                    user = huggingface_hub.whoami(token)
-                    print(f"Logged in as [bold]{user['fullname']} ({user['email']})[/]")
+            if action is None or action == "Nothing (return to trial selection menu)":
+                break
 
-                    repo_id = questionary.text(
-                        "Name of repository:",
-                        default=f"{user['name']}/{Path(settings.model).name}-heretic",
-                    ).ask()
+            # All actions are wrapped in a try/except block so that if an error occurs,
+            # another action can be tried, instead of the program crashing and losing
+            # the optimized model.
+            try:
+                match action:
+                    case "Save the model to a local folder":
+                        save_directory = questionary.path("Path to the folder:").ask()
+                        if not save_directory:
+                            continue
 
-                    visibility = questionary.select(
-                        "Should the repository be public or private?",
-                        choices=[
-                            "Public",
-                            "Private",
-                        ],
-                    ).ask()
-                    private = visibility == "Private"
+                        print("Saving model...")
+                        model.model.save_pretrained(save_directory)
+                        model.tokenizer.save_pretrained(save_directory)
+                        print(f"Model saved to [bold]{save_directory}[/].")
 
-                    print("Uploading model...")
+                    case "Upload the model to Hugging Face":
+                        # We don't use huggingface_hub.login() because that stores the token on disk,
+                        # and since this program will often be run on rented or shared GPU servers,
+                        # it's better to not persist credentials.
+                        token = huggingface_hub.get_token()
+                        if not token:
+                            token = questionary.password(
+                                "Hugging Face access token:"
+                            ).ask()
+                        if not token:
+                            continue
 
-                    model.model.push_to_hub(repo_id, private=private, token=token)
-                    model.tokenizer.push_to_hub(repo_id, private=private, token=token)
-
-                    # If the model path doesn't exist locally, it can be assumed
-                    # to be a model hosted on the Hugging Face Hub, in which case
-                    # we can retrieve the model card.
-                    if not Path(settings.model).exists():
-                        card = ModelCard.load(settings.model)
-                        if card.data is None:
-                            card.data = ModelCardData()
-                        if card.data.tags is None:
-                            card.data.tags = []
-                        card.data.tags.append("heretic")
-                        card.data.tags.append("uncensored")
-                        card.data.tags.append("decensored")
-                        card.data.tags.append("abliterated")
-                        card.text = (
-                            get_readme_intro(
-                                settings,
-                                study,
-                                evaluator.base_refusals,
-                                evaluator.bad_prompts,
-                            )
-                            + card.text
+                        user = huggingface_hub.whoami(token)
+                        print(
+                            f"Logged in as [bold]{user['fullname']} ({user['email']})[/]"
                         )
-                        card.push_to_hub(repo_id, token=token)
 
-                    print(f"Model uploaded to [bold]{repo_id}[/].")
+                        repo_id = questionary.text(
+                            "Name of repository:",
+                            default=f"{user['name']}/{Path(settings.model).name}-heretic",
+                        ).ask()
 
-                case "Chat with the model":
-                    print()
-                    print("[cyan]Press Ctrl+C at any time to return to the menu.[/]")
+                        visibility = questionary.select(
+                            "Should the repository be public or private?",
+                            choices=[
+                                "Public",
+                                "Private",
+                            ],
+                        ).ask()
+                        private = visibility == "Private"
 
-                    chat = [
-                        {"role": "system", "content": settings.system_prompt},
-                    ]
+                        print("Uploading model...")
 
-                    while True:
-                        try:
-                            message = questionary.text("User:", qmark=">").unsafe_ask()
-                            if not message:
+                        model.model.push_to_hub(
+                            repo_id,
+                            private=private,
+                            token=token,
+                        )
+                        model.tokenizer.push_to_hub(
+                            repo_id,
+                            private=private,
+                            token=token,
+                        )
+
+                        # If the model path doesn't exist locally, it can be assumed
+                        # to be a model hosted on the Hugging Face Hub, in which case
+                        # we can retrieve the model card.
+                        if not Path(settings.model).exists():
+                            card = ModelCard.load(settings.model)
+                            if card.data is None:
+                                card.data = ModelCardData()
+                            if card.data.tags is None:
+                                card.data.tags = []
+                            card.data.tags.append("heretic")
+                            card.data.tags.append("uncensored")
+                            card.data.tags.append("decensored")
+                            card.data.tags.append("abliterated")
+                            card.text = (
+                                get_readme_intro(
+                                    settings,
+                                    trial,
+                                    evaluator.base_refusals,
+                                    evaluator.bad_prompts,
+                                )
+                                + card.text
+                            )
+                            card.push_to_hub(repo_id, token=token)
+
+                        print(f"Model uploaded to [bold]{repo_id}[/].")
+
+                    case "Chat with the model":
+                        print()
+                        print(
+                            "[cyan]Press Ctrl+C at any time to return to the menu.[/]"
+                        )
+
+                        chat = [
+                            {"role": "system", "content": settings.system_prompt},
+                        ]
+
+                        while True:
+                            try:
+                                message = questionary.text(
+                                    "User:",
+                                    qmark=">",
+                                ).unsafe_ask()
+                                if not message:
+                                    break
+                                chat.append({"role": "user", "content": message})
+
+                                print("[bold]Assistant:[/] ", end="")
+                                response = model.stream_chat_response(chat)
+                                chat.append({"role": "assistant", "content": response})
+                            except (KeyboardInterrupt, EOFError):
+                                # Ctrl+C/Ctrl+D
                                 break
-                            chat.append({"role": "user", "content": message})
 
-                            print("[bold]Assistant:[/] ", end="")
-                            response = model.stream_chat_response(chat)
-                            chat.append({"role": "assistant", "content": response})
-                        except (KeyboardInterrupt, EOFError):
-                            # Ctrl+C/Ctrl+D
-                            break
-
-                case "Nothing (Quit)":
-                    break
-
-        except Exception as error:
-            print(f"[red]Error: {error}[/]")
+            except Exception as error:
+                print(f"[red]Error: {error}[/]")
 
 
 def main():

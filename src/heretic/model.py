@@ -8,7 +8,7 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-from torch import LongTensor
+from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
     AutoModelForCausalLM,
@@ -103,7 +103,7 @@ class Model:
         # Text-only models.
         return self.model.model.layers
 
-    def get_layer_matrices(self, layer_index: int) -> dict[str, list[torch.Tensor]]:
+    def get_layer_matrices(self, layer_index: int) -> dict[str, list[Tensor]]:
         layer = self.get_layers()[layer_index]
 
         matrices = {}
@@ -151,7 +151,7 @@ class Model:
 
     def abliterate(
         self,
-        refusal_directions: torch.Tensor,
+        refusal_directions: Tensor,
         direction_index: float | None,
         parameters: dict[str, AbliterationParameters],
     ):
@@ -261,7 +261,7 @@ class Model:
 
         return responses
 
-    def get_residuals(self, prompts: list[str]) -> torch.Tensor:
+    def get_residuals(self, prompts: list[str]) -> Tensor:
         # We only generate one token, and we return the residual vectors
         # at that token position, for each prompt and layer.
         _, outputs = self.generate(
@@ -287,7 +287,7 @@ class Model:
         # problems during calculations involving residual vectors.
         return residuals.to(torch.float32)
 
-    def get_residuals_batched(self, prompts: list[str]) -> torch.Tensor:
+    def get_residuals_batched(self, prompts: list[str]) -> Tensor:
         residuals = []
 
         for batch in batchify(prompts, self.settings.batch_size):
@@ -297,7 +297,7 @@ class Model:
 
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.
-    def get_logprobs(self, prompts: list[str]) -> torch.Tensor:
+    def get_logprobs(self, prompts: list[str]) -> Tensor:
         # We only generate one token, and we return the (log) probability distributions
         # over the vocabulary at that token position, for each prompt.
         _, outputs = self.generate(
@@ -313,7 +313,7 @@ class Model:
         # The returned tensor has shape (prompt, token).
         return F.log_softmax(logits, dim=-1)
 
-    def get_logprobs_batched(self, prompts: list[str]) -> torch.Tensor:
+    def get_logprobs_batched(self, prompts: list[str]) -> Tensor:
         logprobs = []
 
         for batch in batchify(prompts, self.settings.batch_size):
@@ -331,6 +331,7 @@ class Model:
         inputs = self.tokenizer(
             chat_prompt,
             return_tensors="pt",
+            return_token_type_ids=False,
         ).to(self.model.device)
 
         streamer = TextStreamer(

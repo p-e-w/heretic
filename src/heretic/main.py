@@ -44,7 +44,7 @@ from .utils import (
 
 def run():
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
-    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic')}")
+    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(
         "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/]"

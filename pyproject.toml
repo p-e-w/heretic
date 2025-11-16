@@ -1,5 +1,5 @@
 [project]
-name = "heretic"
+name = "heretic-llm"
 version = "1.0.0"
 description = "Fully automatic censorship removal for language models"
 readme = "README.md"
@@ -46,3 +46,6 @@ heretic = "heretic.main:main"
 [build-system]
 requires = ["uv_build>=0.8.11,<0.9.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "heretic"

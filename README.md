@@ -51,7 +51,7 @@ Prepare a Python 3.10+ environment with PyTorch 2.2+ installed as appropriate
 for your hardware. Then run:
 
 ```
-pip install heretic
+pip install heretic-llm
 heretic Qwen/Qwen3-4B-Instruct-2507
 ```
 

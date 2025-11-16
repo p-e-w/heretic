@@ -1,7 +1,7 @@
 [project]
 name = "heretic"
 version = "1.0.0"
-description = "Fully automatic decensoring for transformer language models"
+description = "Fully automatic censorship removal for language models"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [

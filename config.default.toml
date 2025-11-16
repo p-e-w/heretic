@@ -2,6 +2,7 @@
 
 # List of PyTorch dtypes to try when loading model tensors.
 # If loading with a dtype fails, the next dtype in the list will be tried.
+# For CPU-only usage, float32 is recommended. For GPU usage, auto/float16/bfloat16 work better.
 dtypes = [
     # In practice, "auto" almost always means bfloat16.
     "auto",

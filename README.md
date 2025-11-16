@@ -16,7 +16,7 @@ can use Heretic to decensor language models.
 
 <img width="650" height="715" alt="Screenshot" src="https://github.com/user-attachments/assets/d71a5efa-d6be-4705-a817-63332afb2d15" />
 
-<br>
+&nbsp;
 
 Running unsupervised with the default configuration, Heretic can produce
 decensored models that rival the quality of abliterations created manually
@@ -96,7 +96,7 @@ The ablation process is controlled by several optimizable parameters:
 
 <img width="800" height="500" alt="Explanation" src="https://github.com/user-attachments/assets/82e4b84e-5a82-4faf-b918-ac642f9e4892" />
 
-<br>
+&nbsp;
 
 Heretic's main innovations over existing abliteration systems are:
 

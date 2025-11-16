@@ -27,7 +27,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
-from questionary import Choice
+from questionary import Choice, Style
 from rich.traceback import install
 
 from .config import Settings
@@ -315,9 +315,9 @@ def run():
     choices = [
         Choice(
             title=(
-                f"Trial {trial.user_attrs['index']:>3}:  "
-                f"Refusals {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)},  "
-                f"KL divergence {trial.user_attrs['kl_divergence']:.2f}"
+                f"[Trial {trial.user_attrs['index']:>3}] "
+                f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+                f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
             ),
             value=trial,
         )
@@ -348,6 +348,7 @@ def run():
         trial = questionary.select(
             "Which trial do you want to use?",
             choices=choices,
+            style=Style([("highlighted", "reverse")]),
         ).ask()
 
         if trial is None or trial == "":
@@ -374,6 +375,7 @@ def run():
                     "Chat with the model",
                     "Nothing (return to trial selection menu)",
                 ],
+                style=Style([("highlighted", "reverse")]),
             ).ask()
 
             if action is None or action == "Nothing (return to trial selection menu)":
@@ -422,6 +424,7 @@ def run():
                                 "Public",
                                 "Private",
                             ],
+                            style=Style([("highlighted", "reverse")]),
                         ).ask()
                         private = visibility == "Private"
 

@@ -7,7 +7,7 @@ license = "AGPL-3.0-or-later"
 authors = [
     { name = "Philipp Emanuel Weidmann", email = "pew@worldwidemann.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.12"  # Limited to 3.11 max for macOS Intel PyTorch compatibility
 keywords = ["llm", "transformer", "abliteration"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -19,9 +19,9 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
+    "torch>=2.0.0,<2.1.0",  # Constrain torch for macOS Intel compatibility (2.1+ dropped macOS Intel support)
     "accelerate>=1.10.0",
     "datasets>=4.0.0",
     "hf-transfer>=0.1.9",

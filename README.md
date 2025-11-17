@@ -45,14 +45,81 @@ You can find a collection of models that have been decensored using Heretic
 [on Hugging Face](https://huggingface.co/collections/p-e-w/the-bestiary).
 
 
+## Installation
+
+Heretic requires Python 3.10+ and PyTorch 2.2+.
+
+**Important:** PyTorch must be installed separately with appropriate hardware
+support before installing Heretic.
+
+### Step 1: Install PyTorch
+
+**NVIDIA GPUs** - Check your CUDA version with `nvidia-smi`:
+
+```bash
+# Example: NVIDIA system with CUDA 13.0
+nvidia-smi -q | grep CUDA
+CUDA Version                              : 13.0
+```
+
+Install PyTorch with CUDA support:
+
+```bash
+# CUDA 13.0 (Blackwell GPUs, DGX Spark/GB10)
+pip install torch --index-url https://download.pytorch.org/whl/cu130
+
+# CUDA 12.4
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+# CUDA 12.1
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+# CUDA 11.8
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+```
+
+**CPU-only or other hardware:**
+
+```bash
+# CPU only or Apple Silicon
+pip install torch
+
+# AMD ROCm, Intel XPU, etc.
+# Visit https://pytorch.org/get-started/locally/
+```
+
+**Using uv:**
+
+```bash
+# Create a venv first
+uv venv
+
+# Then install PyTorch (example: CUDA 13.0)
+uv pip install --index-url https://download.pytorch.org/whl/cu130 torch
+```
+
+### Step 2: Install Heretic
+
+```bash
+pip install heretic-llm
+```
+
+Or with uv:
+
+```bash
+uv pip install heretic-llm
+```
+
 ## Usage
 
-Prepare a Python 3.10+ environment with PyTorch 2.2+ installed as appropriate
-for your hardware. Then run:
-
-```
-pip install heretic-llm
+```bash
 heretic Qwen/Qwen3-4B-Instruct-2507
+```
+
+Or with uv:
+
+```bash
+uv run heretic Qwen/Qwen3-4B-Instruct-2507
 ```
 
 Replace `Qwen/Qwen3-4B-Instruct-2507` with whatever model you want to decensor.

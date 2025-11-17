@@ -7,7 +7,7 @@ license = "AGPL-3.0-or-later"
 authors = [
     { name = "Philipp Emanuel Weidmann", email = "pew@worldwidemann.com" }
 ]
-requires-python = ">=3.10,<3.13"  # Supports 3.10-3.12 (3.11 for macOS Intel, 3.12 for macOS Silicon)
+requires-python = ">=3.10,<3.13"  # Supports 3.10-3.12 (verified with Python 3.12)
 keywords = ["llm", "transformer", "abliteration"]
 classifiers = [
     "Development Status :: 4 - Beta",

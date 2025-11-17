@@ -205,8 +205,8 @@ class Model:
 
                 for matrix in matrices:
                     # In-place subtraction is safe as we're not using Autograd.
-                    if self.settings.mode == "remove_inhibitions":
-                        matrix.sub_(weight * (projector @ matrix))
+                    if self.settings.reverse:
+                        matrix.add_(weight * (projector @ matrix))
                     else:
                         matrix.add_(weight * (projector @ matrix))
 

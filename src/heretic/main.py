@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-import gc
+import os
 import math
 import sys
 import time
@@ -46,7 +46,6 @@ from .utils import (
 
 def run():
     # Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
-    import os
     if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
@@ -301,7 +300,6 @@ def run():
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)
         
-        gc.collect()
         empty_cache()
 
         return score

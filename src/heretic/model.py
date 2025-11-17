@@ -83,13 +83,10 @@ class Model:
             )
 
     def reload_model(self):
-        import gc
-        
         dtype = self.model.dtype
 
         # Purge existing model object from memory to make space.
         self.model = None
-        gc.collect()
         empty_cache()
 
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -201,8 +198,7 @@ class Model:
 
                 # Projects any right-multiplied vector(s) onto the subspace
                 # spanned by the refusal direction.
-                # Create projector on CPU first to avoid device-specific memory allocation.
-                projector_cpu = torch.outer(
+                projector = torch.outer(
                     layer_refusal_direction,
                     layer_refusal_direction,
                 ).to(self.model.dtype)
@@ -215,7 +211,7 @@ class Model:
                     # Ensure projector is on the same device as the matrix for multi-GPU support.
                     device = matrix.device
                     if device not in projector_cache:
-                        projector_cache[device] = projector_cpu.to(device)
+                        projector_cache[device] = projector.to(device)
                     
                     matrix.sub_(weight * (projector_cache[device] @ matrix))
                 

@@ -216,7 +216,13 @@ class Model:
                     matrix.sub_(weight * (device_projector @ matrix))
                     # Delete device-specific projector immediately to free memory
                     del device_projector
-(
+    def get_chat(self, prompt: str) -> list[dict[str, str]]:
+        return [
+            {"role": "system", "content": self.settings.system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+
+    def generate(
         self,
         prompts: list[str],
         **kwargs: Any,

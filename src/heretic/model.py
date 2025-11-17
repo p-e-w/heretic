@@ -63,16 +63,10 @@ class Model:
                 # If only "auto" was specified, default to float16 for MPS
                 dtypes_to_try = ["float16"]
 
-        for dtype_str in dtypes_to_try:
+        for dtype in dtypes_to_try:
             print(f"* Trying dtype [bold]{dtype_str}[/]... ", end="")
 
             try:
-                # Convert dtype string to torch dtype object
-                if dtype_str == "auto":
-                    torch_dtype = "auto"
-                else:
-                    torch_dtype = getattr(torch, dtype_str)
-                
                 # For MPS on Intel x86_64, load to CPU first then convert dtype to avoid bfloat16 issues
                 if use_mps and is_intel_x86_64:
                     # Load to CPU first without dtype to avoid bfloat16 preservation
@@ -84,13 +78,13 @@ class Model:
                         low_cpu_mem_usage=False,  # Ensure full conversion
                     )
                     # Convert to desired dtype explicitly (this forces conversion)
-                    self.model = self.model.to(dtype=torch_dtype)
+                    self.model = self.model.to(dtype=dtype)
                     # Move to MPS device
                     self.model = self.model.to("mps")
                 else:
                     self.model = AutoModelForCausalLM.from_pretrained(
                         settings.model,
-                        torch_dtype=torch_dtype,
+                        torch_dtype=dtype,
                         device_map=settings.device_map,
                     )
 

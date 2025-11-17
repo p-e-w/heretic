@@ -36,7 +36,7 @@ class Model:
         self.settings = settings
 
         print()
-        print(f"Loading model [bold]{settings.model}[/]...")
+        print(f"モデル [bold]{settings.model}[/] を読み込み中...")
 
         self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
             settings.model
@@ -50,7 +50,7 @@ class Model:
         self.model = None
 
         for dtype in settings.dtypes:
-            print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
+            print(f"* dtype [bold]{dtype}[/] を試行中... ", end="")
 
             try:
                 self.model = AutoModelForCausalLM.from_pretrained(
@@ -66,20 +66,20 @@ class Model:
             except Exception as error:
                 self.model = None
                 empty_cache()
-                print(f"[red]Failed[/] ({error})")
+                print(f"[red]失敗[/] ({error})")
                 continue
 
-            print("[green]Ok[/]")
+            print("[green]成功[/]")
             break
 
         if self.model is None:
-            raise Exception("Failed to load model with all configured dtypes.")
+            raise Exception("設定されたすべてのdtypeでモデルの読み込みに失敗しました。")
 
-        print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
-        print("* Abliterable components:")
+        print(f"* トランスフォーマーモデル（[bold]{len(self.get_layers())}[/] レイヤー）")
+        print("* Abliteration（除去）可能なコンポーネント:")
         for component, matrices in self.get_layer_matrices(0).items():
             print(
-                f"  * [bold]{component}[/]: [bold]{len(matrices)}[/] matrices per layer"
+                f"  * [bold]{component}[/]: レイヤーごとに [bold]{len(matrices)}個[/] の行列"
             )
 
     def reload_model(self):

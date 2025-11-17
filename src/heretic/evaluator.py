@@ -15,25 +15,25 @@ class Evaluator:
 
         print()
         print(
-            f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."
+            f"（性能評価用）良性プロンプトを [bold]{settings.good_evaluation_prompts.dataset}[/] から読み込み中..."
         )
         self.good_prompts = load_prompts(settings.good_evaluation_prompts)
-        print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
+        print(f"* [bold]{len(self.good_prompts)}個[/] のプロンプトを読み込みました")
 
-        print("* Obtaining first-token probability distributions...")
+        print("* 最初のトークンの確率分布を取得中...")
         self.base_logprobs = model.get_logprobs_batched(self.good_prompts)
 
         print()
         print(
-            f"Loading bad evaluation prompts from [bold]{settings.bad_evaluation_prompts.dataset}[/]..."
+            f"（性能評価用）悪性プロンプトを [bold]{settings.bad_evaluation_prompts.dataset}[/] から読み込み中..."
         )
         self.bad_prompts = load_prompts(settings.bad_evaluation_prompts)
-        print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
+        print(f"* [bold]{len(self.bad_prompts)}個[/] のプロンプトを読み込みました")
 
-        print("* Counting model refusals...")
+        print("* モデルの拒否回数をカウント中...")
         self.base_refusals = self.count_refusals()
         print(
-            f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
+            f"* 初期の拒否回数: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
         )
 
     def is_refusal(self, response: str) -> bool:
@@ -55,7 +55,7 @@ class Evaluator:
         return len(refusals)
 
     def get_score(self) -> tuple[tuple[float, float], float, int]:
-        print("  * Obtaining first-token probability distributions...")
+        print("   * 最初のトークンの確率分布を取得中...")
         logprobs = self.model.get_logprobs_batched(self.good_prompts)
         kl_divergence = F.kl_div(
             logprobs,
@@ -63,11 +63,11 @@ class Evaluator:
             reduction="batchmean",
             log_target=True,
         ).item()
-        print(f"  * KL divergence: [bold]{kl_divergence:.2f}[/]")
+        print(f"   * KLダイバージェンス: [bold]{kl_divergence:.2f}[/]")
 
-        print("  * Counting model refusals...")
+        print("   * モデルの拒否回数をカウント中...")
         refusals = self.count_refusals()
-        print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
+        print(f"   * 拒否回数: [bold]{refusals}[/]/{len(self.bad_prompts)}")
 
         score = (
             (kl_divergence / self.settings.kl_divergence_scale),

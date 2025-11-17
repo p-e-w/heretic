@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+import gc
 import math
 import sys
 import time
@@ -34,6 +35,7 @@ from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
+    empty_cache,
     format_duration,
     get_readme_intro,
     get_trial_parameters,
@@ -43,6 +45,11 @@ from .utils import (
 
 
 def run():
+    # Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
+    import os
+    if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
@@ -293,6 +300,9 @@ def run():
 
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)
+        
+        gc.collect()
+        empty_cache()
 
         return score
 

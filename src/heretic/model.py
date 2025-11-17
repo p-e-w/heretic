@@ -83,10 +83,13 @@ class Model:
             )
 
     def reload_model(self):
+        import gc
+        
         dtype = self.model.dtype
 
         # Purge existing model object from memory to make space.
         self.model = None
+        gc.collect()
         empty_cache()
 
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -198,15 +201,26 @@ class Model:
 
                 # Projects any right-multiplied vector(s) onto the subspace
                 # spanned by the refusal direction.
-                projector = torch.outer(
+                # Create projector on CPU first to avoid device-specific memory allocation.
+                projector_cpu = torch.outer(
                     layer_refusal_direction,
                     layer_refusal_direction,
                 ).to(self.model.dtype)
 
+                # Cache projectors by device to avoid creating multiple copies.
+                projector_cache = {}
+                
                 for matrix in matrices:
                     # In-place subtraction is safe as we're not using Autograd.
                     # Ensure projector is on the same device as the matrix for multi-GPU support.
-                    matrix.sub_(weight * (projector.to(matrix.device) @ matrix))
+                    device = matrix.device
+                    if device not in projector_cache:
+                        projector_cache[device] = projector_cpu.to(device)
+                    
+                    matrix.sub_(weight * (projector_cache[device] @ matrix))
+                
+                # Clear cache to free memory.
+                projector_cache.clear()
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

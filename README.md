@@ -1,19 +1,18 @@
-# Heretic: Fully automated censorship adjustment in language models
+# Heretic: Fully automatic censorship removal for language models
 
-Heretic is a tool that can remove censorship (aka "safety alignment") from
-transformer-based language models, or increase it, without expensive post-training.
+Heretic is a tool that removes censorship (aka "safety alignment") from
+transformer-based language models without expensive post-training.
 It combines an advanced implementation of directional ablation, also known
 as "abliteration" ([Arditi et al. 2024](https://arxiv.org/abs/2406.11717)),
 with a TPE-based parameter optimizer powered by [Optuna](https://optuna.org/).
 
 This approach enables Heretic to work **completely automatically.** Heretic
-finds high-quality abliteration parameters by co-optimizing the number of
+finds high-quality abliteration parameters by co-minimizing the number of
 refusals and the KL divergence from the original model. This results in a
-model that aligns with the user's goals while retaining as much of the
-original model's intelligence as possible. Using Heretic does not require an
-understanding of transformer internals. In fact, anyone who knows how to
-run a command-line program can use Heretic to manipulate the censorship of
-language models.
+decensored model that retains as much of the original model's intelligence
+as possible. Using Heretic does not require an understanding of transformer
+internals. In fact, anyone who knows how to run a command-line program
+can use Heretic to decensor language models.
 
 <img width="650" height="715" alt="Screenshot" src="https://github.com/user-attachments/assets/d71a5efa-d6be-4705-a817-63332afb2d15" />
 
@@ -56,10 +55,7 @@ pip install heretic-llm
 heretic Qwen/Qwen3-4B-Instruct-2507
 ```
 
-Replace `Qwen/Qwen3-4B-Instruct-2507` with the model you want to use.
-
-By default, Heretic removes inhibitions, but it can also be configured to
-increase them: `heretic --mode increase_inhibitions Qwen/Qwen3-4B-Instruct-2507`
+Replace `Qwen/Qwen3-4B-Instruct-2507` with whatever model you want to decensor.
 
 The process is fully automatic and does not require configuration; however,
 Heretic has a variety of configuration parameters that can be changed for
@@ -79,9 +75,12 @@ or any combination of those actions.
 
 ## How it works
 
-Heretic implements a parametrized variant of directional ablation. Depending on the
-chosen mode, it either removes or adds the "refusal direction" from/to the weights
-of the attention out-projection and MLP down-projection matrices in each layer.
+Heretic implements a parametrized variant of directional ablation. For each
+supported transformer component (currently, attention out-projection and
+MLP down-projection), it identifies the associated matrices in each transformer
+layer, and orthogonalizes them with respect to the relevant "refusal direction",
+inhibiting the expression of that direction in the result of multiplications
+with that matrix.
 
 Refusal directions are computed for each layer as a difference-of-means between
 the first-token residuals for "harmful" and "harmless" example prompts.

@@ -73,7 +73,7 @@ class Model:
                     # Then convert dtype explicitly, then move to MPS
                     self.model = AutoModelForCausalLM.from_pretrained(
                         settings.model,
-                        torch_dtype=None,  # Load as-is first
+                        dtype=None,  # Load as-is first
                         device_map="cpu",  # Load to CPU first
                         low_cpu_mem_usage=False,  # Ensure full conversion
                     )
@@ -84,7 +84,7 @@ class Model:
                 else:
                     self.model = AutoModelForCausalLM.from_pretrained(
                         settings.model,
-                        torch_dtype=dtype,
+                        dtype=dtype,
                         device_map=settings.device_map,
                     )
 

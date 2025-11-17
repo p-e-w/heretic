@@ -205,7 +205,8 @@ class Model:
 
                 for matrix in matrices:
                     # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * (projector @ matrix))
+                    # Ensure projector is on the same device as the matrix for multi-GPU support.
+                    matrix.sub_(weight * (projector.to(matrix.device) @ matrix))
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

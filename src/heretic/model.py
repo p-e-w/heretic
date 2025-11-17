@@ -5,6 +5,7 @@ import math
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
+import platform
 
 import torch
 import torch.nn.functional as F
@@ -51,9 +52,12 @@ class Model:
 
         # Filter dtypes: MPS doesn't support bfloat16, so skip "auto" on MPS
         # (since "auto" typically resolves to bfloat16)
+        # Only apply this workaround on Intel x86_64 CPUs
+        
         dtypes_to_try = settings.dtypes
         use_mps = torch.backends.mps.is_available()
-        if use_mps and "auto" in dtypes_to_try:
+        is_intel_x86_64 = platform.machine() == "x86_64"
+        if use_mps and is_intel_x86_64 and "auto" in dtypes_to_try:
             dtypes_to_try = [dtype for dtype in dtypes_to_try if dtype != "auto"]
             if not dtypes_to_try:
                 # If only "auto" was specified, default to float16 for MPS
@@ -69,8 +73,8 @@ class Model:
                 else:
                     torch_dtype = getattr(torch, dtype_str)
                 
-                # For MPS, load to CPU first then convert dtype to avoid bfloat16 issues
-                if use_mps:
+                # For MPS on Intel x86_64, load to CPU first then convert dtype to avoid bfloat16 issues
+                if use_mps and is_intel_x86_64:
                     # Load to CPU first without dtype to avoid bfloat16 preservation
                     # Then convert dtype explicitly, then move to MPS
                     self.model = AutoModelForCausalLM.from_pretrained(

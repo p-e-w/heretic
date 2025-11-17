@@ -24,11 +24,11 @@ classifiers = [
 dependencies = [
     # PyTorch: Platform-specific constraints
     # macOS Intel (x86_64): Use >=2.1.0,<2.3.0 (2.3+ dropped macOS Intel support; last with wheels was 2.2.0)
-    "torch>=2.1.0,<2.3.0; platform_machine == 'x86_64' and sys_platform == 'darwin'",
+    "torch>=2.2.0,<2.3.0; platform_machine == 'x86_64' and sys_platform == 'darwin'",
     # macOS Silicon (ARM64): Can use newer versions with Python 3.12
-    "torch>=2.0.0; platform_machine == 'arm64' and sys_platform == 'darwin'",
+    "torch>=2.2.0; platform_machine == 'arm64' and sys_platform == 'darwin'",
     # Other platforms (Linux, Windows): Can use newer versions
-    "torch>=2.0.0; sys_platform != 'darwin'",
+    "torch>=2.2.0; sys_platform != 'darwin'",
     # NumPy: PyTorch 2.1-2.2 (macOS Intel) require NumPy 1.x (not 2.x)
     "numpy<2.0; platform_machine == 'x86_64' and sys_platform == 'darwin'",
     "accelerate>=1.10.0",

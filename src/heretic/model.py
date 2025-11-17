@@ -49,15 +49,46 @@ class Model:
 
         self.model = None
 
-        for dtype in settings.dtypes:
-            print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
+        # Filter dtypes: MPS doesn't support bfloat16, so skip "auto" on MPS
+        # (since "auto" typically resolves to bfloat16)
+        dtypes_to_try = settings.dtypes
+        use_mps = torch.backends.mps.is_available()
+        if use_mps and "auto" in dtypes_to_try:
+            dtypes_to_try = [dtype for dtype in dtypes_to_try if dtype != "auto"]
+            if not dtypes_to_try:
+                # If only "auto" was specified, default to float16 for MPS
+                dtypes_to_try = ["float16"]
+
+        for dtype_str in dtypes_to_try:
+            print(f"* Trying dtype [bold]{dtype_str}[/]... ", end="")
 
             try:
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    settings.model,
-                    dtype=dtype,
-                    device_map=settings.device_map,
-                )
+                # Convert dtype string to torch dtype object
+                if dtype_str == "auto":
+                    torch_dtype = "auto"
+                else:
+                    torch_dtype = getattr(torch, dtype_str)
+                
+                # For MPS, load to CPU first then convert dtype to avoid bfloat16 issues
+                if use_mps:
+                    # Load to CPU first without dtype to avoid bfloat16 preservation
+                    # Then convert dtype explicitly, then move to MPS
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        settings.model,
+                        torch_dtype=None,  # Load as-is first
+                        device_map="cpu",  # Load to CPU first
+                        low_cpu_mem_usage=False,  # Ensure full conversion
+                    )
+                    # Convert to desired dtype explicitly (this forces conversion)
+                    self.model = self.model.to(dtype=torch_dtype)
+                    # Move to MPS device
+                    self.model = self.model.to("mps")
+                else:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        settings.model,
+                        torch_dtype=torch_dtype,
+                        device_map=settings.device_map,
+                    )
 
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"

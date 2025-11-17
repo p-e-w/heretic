@@ -28,9 +28,9 @@ class Settings(BaseSettings):
         description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model.",
     )
 
-    mode: Literal["remove_inhibitions", "increase_inhibitions"] = Field(
-        default="remove_inhibitions",
-        description="Whether to remove or increase inhibitions.",
+    reverse: bool = Field(
+        default=False,
+        description="If set, increase inhibitions rather than removing them.",
     )
 
     dtypes: list[str] = Field(

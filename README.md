@@ -1,4 +1,4 @@
-# Heretic: Fully Automated censorship adjustment in language models
+# Heretic: Fully automated censorship adjustment in language models
 
 Heretic is a tool that can remove censorship (aka "safety alignment") from
 transformer-based language models, or increase it, without expensive post-training.

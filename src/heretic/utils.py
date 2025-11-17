@@ -85,13 +85,13 @@ def get_readme_intro(
 ) -> str:
     model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
 
-    return f"""# This is a decensored version of {
+    return f"""# これは {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}
+    } の無修正版であり、[Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")} を使用して作成されました。
 
-## Abliteration parameters
+## Abliteration パラメータ
 
-| Parameter | Value |
+| パラメータ | 値 |
 | :-------- | :---: |
 {
         chr(10).join(
@@ -102,12 +102,12 @@ def get_readme_intro(
         )
     }
 
-## Performance
+## パフォーマンス
 
-| Metric | This model | Original model ({model_link}) |
+| メトリック | このモデル | オリジナルモデル ({model_link}) |
 | :----- | :--------: | :---------------------------: |
-| **KL divergence** | {trial.user_attrs["kl_divergence"]:.2f} | 0 *(by definition)* |
-| **Refusals** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
+| **KLダイバージェンス** | {trial.user_attrs["kl_divergence"]:.2f} | 0 *(定義による)* |
+| **拒否** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
         len(bad_prompts)
     } |
 

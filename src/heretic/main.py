@@ -305,7 +305,7 @@ def run():
 
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)
-        
+
         empty_cache()
 
         return score
@@ -320,6 +320,9 @@ def run():
     )
 
     study.optimize(objective, n_trials=settings.n_trials)
+    
+    # Final cleanup after all trials
+    empty_cache()
 
     best_trials = sorted(
         study.best_trials,

@@ -41,6 +41,7 @@ from .utils import (
     get_trial_parameters,
     load_prompts,
     print,
+    empty_cache,
 )
 
 
@@ -94,6 +95,8 @@ def run():
         print(f"MUSA type: [bold]{torch.musa.get_device_name()}[/]")
     elif is_npu_available():
         print(f"CANN version: [bold]{torch.version.cann}[/]")
+    elif torch.backends.mps.is_available():
+        print(f"GPU type: [bold]Apple Metal (MPS)[/]")
     else:
         print(
             "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"
@@ -199,6 +202,9 @@ def run():
         p=2,
         dim=1,
     )
+    # we don't need the residuals after computing refusal directions
+    del good_residuals, bad_residuals
+    empty_cache()
 
     trial_index = 0
     start_time = time.perf_counter()

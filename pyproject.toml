@@ -29,6 +29,8 @@ dependencies = [
     "torch>=2.0.0; platform_machine == 'arm64' and sys_platform == 'darwin'",
     # Other platforms (Linux, Windows): Can use newer versions
     "torch>=2.0.0; sys_platform != 'darwin'",
+    # NumPy: PyTorch 2.1-2.2 (macOS Intel) require NumPy 1.x (not 2.x)
+    "numpy<2.0; platform_machine == 'x86_64' and sys_platform == 'darwin'",
     "accelerate>=1.10.0",
     "datasets>=4.0.0",
     "hf-transfer>=0.1.9",

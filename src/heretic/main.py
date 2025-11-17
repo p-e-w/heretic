@@ -88,6 +88,8 @@ def run():
         print(f"MUSA type: [bold]{torch.musa.get_device_name()}[/]")
     elif is_npu_available():
         print(f"CANN version: [bold]{torch.version.cann}[/]")
+    elif torch.backends.mps.is_available():
+        print(f"GPU type: [bold]Apple Metal (MPS)[/]")
     else:
         print(
             "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"

@@ -58,6 +58,8 @@ def empty_cache():
         torch.sdaa.empty_cache()
     elif is_musa_available():
         torch.musa.empty_cache()
+    elif torch.backends.mps.is_available():
+        torch.mps.empty_cache()
 
     gc.collect()
 

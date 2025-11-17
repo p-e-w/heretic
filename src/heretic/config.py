@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-from typing import Dict
+from typing import Dict, Literal
 
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     evaluate_model: str | None = Field(
         default=None,
         description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model.",
+    )
+
+    mode: Literal["remove_inhibitions", "increase_inhibitions"] = Field(
+        default="remove_inhibitions",
+        description="Whether to remove or increase inhibitions.",
     )
 
     dtypes: list[str] = Field(

@@ -51,15 +51,16 @@ def run():
     )
     print()
 
-    if (
-        # An odd number of arguments have been passed (argv[0] is the program name),
-        # so that after accounting for "--param VALUE" pairs, there is one left over.
-        len(sys.argv) % 2 == 0
-        # The leftover argument is a parameter value rather than a flag (such as "--help").
-        and not sys.argv[-1].startswith("-")
-    ):
-        # Assume the last argument is the model.
-        sys.argv.insert(-1, "--model")
+    if "--model" not in sys.argv:
+        for i in range(1, len(sys.argv)):
+            if not sys.argv[i].startswith("-"):
+                # This is either a positional argument or a value for a parameter.
+                # If the previous argument was a parameter, we skip this argument.
+                if sys.argv[i - 1].startswith("-"):
+                    continue
+                # Otherwise, we assume this is the model and insert the parameter name.
+                sys.argv.insert(i, "--model")
+                break
 
     try:
         settings = Settings()
@@ -179,7 +180,10 @@ def run():
         settings.model = settings.evaluate_model
         model.reload_model()
         print("* Evaluating...")
-        evaluator.get_score()
+        _, _, refusals = evaluator.get_score()
+        print(
+            f"* Refusals: [bold]{refusals}[/]/{len(evaluator.bad_prompts)}"
+        )
         return
 
     print()
@@ -302,7 +306,14 @@ def run():
             n_ei_candidates=128,
             multivariate=True,
         ),
-        directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
+        directions=[
+            StudyDirection.MINIMIZE,
+            (
+                StudyDirection.MAXIMIZE
+                if settings.mode == "increase_inhibitions"
+                else StudyDirection.MINIMIZE
+            ),
+        ],
     )
 
     study.optimize(objective, n_trials=settings.n_trials)
@@ -310,6 +321,7 @@ def run():
     best_trials = sorted(
         study.best_trials,
         key=lambda trial: trial.user_attrs["refusals"],
+        reverse=(settings.mode == "increase_inhibitions"),
     )
 
     choices = [

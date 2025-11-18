@@ -88,10 +88,6 @@ class Model:
 
         # Purge existing model object from memory to make space.
         self.model = None
-        
-        # Force garbage collection and clear cache
-        # to ensure all references are released
-        gc.collect()
         empty_cache()
 
         self.model = AutoModelForCausalLM.from_pretrained(

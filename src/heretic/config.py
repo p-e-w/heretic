@@ -30,12 +30,12 @@ class Settings(BaseSettings):
 
     dtypes: list[str] = Field(
         default=[
-            # In practice, "auto" almost always means bfloat16.
+            # 実際には、「auto」はほとんどの場合bfloat16を意味します。
             "auto",
-            # If that doesn't work (e.g. on pre-Ampere hardware), fall back to float16.
+            # それが機能しない場合（例：Ampereより前のハードウェア）、float16にフォールバックします。
             "float16",
-            # If that still doesn't work (e.g. due to https://github.com/meta-llama/llama/issues/380),
-            # fall back to float32.
+            # それでも機能しない場合（例：https://github.com/meta-llama/llama/issues/380のため）、
+            # float32にフォールバックします。
             "float32",
         ],
         description="モデルテンソルをロードする際に試行するPyTorch dtypesのリスト。dtypeでのロードが失敗した場合、リスト内の次のdtypeが試行されます。",
@@ -148,8 +148,8 @@ class Settings(BaseSettings):
         description="拒否につながる傾向があるプロンプトのデータセット（モデルのパフォーマンス評価に使用）。",
     )
 
-    # "Model" refers to the Pydantic model of the settings class here,
-    # not to the language model. The field must have this exact name.
+    # ここでの「モデル」は設定クラスのPydanticモデルを指し、
+    # 言語モデルではありません。フィールドにはこの正確な名前が必要です。
     model_config = SettingsConfigDict(
         toml_file="config.toml",
         env_prefix="HERETIC_",

@@ -1,7 +1,7 @@
 [project]
 name = "heretic-llm"
 version = "1.0.1"
-description = "Fully automatic censorship removal for language models"
+description = "言語モデルの検閲を完全自動で除去"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [

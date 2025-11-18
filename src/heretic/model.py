@@ -42,7 +42,7 @@ class Model:
             settings.model
         )
 
-        # Fallback for tokenizers that don't declare a special pad token.
+        # 特殊なpadトークンを宣言しないトークナイザーのフォールバック。
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             self.tokenizer.padding_side = "left"
@@ -59,9 +59,8 @@ class Model:
                     device_map=settings.device_map,
                 )
 
-                # A test run can reveal dtype-related problems such as the infamous
-                # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
-                # (https://github.com/meta-llama/llama/issues/380).
+                # テスト実行により、悪名高い「RuntimeError: probability tensor contains either `inf`, `nan` or element < 0」
+                # (https://github.com/meta-llama/llama/issues/380)のようなdtype関連の問題が明らかになることがあります。
                 self.generate(["Test"], max_new_tokens=1)
             except Exception as error:
                 self.model = None
@@ -85,7 +84,7 @@ class Model:
     def reload_model(self):
         dtype = self.model.dtype
 
-        # Purge existing model object from memory to make space.
+        # 既存のモデルオブジェクトをメモリからパージしてスペースを確保します。
         self.model = None
         empty_cache()
 
@@ -96,11 +95,11 @@ class Model:
         )
 
     def get_layers(self) -> ModuleList:
-        # Most multimodal models.
+        # ほとんどのマルチモーダルモデル。
         with suppress(Exception):
             return self.model.model.language_model.layers
 
-        # Text-only models.
+        # テキストのみのモデル。
         return self.model.model.layers
 
     def get_layer_matrices(self, layer_index: int) -> dict[str, list[Tensor]]:
@@ -116,32 +115,31 @@ class Model:
 
             matrices[component].append(matrix)
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
+        # 例外はここでは抑制されません。現在、アテンション出力射影の代替の場所がないためです。
         try_add("attn.o_proj", layer.self_attn.o_proj.weight)
 
-        # Most dense models.
+        # ほとんどの密なモデル。
         with suppress(Exception):
             try_add("mlp.down_proj", layer.mlp.down_proj.weight)
 
-        # Some MoE models (e.g. Qwen3).
+        # いくつかのMoEモデル（例：Qwen3）。
         with suppress(Exception):
             for expert in layer.mlp.experts:
                 try_add("mlp.down_proj", expert.down_proj.weight)
 
-        # Phi-3.5-MoE (and possibly others).
+        # Phi-3.5-MoE（およびその他）。
         with suppress(Exception):
             for expert in layer.block_sparse_moe.experts:
                 try_add("mlp.down_proj", expert.w2.weight)
 
-        # gpt-oss MoE.
+        # gpt-oss MoE。
         with suppress(Exception):
-            # The implementation of gpt-oss in Transformers differs from many other MoE models
-            # in that it stores the down-projections for all experts in a single 3D tensor,
-            # but thanks to PyTorch's broadcasting magic, it all just works anyway.
+            # gpt-ossのTransformersでの実装は、他の多くのMoEモデルとは異なり、
+            # すべてのエキスパートの下方射影を単一の3Dテンソルに格納しますが、
+            # PyTorchのブロードキャストマジックのおかげで、すべてがとにかく機能します。
             try_add("mlp.down_proj", layer.mlp.experts.down_proj)
 
-        # We need at least one MLP down-projection.
+        # 少なくとも1つのMLP下方射影が必要です。
         assert matrices["mlp.down_proj"]
 
         return matrices
@@ -158,8 +156,7 @@ class Model:
         if direction_index is None:
             refusal_direction = None
         else:
-            # The index must be shifted by 1 because the first element
-            # of refusal_directions is the direction for the embeddings.
+            # 埋め込みの方向はrefusal_directionsの最初の要素であるため、インデックスを1つずらす必要があります。
             weight, index = math.modf(direction_index + 1)
             refusal_direction = F.normalize(
                 refusal_directions[int(index)].lerp(
@@ -170,41 +167,37 @@ class Model:
                 dim=0,
             )
 
-        # Note that some implementations of abliteration also orthogonalize
-        # the embedding matrix, but it's unclear if that has any benefits.
+        # 一部のabliterationの実装では埋め込み行列も直交化しますが、
+        # それに利点があるかどうかは不明です。
         for layer_index in range(len(self.get_layers())):
             for component, matrices in self.get_layer_matrices(layer_index).items():
                 params = parameters[component]
 
                 distance = abs(layer_index - params.max_weight_position)
 
-                # Don't orthogonalize layers that are more than
-                # min_weight_distance away from max_weight_position.
+                # max_weight_positionからmin_weight_distance以上離れたレイヤーは直交化しません。
                 if distance > params.min_weight_distance:
                     continue
 
-                # Interpolate linearly between max_weight and min_weight
-                # over min_weight_distance.
+                # min_weight_distanceにわたってmax_weightとmin_weightの間を線形補間します。
                 weight = params.max_weight + (distance / params.min_weight_distance) * (
                     params.min_weight - params.max_weight
                 )
 
                 if refusal_direction is None:
-                    # The index must be shifted by 1 because the first element
-                    # of refusal_directions is the direction for the embeddings.
+                    # 埋め込みの方向はrefusal_directionsの最初の要素であるため、インデックスを1つずらす必要があります。
                     layer_refusal_direction = refusal_directions[layer_index + 1]
                 else:
                     layer_refusal_direction = refusal_direction
 
-                # Projects any right-multiplied vector(s) onto the subspace
-                # spanned by the refusal direction.
+                # 右乗算されたベクトルを拒否方向で張られる部分空間に射影します。
                 projector = torch.outer(
                     layer_refusal_direction,
                     layer_refusal_direction,
                 ).to(self.model.dtype)
 
                 for matrix in matrices:
-                    # In-place subtraction is safe as we're not using Autograd.
+                    # Autogradを使用していないため、インプレース減算は安全です。
                     matrix.sub_(weight * (projector @ matrix))
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
@@ -237,7 +230,7 @@ class Model:
             **inputs,
             **kwargs,
             pad_token_id=self.tokenizer.eos_token_id,
-            do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
+            do_sample=False,  # 決定論的な出力を保証するために貪欲法デコーディングを使用します。
         )
 
     def get_responses(self, prompts: list[str]) -> list[str]:
@@ -246,7 +239,7 @@ class Model:
             max_new_tokens=self.settings.max_response_length,
         )
 
-        # Return only the newly generated part.
+        # 新しく生成された部分のみを返します。
         return self.tokenizer.batch_decode(
             outputs[:, inputs["input_ids"].shape[1] :],
             skip_special_tokens=True,
@@ -262,8 +255,7 @@ class Model:
         return responses
 
     def get_residuals(self, prompts: list[str]) -> Tensor:
-        # We only generate one token, and we return the residual vectors
-        # at that token position, for each prompt and layer.
+        # トークンを1つだけ生成し、各プロンプトとレイヤーのそのトークン位置での残差ベクトルを返します。
         _, outputs = self.generate(
             prompts,
             max_new_tokens=1,
@@ -271,20 +263,20 @@ class Model:
             return_dict_in_generate=True,
         )
 
-        # Hidden states for the first (only) generated token.
+        # 最初（唯一）の生成されたトークンの隠れ状態。
         hidden_states = outputs.hidden_states[0]
 
-        # The returned tensor has shape (prompt, layer, component).
+        # 返されるテンソルの形状は（プロンプト、レイヤー、コンポーネント）です。
         residuals = torch.stack(
-            # layer_hidden_states has shape (prompt, position, component),
-            # so this extracts the hidden states at the end of each prompt,
-            # and stacks them up over the layers.
+            # layer_hidden_statesの形状は（プロンプト、位置、コンポーネント）であるため、
+            # これにより各プロンプトの末尾の隠れ状態が抽出され、
+            # レイヤー全体でスタックされます。
             [layer_hidden_states[:, -1, :] for layer_hidden_states in hidden_states],
             dim=1,
         )
 
-        # Upcast the data type to avoid precision (bfloat16) or range (float16)
-        # problems during calculations involving residual vectors.
+        # 残差ベクトルを含む計算中の精度（bfloat16）または範囲（float16）の問題を回避するために、
+        # データ型をアップキャストします。
         return residuals.to(torch.float32)
 
     def get_residuals_batched(self, prompts: list[str]) -> Tensor:
@@ -295,11 +287,9 @@ class Model:
 
         return torch.cat(residuals, dim=0)
 
-    # We work with logprobs rather than probabilities for numerical stability
-    # when computing the KL divergence.
+    # KLダイバージェンスを計算する際の数値安定性のために、確率ではなく対数確率を扱います。
     def get_logprobs(self, prompts: list[str]) -> Tensor:
-        # We only generate one token, and we return the (log) probability distributions
-        # over the vocabulary at that token position, for each prompt.
+        # トークンを1つだけ生成し、各プロンプトのそのトークン位置での語彙全体の（対数）確率分布を返します。
         _, outputs = self.generate(
             prompts,
             max_new_tokens=1,
@@ -307,10 +297,10 @@ class Model:
             return_dict_in_generate=True,
         )
 
-        # Logits for the first (only) generated token.
+        # 最初（唯一）の生成されたトークンのロジット。
         logits = outputs.scores[0]
 
-        # The returned tensor has shape (prompt, token).
+        # 返されるテンソルの形状は（プロンプト、トークン）です。
         return F.log_softmax(logits, dim=-1)
 
     def get_logprobs_batched(self, prompts: list[str]) -> Tensor:

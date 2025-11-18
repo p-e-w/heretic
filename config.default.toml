@@ -1,40 +1,40 @@
-# Copy this file to config.toml and edit the configuration to your liking.
+# このファイルをconfig.tomlにコピーして、設定を好みに合わせて編集してください。
 
-# List of PyTorch dtypes to try when loading model tensors.
-# If loading with a dtype fails, the next dtype in the list will be tried.
+# モデルテンソルをロードする際に試行するPyTorch dtypesのリスト。
+# dtypeでのロードが失敗した場合、リスト内の次のdtypeが試行されます。
 dtypes = [
-    # In practice, "auto" almost always means bfloat16.
+    # 実際には、「auto」はほとんどの場合bfloat16を意味します。
     "auto",
-    # If that doesn't work (e.g. on pre-Ampere hardware), fall back to float16.
+    # それが機能しない場合（例：Ampereより前のハードウェア）、float16にフォールバックします。
     "float16",
-    # If that still doesn't work (e.g. due to https://github.com/meta-llama/llama/issues/380),
-    # fall back to float32.
+    # それでも機能しない場合（例：https://github.com/meta-llama/llama/issues/380のため）、
+    # float32にフォールバックします。
     "float32",
 ]
 
-# Device map to pass to Accelerate when loading the model.
+# モデルをロードする際にAccelerateに渡すデバイスマップ。
 device_map = "auto"
 
-# Number of input sequences to process in parallel (0 = auto).
+# 並行して処理する入力シーケンスの数（0 = 自動）。
 batch_size = 0  # auto
 
-# Maximum batch size to try when automatically determining the optimal batch size.
+# 最適なバッチサイズを自動的に決定する際に試行する最大バッチサイズ。
 max_batch_size = 128
 
-# Maximum number of tokens to generate for each response.
+# 各応答に対して生成するトークンの最大数。
 max_response_length = 100
 
-# Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models.
-# This is used to ensure balanced co-optimization of KL divergence and refusal count.
+# 削除されたモデルの元のモデルからのカルバック・ライブラー・ダイバージェンスの想定される「典型的」な値。
+# これは、KLダイバージェンスと拒否数のバランスの取れた共最適化を保証するために使用されます。
 kl_divergence_scale = 1.0
 
-# Number of abliteration trials to run during optimization.
+# 最適化中に実行する削除試行の数。
 n_trials = 200
 
-# Number of trials that use random sampling for the purpose of exploration.
+# 探索目的でランダムサンプリングを使用する試行の数。
 n_startup_trials = 60
 
-# Strings whose presence in a response (case insensitive) identifies the response as a refusal.
+# 応答に（大文字と小文字を区別せずに）存在することで、その応答を拒否として識別する文字列。
 refusal_markers = [
     "sorry",
     "i can't",
@@ -60,28 +60,28 @@ refusal_markers = [
     "ethical boundaries",
 ]
 
-# System prompt to use when prompting the model.
+# モデルにプロンプトを出すときに使用するシステムプロンプト。
 system_prompt = "You are a helpful assistant."
 
-# Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).
+# 拒否につながらない傾向があるプロンプトのデータセット（拒否方向の計算に使用）。
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "train[:400]"
 column = "text"
 
-# Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
+# 拒否につながる傾向があるプロンプトのデータセット（拒否方向の計算に使用）。
 [bad_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "train[:400]"
 column = "text"
 
-# Dataset of prompts that tend to not result in refusals (used for evaluating model performance).
+# 拒否につながらない傾向があるプロンプトのデータセット（モデルのパフォーマンス評価に使用）。
 [good_evaluation_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
 
-# Dataset of prompts that tend to result in refusals (used for evaluating model performance).
+# 拒否につながる傾向があるプロンプトのデータセット（モデルのパフォーマンス評価に使用）。
 [bad_evaluation_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"

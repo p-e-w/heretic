@@ -43,7 +43,7 @@ from .utils import (
 
 
 def run():
-    # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
+    # https://budavariam.github.io/asciiart-text/ の「Pagga」フォントを修正
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(
@@ -52,13 +52,13 @@ def run():
     print()
 
     if (
-        # An odd number of arguments have been passed (argv[0] is the program name),
-        # so that after accounting for "--param VALUE" pairs, there is one left over.
+        # 奇数の引数が渡された場合（argv[0]はプログラム名）、
+        # 「--param VALUE」ペアを考慮すると1つ余る。
         len(sys.argv) % 2 == 0
-        # The leftover argument is a parameter value rather than a flag (such as "--help").
+        # 残りの引数がフラグ（「--help」など）ではなくパラメータ値である場合。
         and not sys.argv[-1].startswith("-")
     ):
-        # Assume the last argument is the model.
+        # 最後の引数をモデルと仮定する。
         sys.argv.insert(-1, "--model")
 
     try:
@@ -93,24 +93,23 @@ def run():
             "[bold yellow]GPUやその他のアクセラレータが検出されませんでした。処理速度が遅くなります。[/]"
         )
 
-    # We don't need gradients as we only do inference.
+    # 推論のみを行うため、勾配は必要ありません。
     torch.set_grad_enabled(False)
 
-    # While determining the optimal batch size, we will try many different batch sizes,
-    # resulting in many computation graphs being compiled. Raising the limit (default = 8)
-    # avoids errors from TorchDynamo assuming that something is wrong because we
-    # recompile too often.
+    # 最適なバッチサイズを決定する際に、多くの異なるバッチサイズを試行するため、
+    # 多くの計算グラフがコンパイルされます。制限を引き上げる（デフォルト= 8）と、
+    # TorchDynamoが再コンパイルが多すぎるために何かがおかしいと仮定するエラーを回避できます。
     torch._dynamo.config.cache_size_limit = 64
 
-    # Silence warning spam from Transformers.
-    # In my entire career I've never seen a useful warning from that library.
+    # Transformersからの警告スパムを抑制します。
+    # 私のキャリア全体で、そのライブラリから有用な警告を見たことは一度もありません。
     transformers.logging.set_verbosity_error()
 
-    # We do our own trial logging, so we don't need the INFO messages
-    # about parameters and results.
+    # 独自の試行ロギングを行うため、パラメータと結果に関する
+    # INFOメッセージは必要ありません。
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    # Silence the warning about multivariate TPE being experimental.
+    # 多変量TPEが実験的であるという警告を抑制します。
     warnings.filterwarnings("ignore", category=ExperimentalWarning)
 
     model = Model(settings)
@@ -140,7 +139,7 @@ def run():
             prompts = prompts[:batch_size]
 
             try:
-                # Warmup run to build the computation graph so that part isn't benchmarked.
+                # ウォームアップ実行して計算グラフを構築し、その部分がベンチマークされないようにします。
                 model.get_responses(prompts)
 
                 start_time = time.perf_counter()
@@ -148,8 +147,8 @@ def run():
                 end_time = time.perf_counter()
             except Exception as error:
                 if batch_size == 1:
-                    # Even a batch size of 1 already fails.
-                    # We cannot recover from this.
+                    # バッチサイズ1でもすでに失敗します。
+                    # これから回復することはできません。
                     raise
 
                 print(f"[red]失敗[/] ({error})")
@@ -210,13 +209,11 @@ def run():
             ],
         )
 
-        # Discrimination between "harmful" and "harmless" inputs is usually strongest
-        # in layers slightly past the midpoint of the layer stack. See the original
-        # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
+        # 「有害な」入力と「無害な」入力の識別は、通常、レイヤースタックの中間点をわずかに超えたレイヤーで最も強力です。
+        # 詳細な分析については、元のabliterationの論文（https://arxiv.org/abs/2406.11717）を参照してください。
         #
-        # Note that we always sample this parameter even though we only need it for
-        # the "global" direction scope. The reason is that multivariate TPE doesn't
-        # work with conditional or variable-range parameters.
+        # このパラメータは「グローバル」な方向スコープにのみ必要ですが、常にサンプリングすることに注意してください。
+        # その理由は、多変量TPEが条件付きまたは可変範囲のパラメータで機能しないためです。
         direction_index = trial.suggest_float(
             "direction_index",
             0.4 * (len(model.get_layers()) - 1),
@@ -229,9 +226,8 @@ def run():
         parameters = {}
 
         for component in model.get_abliterable_components():
-            # The parameter ranges are based on experiments with various models
-            # and much wider ranges. They are not set in stone and might have to be
-            # adjusted for future models.
+            # パラメータ範囲は、さまざまなモデルとより広い範囲での実験に基づいています。
+            # それらは固定されたものではなく、将来のモデルに合わせて調整する必要があるかもしれません。
             max_weight = trial.suggest_float(
                 f"{component}.max_weight",
                 0.8,
@@ -242,9 +238,9 @@ def run():
                 0.6 * (len(model.get_layers()) - 1),
                 len(model.get_layers()) - 1,
             )
-            # For sampling purposes, min_weight is expressed as a fraction of max_weight,
-            # again because multivariate TPE doesn't support variable-range parameters.
-            # The value is transformed into the actual min_weight value below.
+            # サンプリングの目的で、min_weightはmax_weightの分数として表現されます。
+            # これも、多変量TPEが可変範囲パラメータをサポートしていないためです。
+            # 値は、以下で実際のmin_weight値に変換されます。
             min_weight = trial.suggest_float(
                 f"{component}.min_weight",
                 0.0,
@@ -379,9 +375,9 @@ def run():
             if action is None or action == "何もしない（トライアル選択メニューに戻る）":
                 break
 
-            # All actions are wrapped in a try/except block so that if an error occurs,
-            # another action can be tried, instead of the program crashing and losing
-            # the optimized model.
+            # すべてのアクションはtry/exceptブロックでラップされているため、エラーが発生した場合でも、
+            # プログラムがクラッシュして最適化されたモデルを失う代わりに、
+            # 別のアクションを試すことができます。
             try:
                 match action:
                     case "モデルをローカルフォルダに保存する":
@@ -395,9 +391,9 @@ def run():
                         print(f"モデルを [bold]{save_directory}[/] に保存しました。")
 
                     case "モデルをHugging Faceにアップロードする":
-                        # We don't use huggingface_hub.login() because that stores the token on disk,
-                        # and since this program will often be run on rented or shared GPU servers,
-                        # it's better to not persist credentials.
+                        # huggingface_hub.login()はトークンをディスクに保存するため使用しません。
+                        # このプログラムはレンタルまたは共有GPUサーバーで実行されることが多いため、
+                        # 資格情報を永続化しない方がよいでしょう。
                         token = huggingface_hub.get_token()
                         if not token:
                             token = questionary.password(
@@ -439,9 +435,9 @@ def run():
                             token=token,
                         )
 
-                        # If the model path doesn't exist locally, it can be assumed
-                        # to be a model hosted on the Hugging Face Hub, in which case
-                        # we can retrieve the model card.
+                        # モデルパスがローカルに存在しない場合は、
+                        # Hugging Face Hubでホストされているモデルであると見なすことができ、
+                        # その場合はモデルカードを取得できます。
                         if not Path(settings.model).exists():
                             card = ModelCard.load(settings.model)
                             if card.data is None:
@@ -497,15 +493,15 @@ def run():
 
 
 def main():
-    # Install Rich traceback handler.
+    # Richトレースバックハンドラをインストールします。
     install()
 
     try:
         run()
     except BaseException as error:
-        # Transformers appears to handle KeyboardInterrupt (or BaseException)
-        # internally in some places, which can re-raise a different error in the handler,
-        # masking the root cause. We therefore check both the error itself and its context.
+        # Transformersは、KeyboardInterrupt（またはBaseException）を内部で処理することがあるようです。
+        # これにより、ハンドラで別のエラーが再発生し、根本原因がマスクされる可能性があります。
+        # したがって、エラー自体とそのコンテキストの両方をチェックします。
         if isinstance(error, KeyboardInterrupt) or isinstance(
             error.__context__, KeyboardInterrupt
         ):

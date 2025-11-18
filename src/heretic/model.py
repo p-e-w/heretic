@@ -87,7 +87,6 @@ class Model:
         dtype = self.model.dtype
 
         # Purge existing model object from memory to make space.
-        del self.model
         self.model = None
         
         # Force garbage collection and clear cache
@@ -208,14 +207,13 @@ class Model:
                     layer_refusal_direction,
                     layer_refusal_direction,
                 ).to(self.model.dtype)
-                
+
                 for matrix in matrices:
-                    # In-place subtraction is safe as we're not using Autograd.
                     # Ensure projector is on the same device as the matrix for multi-GPU support.
                     device_projector = projector.to(matrix.device)
+                    # In-place subtraction is safe as we're not using Autograd.
                     matrix.sub_(weight * (device_projector @ matrix))
-                    # Delete device-specific projector immediately to free memory
-                    del device_projector
+
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [
             {"role": "system", "content": self.settings.system_prompt},

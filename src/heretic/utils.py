@@ -48,6 +48,8 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
 
 
 def empty_cache():
+    gc.collect()
+
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     elif is_xpu_available():
@@ -61,7 +63,6 @@ def empty_cache():
     elif torch.backends.mps.is_available():
         torch.mps.empty_cache()
 
-    gc.collect()
     gc.collect()
 
 

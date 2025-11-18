@@ -141,6 +141,15 @@ class Model:
             # but thanks to PyTorch's broadcasting magic, it all just works anyway.
             try_add("mlp.down_proj", layer.mlp.experts.down_proj)
 
+        # Granite MoE Hybrid - attention layers with shared_mlp.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.shared_mlp.output_linear.weight)
+
+        # Granite MoE Hybrid - MoE layers with experts.
+        with suppress(Exception):
+            for expert in layer.moe.experts:
+                try_add("mlp.down_proj", expert.output_linear.weight)
+
         # We need at least one MLP down-projection.
         assert matrices["mlp.down_proj"]
 

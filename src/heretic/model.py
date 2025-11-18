@@ -213,8 +213,10 @@ class Model:
                 ).to(self.model.dtype)
 
                 for matrix in matrices:
+                    # Ensure projector is on the same device as the matrix for multi-GPU support.
+                    device_projector = projector.to(matrix.device)
                     # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * (projector @ matrix))
+                    matrix.sub_(weight * (device_projector @ matrix))
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

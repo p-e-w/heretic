@@ -62,6 +62,7 @@ def empty_cache():
         torch.mps.empty_cache()
 
     gc.collect()
+    gc.collect()
 
 
 def get_trial_parameters(trial: Trial) -> dict[str, str]:

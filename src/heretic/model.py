@@ -8,6 +8,7 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
+import transformers
 from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
@@ -16,6 +17,7 @@ from transformers import (
     BatchEncoding,
     PreTrainedTokenizerBase,
     TextStreamer,
+    AutoProcessor,
 )
 from transformers.generation.utils import GenerateOutput
 
@@ -34,39 +36,85 @@ class AbliterationParameters:
 class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.model_class = None
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
-        self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
-            settings.model
-        )
+        # Try loading tokenizer, fallback to processor
+        try:
+            self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
+                settings.model,
+                trust_remote_code=settings.trust_remote_code,
+            )
+        except Exception:
+            try:
+                self.tokenizer = AutoProcessor.from_pretrained(
+                    settings.model,
+                    trust_remote_code=settings.trust_remote_code,
+                )
+            except Exception as error:
+                raise Exception(f"Failed to load tokenizer or processor: {error}")
 
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.tokenizer.padding_side = "left"
+            if hasattr(self.tokenizer, "padding_side"):
+                self.tokenizer.padding_side = "left"
 
         self.model = None
+
+        # List of classes to try, in order of preference.
+        # We use strings to avoid ImportErrors if the user has an older transformers version.
+        candidate_classes = [
+            "AutoModelForCausalLM",
+            "AutoModelForImageTextToText",
+            "Qwen3VLForConditionalGeneration",
+            "Qwen3VLMoeForConditionalGeneration",
+            "Qwen3OmniMoeForConditionalGeneration",
+            "Gemma3ForConditionalGeneration",
+            "Gemma3nForConditionalGeneration",
+            "AutoModel",
+        ]
 
         for dtype in settings.dtypes:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
 
-            try:
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    settings.model,
-                    dtype=dtype,
-                    device_map=settings.device_map,
-                )
+            for class_name in candidate_classes:
+                try:
+                    # Dynamically get the class from transformers module
+                    model_cls = getattr(transformers, class_name, None)
+                    if model_cls is None:
+                        continue
 
+                    self.model = model_cls.from_pretrained(
+                        settings.model,
+                        dtype=dtype,
+                        device_map=settings.device_map,
+                        trust_remote_code=settings.trust_remote_code,
+                    )
+                    
+                    # If successful, cache the class and break the loop
+                    self.model_class = model_cls
+                    break
+                except Exception:
+                    continue
+            
+            if self.model is None:
+                empty_cache()
+                print(f"[red]Failed[/] (Could not load with any known model class)")
+                continue
+
+            try:
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
                 # (https://github.com/meta-llama/llama/issues/380).
                 self.generate(["Test"], max_new_tokens=1)
             except Exception as error:
                 self.model = None
+                self.model_class = None
                 empty_cache()
-                print(f"[red]Failed[/] ({error})")
+                print(f"[red]Failed[/] ({repr(error)})")
                 continue
 
             print("[green]Ok[/]")
@@ -89,19 +137,31 @@ class Model:
         self.model = None
         empty_cache()
 
-        self.model = AutoModelForCausalLM.from_pretrained(
+        # Use the cached model class directly
+        self.model = self.model_class.from_pretrained(
             self.settings.model,
             dtype=dtype,
             device_map=self.settings.device_map,
+            trust_remote_code=self.settings.trust_remote_code,
         )
 
     def get_layers(self) -> ModuleList:
-        # Most multimodal models.
+        # Most multimodal models (Qwen VL, etc) often nest the LLM under .language_model
         with suppress(Exception):
-            return self.model.model.language_model.layers
+            return self.model.language_model.model.layers
+            
+        with suppress(Exception):
+            return self.model.language_model.layers
 
         # Text-only models.
-        return self.model.model.layers
+        with suppress(Exception):
+            return self.model.model.layers
+            
+        # Fallback for some other architectures
+        with suppress(Exception):
+            return self.model.layers
+            
+        raise Exception("Could not locate transformer layers in the model.")
 
     def get_layer_matrices(self, layer_index: int) -> dict[str, list[Tensor]]:
         layer = self.get_layers()[layer_index]
@@ -242,12 +302,53 @@ class Model:
             return_token_type_ids=False,
         ).to(self.model.device)
 
-        return inputs, self.model.generate(
-            **inputs,
-            **kwargs,
-            pad_token_id=self.tokenizer.eos_token_id,
-            do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
-        )
+        return inputs, self._generate_with_fallbacks(inputs, **kwargs)
+
+    def _generate_with_fallbacks(self, inputs: BatchEncoding, **kwargs) -> GenerateOutput | LongTensor:
+        # Standard generation
+        try:
+            return self.model.generate(
+                **inputs,
+                **kwargs,
+                pad_token_id=self.tokenizer.eos_token_id,
+                do_sample=False,
+            )
+        except (AssertionError, TypeError, ValueError) as e:
+            # Fallback 1: Try explicitly passing pixel_values=None
+            # Some models (like InternVL2) might expect this argument to be present.
+            try:
+                return self.model.generate(
+                    **inputs,
+                    **kwargs,
+                    pixel_values=None,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    do_sample=False,
+                )
+            except Exception:
+                pass # Fallback 1 failed, try next
+            
+            # Fallback 2: Try passing a dummy image tensor
+            # Some models assert that pixel_values must not be None.
+            try:
+                batch_size = inputs["input_ids"].shape[0]
+                # Standard ImageNet size 224x224, 3 channels
+                dummy_pixel_values = torch.zeros(
+                    (batch_size, 3, 224, 224),
+                    device=self.model.device,
+                    dtype=self.model.dtype
+                )
+                return self.model.generate(
+                    **inputs,
+                    **kwargs,
+                    pixel_values=dummy_pixel_values,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    do_sample=False,
+                )
+            except Exception:
+                pass # Fallback 2 failed
+                
+            # If all fallbacks fail, re-raise the original exception
+            raise e
 
     def get_responses(self, prompts: list[str]) -> list[str]:
         inputs, outputs = self.generate(

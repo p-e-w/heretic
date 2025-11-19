@@ -28,6 +28,11 @@ class Settings(BaseSettings):
         description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model.",
     )
 
+    trust_remote_code: bool = Field(
+        default=False,
+        description="Whether to allow the model to execute custom code.",
+    )
+
     dtypes: list[str] = Field(
         default=[
             # In practice, "auto" almost always means bfloat16.
@@ -35,6 +40,7 @@ class Settings(BaseSettings):
             # If that doesn't work (e.g. on pre-Ampere hardware), fall back to float16.
             "float16",
             # If that still doesn't work (e.g. due to https://github.com/meta-llama/llama/issues/380),
+            "bfloat16",
             # fall back to float32.
             "float32",
         ],

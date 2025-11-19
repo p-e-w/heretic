@@ -45,7 +45,7 @@ from .utils import (
 
 def run():
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
-    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
+    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm-notebook')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(
         "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/]"
@@ -351,11 +351,26 @@ def run():
 
     while True:
         print()
-        trial = questionary.select(
-            "Which trial do you want to use?",
-            choices=choices,
-            style=Style([("highlighted", "reverse")]),
-        ).ask()
+        print("Select a trial to use:")
+        for i, choice in enumerate(choices, 1):
+            print(f"[{i}] {choice.title}")
+        
+        print()
+        try:
+            print(f"Enter number (1-{len(choices)}): ", end="")
+            selection = input()
+            
+            if not selection: # Handle cancellation
+                 break
+                 
+            if not (selection.isdigit() and 1 <= int(selection) <= len(choices)):
+                print("Please enter a valid number")
+                continue
+                 
+            choice_index = int(selection) - 1
+            trial = choices[choice_index].value
+        except (KeyboardInterrupt, EOFError):
+            break
 
         if trial is None or trial == "":
             break
@@ -373,16 +388,33 @@ def run():
 
         while True:
             print()
-            action = questionary.select(
-                "What do you want to do with the decensored model?",
-                choices=[
-                    "Save the model to a local folder",
-                    "Upload the model to Hugging Face",
-                    "Chat with the model",
-                    "Nothing (return to trial selection menu)",
-                ],
-                style=Style([("highlighted", "reverse")]),
-            ).ask()
+            print()
+            action_choices = [
+                "Save the model to a local folder",
+                "Upload the model to Hugging Face",
+                "Chat with the model",
+                "Nothing (return to trial selection menu)",
+            ]
+            
+            print("What do you want to do with the decensored model?")
+            for i, choice in enumerate(action_choices, 1):
+                print(f"[{i}] {choice}")
+
+            print()
+            try:
+                print(f"Enter number (1-{len(action_choices)}): ", end="")
+                selection = input()
+                
+                if not selection:
+                    action = None
+                elif not (selection.isdigit() and 1 <= int(selection) <= len(action_choices)):
+                    print("Please enter a valid number")
+                    action = None # Loop again
+                    continue
+                else:
+                    action = action_choices[int(selection) - 1]
+            except (KeyboardInterrupt, EOFError):
+                break
 
             if action is None or action == "Nothing (return to trial selection menu)":
                 break
@@ -393,7 +425,8 @@ def run():
             try:
                 match action:
                     case "Save the model to a local folder":
-                        save_directory = questionary.path("Path to the folder:").ask()
+                        print("Path to the folder: ", end="")
+                        save_directory = input()
                         if not save_directory:
                             continue
 
@@ -408,9 +441,8 @@ def run():
                         # it's better to not persist credentials.
                         token = huggingface_hub.get_token()
                         if not token:
-                            token = questionary.password(
-                                "Hugging Face access token:"
-                            ).ask()
+                            print("Hugging Face access token: ", end="")
+                            token = input()
                         if not token:
                             continue
 
@@ -419,19 +451,20 @@ def run():
                             f"Logged in as [bold]{user['fullname']} ({user['email']})[/]"
                         )
 
-                        repo_id = questionary.text(
-                            "Name of repository:",
-                            default=f"{user['name']}/{Path(settings.model).name}-heretic",
-                        ).ask()
+                        default_repo = f"{user['name']}/{Path(settings.model).name}-heretic"
+                        print(f"Name of repository [{default_repo}]: ", end="")
+                        repo_id = input()
+                        if not repo_id:
+                            repo_id = default_repo
 
-                        visibility = questionary.select(
-                            "Should the repository be public or private?",
-                            choices=[
-                                "Public",
-                                "Private",
-                            ],
-                            style=Style([("highlighted", "reverse")]),
-                        ).ask()
+                        print("Should the repository be public or private?")
+                        print("[1] Public")
+                        print("[2] Private")
+                        
+                        print("Enter number (1-2): ", end="")
+                        vis_selection = input()
+                        
+                        visibility = "Private" if vis_selection == "2" else "Public"
                         private = visibility == "Private"
 
                         print("Uploading model...")
@@ -476,7 +509,7 @@ def run():
                     case "Chat with the model":
                         print()
                         print(
-                            "[cyan]Press Ctrl+C at any time to return to the menu.[/]"
+                            "[cyan]Press Ctrl+C or type '/exit' at any time to return to the menu.[/]"
                         )
 
                         chat = [
@@ -485,12 +518,15 @@ def run():
 
                         while True:
                             try:
-                                message = questionary.text(
-                                    "User:",
-                                    qmark=">",
-                                ).unsafe_ask()
+                                print("User: ", end="")
+                                message = input()
                                 if not message:
+                                    continue
+                                    
+                                if message.strip().lower() in ["/exit", "exit", "quit"]:
+                                    print("Returning to menu...")
                                     break
+
                                 chat.append({"role": "user", "content": message})
 
                                 print("[bold]Assistant:[/] ", end="")

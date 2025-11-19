@@ -89,7 +89,7 @@ def get_readme_intro(
 
     return f"""# This is a decensored version of {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}
+    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm-notebook")}
 
 ## Abliteration parameters
 

@@ -201,7 +201,7 @@ def run():
         p=2,
         dim=1,
     )
-    # we don't need the residuals after computing refusal directions
+    # We don't need the residuals after computing refusal directions.
     del good_residuals, bad_residuals
     empty_cache()
 
@@ -452,8 +452,11 @@ def run():
                             continue
 
                         user = huggingface_hub.whoami(token)
-                        fullname = user.get('fullname', user.get('name', 'Unknown'))
-                        email = user.get('email', 'Not provided')
+                        fullname = user.get(
+                            "fullname",
+                            user.get("name", "unknown user"),
+                        )
+                        email = user.get("email", "no email found")
                         print(
                             f"Logged in as [bold]{fullname} ({email})[/]"
                         )

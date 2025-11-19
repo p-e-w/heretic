@@ -1,15 +1,14 @@
 [project]
-name = "heretic-llm-notebook"
-version = "1.1.0"
-description = "Fully automatic censorship removal for language models (Notebook & Multimodal Edition)"
+name = "heretic-llm"
+version = "1.0.1"
+description = "Fully automatic censorship removal for language models"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [
-    { name = "Philipp Emanuel Weidmann", email = "pew@worldwidemann.com" },
-    { name = "Vinay Umrethe", email = "vinayumrethe99@gmail.com" }
+    { name = "Philipp Emanuel Weidmann", email = "pew@worldwidemann.com" }
 ]
 requires-python = ">=3.10"
-keywords = ["llm", "transformer", "abliteration", "multimodal", "kaggle", "colab", "vision-language", "vlm"]
+keywords = ["llm", "transformer", "abliteration"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -31,7 +30,12 @@ dependencies = [
     "pydantic-settings>=2.10.1",
     "questionary>=2.1.1",
     "rich>=14.1.0",
-    "transformers>=4.57.1",
+    "transformers>=4.55.2",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.5",
 ]
 
 [project.urls]

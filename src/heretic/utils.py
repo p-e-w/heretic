@@ -35,6 +35,9 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
 
 
 def empty_cache():
+    # Collecting garbage is not an idempotent operation, and to avoid OOM errors,
+    # gc.collect() has to be called both before and after emptying the backend cache.
+    # See https://github.com/p-e-w/heretic/pull/17 for details.
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

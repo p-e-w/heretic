@@ -140,6 +140,22 @@ The development of Heretic was informed by:
 * [Jim Lai's article describing "projected abliteration"](https://huggingface.co/blog/grimjim/projected-abliteration)
 
 
+## Citation
+
+If you use Heretic for your research, please cite it using the following BibTeX entry:
+
+```bibtex
+@misc{heretic,
+  author = {Weidmann, Philipp Emanuel},
+  title = {Heretic: Fully automatic censorship removal for language models},
+  year = {2025},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/p-e-w/heretic}}
+}
+```
+
+
 ## License
 
 Copyright &copy; 2025  Philipp Emanuel Weidmann (<pew@worldwidemann.com>)

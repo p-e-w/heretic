@@ -386,7 +386,7 @@ def run():
                             continue
 
                         print("モデルを保存中...")
-                        model.model.save_ pretrained(save_directory)
+                        model.model.save_pretrained(save_directory)
                         model.tokenizer.save_pretrained(save_directory)
                         print(f"モデルを [bold]{save_directory}[/] に保存しました。")
 

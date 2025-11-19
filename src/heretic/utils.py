@@ -1,5 +1,15 @@
 import gc
+from dataclasses import asdict
+from importlib.metadata import version
 from typing import TypeVar
+
+import torch
+from accelerate.utils import (
+    is_mlu_available,
+    is_musa_available,
+    is_sdaa_available,
+    is_xpu_available,
+)
 from datasets import load_dataset
 from optuna import Trial
 from rich.console import Console
@@ -80,7 +90,9 @@ def get_readme_intro(
 
     return f"""# This is a decensored version of {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm-notebook")}
+    }, made using [Heretic](https://github.com/p-e-w/heretic) v{
+        version("heretic-llm")
+    }
 
 ## Abliteration parameters
 

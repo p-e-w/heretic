@@ -12,7 +12,6 @@ import transformers
 from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
-    AutoModelForCausalLM,
     AutoTokenizer,
     BatchEncoding,
     PreTrainedTokenizerBase,
@@ -93,16 +92,16 @@ class Model:
                         device_map=settings.device_map,
                         trust_remote_code=settings.trust_remote_code,
                     )
-                    
+
                     # If successful, cache the class and break the loop
                     self.model_class = model_cls
                     break
                 except Exception:
                     continue
-            
+
             if self.model is None:
                 empty_cache()
-                print(f"[red]Failed[/] (Could not load with any known model class)")
+                print("[red]Failed[/] (Could not load with any known model class)")
                 continue
 
             try:
@@ -149,18 +148,18 @@ class Model:
         # Most multimodal models (Qwen VL, etc) often nest the LLM under .language_model
         with suppress(Exception):
             return self.model.language_model.model.layers
-            
+
         with suppress(Exception):
             return self.model.language_model.layers
 
         # Text-only models.
         with suppress(Exception):
             return self.model.model.layers
-            
+
         # Fallback for some other architectures
         with suppress(Exception):
             return self.model.layers
-            
+
         raise Exception("Could not locate transformer layers in the model.")
 
     def get_layer_matrices(self, layer_index: int) -> dict[str, list[Tensor]]:
@@ -306,7 +305,9 @@ class Model:
 
         return inputs, self._generate_with_fallbacks(inputs, **kwargs)
 
-    def _generate_with_fallbacks(self, inputs: BatchEncoding, **kwargs) -> GenerateOutput | LongTensor:
+    def _generate_with_fallbacks(
+        self, inputs: BatchEncoding, **kwargs
+    ) -> GenerateOutput | LongTensor:
         # Standard generation
         try:
             return self.model.generate(
@@ -327,8 +328,8 @@ class Model:
                     do_sample=False,
                 )
             except Exception:
-                pass # Fallback 1 failed, try next
-            
+                pass  # Fallback 1 failed, try next
+
             # Fallback 2: Try passing a dummy image tensor
             # Some models assert that pixel_values must not be None.
             try:
@@ -337,7 +338,7 @@ class Model:
                 dummy_pixel_values = torch.zeros(
                     (batch_size, 3, 224, 224),
                     device=self.model.device,
-                    dtype=self.model.dtype
+                    dtype=self.model.dtype,
                 )
                 return self.model.generate(
                     **inputs,
@@ -347,8 +348,8 @@ class Model:
                     do_sample=False,
                 )
             except Exception:
-                pass # Fallback 2 failed
-                
+                pass  # Fallback 2 failed
+
             # If all fallbacks fail, re-raise the original exception
             raise e
 

@@ -11,7 +11,6 @@ from pathlib import Path
 
 import huggingface_hub
 import optuna
-import questionary
 import torch
 import torch.nn.functional as F
 import transformers
@@ -28,7 +27,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
-from questionary import Choice, Style
+from questionary import Choice
 from rich.traceback import install
 
 from .config import Settings
@@ -50,7 +49,7 @@ def run():
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
-    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm-notebook')}")
+    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(
         "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/]"
@@ -95,7 +94,7 @@ def run():
     elif is_npu_available():
         print(f"CANN version: [bold]{torch.version.cann}[/]")
     elif torch.backends.mps.is_available():
-        print(f"GPU type: [bold]Apple Metal (MPS)[/]")
+        print("GPU type: [bold]Apple Metal (MPS)[/]")
     else:
         print(
             "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"
@@ -359,19 +358,19 @@ def run():
         print("Select a trial to use:")
         for i, choice in enumerate(choices, 1):
             print(f"[{i}] {choice.title}")
-        
+
         print()
         try:
             print(f"Enter number (1-{len(choices)}): ", end="")
             selection = input()
-            
-            if not selection: # Handle cancellation
-                 break
-                 
+
+            if not selection:  # Handle cancellation
+                break
+
             if not (selection.isdigit() and 1 <= int(selection) <= len(choices)):
                 print("Please enter a valid number")
                 continue
-                 
+
             choice_index = int(selection) - 1
             trial = choices[choice_index].value
         except (KeyboardInterrupt, EOFError):
@@ -400,7 +399,7 @@ def run():
                 "Chat with the model",
                 "Nothing (return to trial selection menu)",
             ]
-            
+
             print("What do you want to do with the decensored model?")
             for i, choice in enumerate(action_choices, 1):
                 print(f"[{i}] {choice}")
@@ -409,12 +408,14 @@ def run():
             try:
                 print(f"Enter number (1-{len(action_choices)}): ", end="")
                 selection = input()
-                
+
                 if not selection:
                     action = None
-                elif not (selection.isdigit() and 1 <= int(selection) <= len(action_choices)):
+                elif not (
+                    selection.isdigit() and 1 <= int(selection) <= len(action_choices)
+                ):
                     print("Please enter a valid number")
-                    action = None # Loop again
+                    action = None  # Loop again
                     continue
                 else:
                     action = action_choices[int(selection) - 1]
@@ -457,11 +458,11 @@ def run():
                             user.get("name", "unknown user"),
                         )
                         email = user.get("email", "no email found")
-                        print(
-                            f"Logged in as [bold]{fullname} ({email})[/]"
-                        )
+                        print(f"Logged in as [bold]{fullname} ({email})[/]")
 
-                        default_repo = f"{user['name']}/{Path(settings.model).name}-heretic"
+                        default_repo = (
+                            f"{user['name']}/{Path(settings.model).name}-heretic"
+                        )
                         print(f"Name of repository [{default_repo}]: ", end="")
                         repo_id = input()
                         if not repo_id:
@@ -470,10 +471,10 @@ def run():
                         print("Should the repository be public or private?")
                         print("[1] Public")
                         print("[2] Private")
-                        
+
                         print("Enter number (1-2): ", end="")
                         vis_selection = input()
-                        
+
                         visibility = "Private" if vis_selection == "2" else "Public"
                         private = visibility == "Private"
 
@@ -532,7 +533,7 @@ def run():
                                 message = input()
                                 if not message:
                                     continue
-                                    
+
                                 if message.strip().lower() in ["/exit", "exit", "quit"]:
                                     print("Returning to menu...")
                                     break

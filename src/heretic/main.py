@@ -49,7 +49,7 @@ def run():
     # Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
     if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-    
+
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
@@ -421,11 +421,9 @@ def run():
                             continue
 
                         user = huggingface_hub.whoami(token)
-                        fullname = user.get('fullname', user.get('name', 'Unknown'))
-                        email = user.get('email', 'Not provided')
-                        print(
-                            f"Logged in as [bold]{fullname} ({email})[/]"
-                        )
+                        fullname = user.get("fullname", user.get("name", "Unknown"))
+                        email = user.get("email", "Not provided")
+                        print(f"Logged in as [bold]{fullname} ({email})[/]")
 
                         repo_id = questionary.text(
                             "Name of repository:",

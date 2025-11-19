@@ -49,6 +49,7 @@ def empty_cache():
     # gc.collect() has to be called both before and after emptying the backend cache.
     # See https://github.com/p-e-w/heretic/pull/17 for details.
     gc.collect()
+
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     elif is_xpu_available():

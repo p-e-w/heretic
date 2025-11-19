@@ -34,12 +34,12 @@ from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
+    empty_cache,
     format_duration,
     get_readme_intro,
     get_trial_parameters,
     load_prompts,
     print,
-    empty_cache,
 )
 
 

@@ -33,6 +33,11 @@ dependencies = [
     "transformers>=4.55.2",
 ]
 
+[dependency-groups]
+dev = [
+    "ruff>=0.14.5",
+]
+
 [project.urls]
 Homepage = "https://github.com/p-e-w/heretic"
 Documentation = "https://github.com/p-e-w/heretic"

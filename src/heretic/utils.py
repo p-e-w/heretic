@@ -1,18 +1,3 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
-# Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
-
-import gc
-from dataclasses import asdict
-from importlib.metadata import version
-from typing import TypeVar
-
-import torch
-from accelerate.utils import (
-    is_mlu_available,
-    is_musa_available,
-    is_sdaa_available,
-    is_xpu_available,
-)
 from datasets import load_dataset
 from optuna import Trial
 from rich.console import Console
@@ -48,6 +33,7 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
 
 
 def empty_cache():
+    gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     elif is_xpu_available():

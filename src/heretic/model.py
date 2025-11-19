@@ -12,11 +12,11 @@ import transformers
 from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
+    AutoProcessor,
     AutoTokenizer,
     BatchEncoding,
     PreTrainedTokenizerBase,
     TextStreamer,
-    AutoProcessor,
 )
 from transformers.generation.utils import GenerateOutput
 

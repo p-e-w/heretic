@@ -39,7 +39,8 @@ class Model:
         print(f"Loading model [bold]{settings.model}[/]...")
 
         self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
-            settings.model
+            settings.model,
+            trust_remote_code=settings.trust_remote_code,
         )
 
         # Fallback for tokenizers that don't declare a special pad token.
@@ -57,6 +58,7 @@ class Model:
                     settings.model,
                     dtype=dtype,
                     device_map=settings.device_map,
+                    trust_remote_code=settings.trust_remote_code,
                 )
 
                 # A test run can reveal dtype-related problems such as the infamous
@@ -93,6 +95,7 @@ class Model:
             self.settings.model,
             dtype=dtype,
             device_map=self.settings.device_map,
+            trust_remote_code=self.settings.trust_remote_code,
         )
 
     def get_layers(self) -> ModuleList:

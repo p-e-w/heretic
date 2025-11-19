@@ -46,6 +46,11 @@ class Settings(BaseSettings):
         description="Device map to pass to Accelerate when loading the model.",
     )
 
+    trust_remote_code: bool = Field(
+        default=False,
+        description="Whether to trust remote code when loading the model.",
+    )
+
     batch_size: int = Field(
         default=0,  # auto
         description="Number of input sequences to process in parallel (0 = auto).",

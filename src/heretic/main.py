@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-import os
 import math
+import os
 import sys
 import time
 import warnings
@@ -41,7 +41,6 @@ from .utils import (
     get_trial_parameters,
     load_prompts,
     print,
-    empty_cache,
 )
 
 
@@ -96,7 +95,7 @@ def run():
     elif is_npu_available():
         print(f"CANN version: [bold]{torch.version.cann}[/]")
     elif torch.backends.mps.is_available():
-        print(f"GPU type: [bold]Apple Metal (MPS)[/]")
+        print("GPU type: [bold]Apple Metal (MPS)[/]")
     else:
         print(
             "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"

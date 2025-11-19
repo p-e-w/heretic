@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Caches
+/.ruff_cache/
+
 # Editors
 /.vscode/
 

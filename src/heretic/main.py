@@ -91,6 +91,18 @@ def run():
     elif is_npu_available():
         print(f"CANN version: [bold]{torch.version.cann}[/]")
     elif torch.backends.mps.is_available():
+        print(f"GPU type: [bold]Apple Metal (MPS)[/]")
+    else:
+        print(
+            "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"
+        )
+
+    # We don't need gradients as we only do inference.
+    torch.set_grad_enabled(False)
+
+    # While determining the optimal batch size, we will try many different batch sizes,
+    # resulting in many computation graphs being compiled. Raising the limit (default = 8)
+    # avoids errors from TorchDynamo assuming that something is wrong because we
     # recompile too often.
     torch._dynamo.config.cache_size_limit = 64
 

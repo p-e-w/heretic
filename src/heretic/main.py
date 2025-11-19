@@ -35,12 +35,12 @@ from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
+    empty_cache,
     format_duration,
     get_readme_intro,
     get_trial_parameters,
     load_prompts,
     print,
-    empty_cache,
 )
 
 
@@ -95,7 +95,7 @@ def run():
     elif is_npu_available():
         print(f"CANN version: [bold]{torch.version.cann}[/]")
     elif torch.backends.mps.is_available():
-        print(f"GPU type: [bold]Apple Metal (MPS)[/]")
+        print("GPU type: [bold]Apple Metal (MPS)[/]")
     else:
         print(
             "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"
@@ -457,9 +457,7 @@ def run():
                             user.get("name", "unknown user"),
                         )
                         email = user.get("email", "no email found")
-                        print(
-                            f"Logged in as [bold]{fullname} ({email})[/]"
-                        )
+                        print(f"Logged in as [bold]{fullname} ({email})[/]")
 
                         default_repo = f"{user['name']}/{Path(settings.model).name}-heretic"
                         print(f"Name of repository [{default_repo}]: ", end="")

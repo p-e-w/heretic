@@ -14,6 +14,7 @@ from transformers import (
     AutoModel,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
+    AutoProcessor,
     AutoTokenizer,
     BatchEncoding,
     PreTrainedTokenizerBase,
@@ -40,9 +41,15 @@ class Model:
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
-        self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
-            settings.model
-        )
+        try:
+            self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
+                settings.model
+            )
+        except Exception:
+            try:
+                self.tokenizer = AutoProcessor.from_pretrained(settings.model)
+            except Exception as error:
+                raise Exception(f"Failed to load tokenizer or processor: {error}")
 
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:

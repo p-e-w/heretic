@@ -8,11 +8,12 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-import transformers
 from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
-    AutoProcessor,
+    AutoModel,
+    AutoModelForCausalLM,
+    AutoModelForImageTextToText,
     AutoTokenizer,
     BatchEncoding,
     PreTrainedTokenizerBase,
@@ -35,25 +36,13 @@ class AbliterationParameters:
 class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.model_class = None
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
-        # Try loading tokenizer, fallback to processor
-        try:
-            self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
-                settings.model,
-                trust_remote_code=settings.trust_remote_code,
-            )
-        except Exception:
-            try:
-                self.tokenizer = AutoProcessor.from_pretrained(
-                    settings.model,
-                    trust_remote_code=settings.trust_remote_code,
-                )
-            except Exception as error:
-                raise Exception(f"Failed to load tokenizer or processor: {error}")
+        self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
+            settings.model
+        )
 
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:
@@ -63,57 +52,38 @@ class Model:
 
         self.model = None
 
-        # List of classes to try, in order of preference.
-        # We use strings to avoid ImportErrors if the user has an older transformers version.
-        candidate_classes = [
-            "AutoModelForCausalLM",
-            "AutoModelForImageTextToText",
-            "Qwen3VLForConditionalGeneration",
-            "Qwen3VLMoeForConditionalGeneration",
-            "Qwen3OmniMoeForConditionalGeneration",
-            "Gemma3ForConditionalGeneration",
-            "Gemma3nForConditionalGeneration",
-            "AutoModel",
-        ]
-
         for dtype in settings.dtypes:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
 
-            for class_name in candidate_classes:
+            try:
                 try:
-                    # Dynamically get the class from transformers module
-                    model_cls = getattr(transformers, class_name, None)
-                    if model_cls is None:
-                        continue
-
-                    self.model = model_cls.from_pretrained(
+                    self.model = AutoModelForCausalLM.from_pretrained(
                         settings.model,
                         dtype=dtype,
                         device_map=settings.device_map,
-                        trust_remote_code=settings.trust_remote_code,
                     )
-
-                    # If successful, cache the class and break the loop
-                    self.model_class = model_cls
-                    break
                 except Exception:
-                    continue
+                    try:
+                        self.model = AutoModelForImageTextToText.from_pretrained(
+                            settings.model,
+                            dtype=dtype,
+                            device_map=settings.device_map,
+                        )
+                    except Exception:
+                        self.model = AutoModel.from_pretrained(
+                            settings.model,
+                            dtype=dtype,
+                            device_map=settings.device_map,
+                        )
 
-            if self.model is None:
-                empty_cache()
-                print("[red]Failed[/] (Could not load with any known model class)")
-                continue
-
-            try:
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
                 # (https://github.com/meta-llama/llama/issues/380).
                 self.generate(["Test"], max_new_tokens=1)
             except Exception as error:
                 self.model = None
-                self.model_class = None
                 empty_cache()
-                print(f"[red]Failed[/] ({repr(error)})")
+                print(f"[red]Failed[/] ({error})")
                 continue
 
             print("[green]Ok[/]")
@@ -136,16 +106,17 @@ class Model:
         self.model = None
         empty_cache()
 
-        # Use the cached model class directly
-        self.model = self.model_class.from_pretrained(
+        self.model = self.model.__class__.from_pretrained(
             self.settings.model,
             dtype=dtype,
             device_map=self.settings.device_map,
-            trust_remote_code=self.settings.trust_remote_code,
         )
 
     def get_layers(self) -> ModuleList:
-        # Most multimodal models (Qwen VL, etc) often nest the LLM under .language_model
+        # Most multimodal models.
+        with suppress(Exception):
+            return self.model.model.language_model.layers
+
         with suppress(Exception):
             return self.model.language_model.model.layers
 
@@ -168,6 +139,11 @@ class Model:
         matrices = {}
 
         def try_add(component: str, matrix: Any):
+            # Handle Triton tensors (e.g., from MXFP4 quantization) by extracting
+            # the underlying PyTorch tensor via the .data attribute.
+            if hasattr(matrix, "data") and torch.is_tensor(matrix.data):
+                matrix = matrix.data
+
             assert torch.is_tensor(matrix)
 
             if component not in matrices:
@@ -314,7 +290,7 @@ class Model:
                 **inputs,
                 **kwargs,
                 pad_token_id=self.tokenizer.eos_token_id,
-                do_sample=False,
+                do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
             )
         except (AssertionError, TypeError, ValueError) as e:
             # Fallback 1: Try explicitly passing pixel_values=None

@@ -28,11 +28,6 @@ class Settings(BaseSettings):
         description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model.",
     )
 
-    trust_remote_code: bool = Field(
-        default=False,
-        description="Whether to allow the model to execute custom code.",
-    )
-
     dtypes: list[str] = Field(
         default=[
             # In practice, "auto" almost always means bfloat16.

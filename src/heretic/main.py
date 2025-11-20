@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+import getpass
 import math
 import os
 import sys
@@ -8,9 +9,11 @@ import time
 import warnings
 from importlib.metadata import version
 from pathlib import Path
+from typing import Any
 
 import huggingface_hub
 import optuna
+import questionary
 import torch
 import torch.nn.functional as F
 import transformers
@@ -27,7 +30,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
-from questionary import Choice
+from questionary import Choice, Style
 from rich.traceback import install
 
 from .config import Settings
@@ -41,6 +44,76 @@ from .utils import (
     load_prompts,
     print,
 )
+
+
+def is_notebook() -> bool:
+    try:
+        from IPython import get_ipython
+
+        if "IPKernelApp" not in get_ipython().config:
+            return False
+    except ImportError:
+        return False
+    except AttributeError:
+        return False
+    return True
+
+
+def ui_select(message: str, choices: list[Any], style: Style = None) -> Any:
+    if is_notebook():
+        print()
+        print(message)
+        real_choices = []
+        for i, choice in enumerate(choices, 1):
+            if isinstance(choice, Choice):
+                print(f"[{i}] {choice.title}")
+                real_choices.append(choice.value)
+            else:
+                print(f"[{i}] {choice}")
+                real_choices.append(choice)
+
+        print()
+        while True:
+            print(f"Enter number (1-{len(real_choices)}): ", end="")
+            selection = input()
+            if not selection:
+                return None
+            if selection.isdigit() and 1 <= int(selection) <= len(real_choices):
+                return real_choices[int(selection) - 1]
+            print("Please enter a valid number")
+    else:
+        return questionary.select(message, choices=choices, style=style).ask()
+
+
+def ui_text(message: str, default: str = None, qmark: str = "?") -> str:
+    if is_notebook():
+        prompt = f"{message} [{default}]: " if default else f"{message}: "
+        if qmark == ">":  # Chat mode
+            prompt = "User: "
+
+        print(prompt, end="")
+        value = input()
+        return value if value else default
+    else:
+        return questionary.text(
+            message, default=default or "", qmark=qmark
+        ).unsafe_ask()
+
+
+def ui_password(message: str) -> str:
+    if is_notebook():
+        print(f"{message} ", end="")
+        return getpass.getpass("")
+    else:
+        return questionary.password(message).ask()
+
+
+def ui_path(message: str) -> str:
+    if is_notebook():
+        print(f"{message} ", end="")
+        return input()
+    else:
+        return questionary.path(message).ask()
 
 
 def run():
@@ -355,26 +428,11 @@ def run():
 
     while True:
         print()
-        print("Select a trial to use:")
-        for i, choice in enumerate(choices, 1):
-            print(f"[{i}] {choice.title}")
-
-        print()
-        try:
-            print(f"Enter number (1-{len(choices)}): ", end="")
-            selection = input()
-
-            if not selection:  # Handle cancellation
-                break
-
-            if not (selection.isdigit() and 1 <= int(selection) <= len(choices)):
-                print("Please enter a valid number")
-                continue
-
-            choice_index = int(selection) - 1
-            trial = choices[choice_index].value
-        except (KeyboardInterrupt, EOFError):
-            break
+        trial = ui_select(
+            "Which trial do you want to use?",
+            choices=choices,
+            style=Style([("highlighted", "reverse")]),
+        )
 
         if trial is None or trial == "":
             break
@@ -392,35 +450,16 @@ def run():
 
         while True:
             print()
-            print()
-            action_choices = [
-                "Save the model to a local folder",
-                "Upload the model to Hugging Face",
-                "Chat with the model",
-                "Nothing (return to trial selection menu)",
-            ]
-
-            print("What do you want to do with the decensored model?")
-            for i, choice in enumerate(action_choices, 1):
-                print(f"[{i}] {choice}")
-
-            print()
-            try:
-                print(f"Enter number (1-{len(action_choices)}): ", end="")
-                selection = input()
-
-                if not selection:
-                    action = None
-                elif not (
-                    selection.isdigit() and 1 <= int(selection) <= len(action_choices)
-                ):
-                    print("Please enter a valid number")
-                    action = None  # Loop again
-                    continue
-                else:
-                    action = action_choices[int(selection) - 1]
-            except (KeyboardInterrupt, EOFError):
-                break
+            action = ui_select(
+                "What do you want to do with the decensored model?",
+                choices=[
+                    "Save the model to a local folder",
+                    "Upload the model to Hugging Face",
+                    "Chat with the model",
+                    "Nothing (return to trial selection menu)",
+                ],
+                style=Style([("highlighted", "reverse")]),
+            )
 
             if action is None or action == "Nothing (return to trial selection menu)":
                 break
@@ -431,8 +470,7 @@ def run():
             try:
                 match action:
                     case "Save the model to a local folder":
-                        print("Path to the folder: ", end="")
-                        save_directory = input()
+                        save_directory = ui_path("Path to the folder:")
                         if not save_directory:
                             continue
 
@@ -447,8 +485,7 @@ def run():
                         # it's better to not persist credentials.
                         token = huggingface_hub.get_token()
                         if not token:
-                            print("Hugging Face access token: ", end="")
-                            token = input()
+                            token = ui_password("Hugging Face access token:")
                         if not token:
                             continue
 
@@ -460,22 +497,19 @@ def run():
                         email = user.get("email", "no email found")
                         print(f"Logged in as [bold]{fullname} ({email})[/]")
 
-                        default_repo = (
-                            f"{user['name']}/{Path(settings.model).name}-heretic"
+                        repo_id = ui_text(
+                            "Name of repository:",
+                            default=f"{user['name']}/{Path(settings.model).name}-heretic",
                         )
-                        print(f"Name of repository [{default_repo}]: ", end="")
-                        repo_id = input()
-                        if not repo_id:
-                            repo_id = default_repo
 
-                        print("Should the repository be public or private?")
-                        print("[1] Public")
-                        print("[2] Private")
-
-                        print("Enter number (1-2): ", end="")
-                        vis_selection = input()
-
-                        visibility = "Private" if vis_selection == "2" else "Public"
+                        visibility = ui_select(
+                            "Should the repository be public or private?",
+                            choices=[
+                                "Public",
+                                "Private",
+                            ],
+                            style=Style([("highlighted", "reverse")]),
+                        )
                         private = visibility == "Private"
 
                         print("Uploading model...")
@@ -520,7 +554,7 @@ def run():
                     case "Chat with the model":
                         print()
                         print(
-                            "[cyan]Press Ctrl+C or type '/exit' at any time to return to the menu.[/]"
+                            "[cyan]Press Ctrl+C at any time to return to the menu.[/]"
                         )
 
                         chat = [
@@ -529,15 +563,12 @@ def run():
 
                         while True:
                             try:
-                                print("User: ", end="")
-                                message = input()
+                                message = ui_text(
+                                    "User:",
+                                    qmark=">",
+                                )
                                 if not message:
-                                    continue
-
-                                if message.strip().lower() in ["/exit", "exit", "quit"]:
-                                    print("Returning to menu...")
                                     break
-
                                 chat.append({"role": "user", "content": message})
 
                                 print("[bold]Assistant:[/] ", end="")

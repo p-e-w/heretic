@@ -47,16 +47,29 @@ from .utils import (
 
 
 def is_notebook() -> bool:
+    # Check for Google Colab
+    if "google.colab" in sys.modules:
+        return True
+
+    # Check for Kaggle
+    if "KAGGLE_KERNEL_RUN_TYPE" in os.environ:
+        return True
+
     try:
         from IPython import get_ipython
 
-        if "IPKernelApp" not in get_ipython().config:
+        shell = get_ipython()
+        if shell is None:
             return False
-    except ImportError:
+
+        # ZMQInteractiveShell is the standard for Jupyter Notebooks
+        if shell.__class__.__name__ == "ZMQInteractiveShell":
+            return True
+
+    except (ImportError, NameError, AttributeError):
         return False
-    except AttributeError:
-        return False
-    return True
+
+    return False
 
 
 def ui_select(message: str, choices: list[Any], style: Style = None) -> Any:

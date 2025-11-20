@@ -108,12 +108,13 @@ class Model:
 
     def reload_model(self):
         dtype = self.model.dtype
+        model_class = self.model.__class__
 
         # Purge existing model object from memory to make space.
         self.model = None
         empty_cache()
 
-        self.model = self.model.__class__.from_pretrained(
+        self.model = model_class.from_pretrained(
             self.settings.model,
             dtype=dtype,
             device_map=self.settings.device_map,

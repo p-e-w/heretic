@@ -121,3 +121,117 @@ def get_readme_intro(
 -----
 
 """
+
+
+def is_notebook() -> bool:
+    import os
+    import sys
+
+    # 1. Check for Google Colab environment variables
+    if "COLAB_GPU" in os.environ or "COLAB_RELEASE_TAG" in os.environ:
+        return True
+
+    # 2. Check for Google Colab module
+    if "google.colab" in sys.modules:
+        return True
+
+    # 3. Check for Kaggle environment variables
+    if (
+        "KAGGLE_KERNEL_RUN_TYPE" in os.environ
+        or "KAGGLE_DATA_PROXY_TOKEN" in os.environ
+    ):
+        return True
+
+    # 4. Check IPython shell type
+    try:
+        from IPython import get_ipython
+
+        shell = get_ipython()
+        if shell is None:
+            return False
+
+        shell_name = shell.__class__.__name__
+        # Standard Jupyter/Colab shells
+        if shell_name in ["ZMQInteractiveShell", "Shell"]:
+            return True
+
+        # Some other environments might have different shell names but still be notebooks
+        if "google.colab" in str(shell.__class__):
+            return True
+
+    except (ImportError, NameError, AttributeError):
+        return False
+
+    return False
+
+
+def prompt_select(message: str, choices: list, style=None):
+    import questionary
+    from questionary import Choice
+
+    if is_notebook():
+        print()
+        print(message)
+        real_choices = []
+        for i, choice in enumerate(choices, 1):
+            if isinstance(choice, Choice):
+                print(f"[{i}] {choice.title}")
+                real_choices.append(choice.value)
+            else:
+                print(f"[{i}] {choice}")
+                real_choices.append(choice)
+
+        print()
+        while True:
+            print(f"Enter number (1-{len(real_choices)}): ", end="")
+            selection = input()
+            if not selection:
+                return None
+            if selection.isdigit() and 1 <= int(selection) <= len(real_choices):
+                return real_choices[int(selection) - 1]
+            print("Please enter a valid number")
+    else:
+        return questionary.select(message, choices=choices, style=style).ask()
+
+
+def prompt_text(message: str, default: str = None, qmark: str = "?") -> str:
+    import questionary
+
+    if is_notebook():
+        prompt = f"{message} [{default}]: " if default else f"{message}: "
+        if qmark == ">":  # Chat mode
+            prompt = "User: "
+
+        print(prompt, end="")
+        value = input()
+
+        # Handle exit commands in notebook chat mode
+        if qmark == ">" and value.strip().lower() in ["/exit", "exit", "quit"]:
+            return ""
+
+        return value if value else default
+    else:
+        return questionary.text(
+            message, default=default or "", qmark=qmark
+        ).unsafe_ask()
+
+
+def prompt_password(message: str) -> str:
+    import getpass
+    import questionary
+
+    if is_notebook():
+        print(f"{message} ", end="")
+        return getpass.getpass("")
+    else:
+        return questionary.password(message).ask()
+
+
+def prompt_path(message: str) -> str:
+    import questionary
+
+    if is_notebook():
+        print(f"{message} ", end="")
+        return input()
+    else:
+        return questionary.path(message).ask()

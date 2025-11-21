@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-import getpass
 import math
 import os
 import sys
@@ -9,11 +8,9 @@ import time
 import warnings
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
 
 import huggingface_hub
 import optuna
-import questionary
 import torch
 import torch.nn.functional as F
 import transformers
@@ -43,90 +40,11 @@ from .utils import (
     get_trial_parameters,
     load_prompts,
     print,
+    prompt_password,
+    prompt_path,
+    prompt_select,
+    prompt_text,
 )
-
-
-def is_notebook() -> bool:
-    # Check for Google Colab
-    if "google.colab" in sys.modules:
-        return True
-
-    # Check for Kaggle
-    if "KAGGLE_KERNEL_RUN_TYPE" in os.environ:
-        return True
-
-    try:
-        from IPython import get_ipython
-
-        shell = get_ipython()
-        if shell is None:
-            return False
-
-        # ZMQInteractiveShell is the standard for Jupyter Notebooks
-        if shell.__class__.__name__ == "ZMQInteractiveShell":
-            return True
-
-    except (ImportError, NameError, AttributeError):
-        return False
-
-    return False
-
-
-def ui_select(message: str, choices: list[Any], style: Style = None) -> Any:
-    if is_notebook():
-        print()
-        print(message)
-        real_choices = []
-        for i, choice in enumerate(choices, 1):
-            if isinstance(choice, Choice):
-                print(f"[{i}] {choice.title}")
-                real_choices.append(choice.value)
-            else:
-                print(f"[{i}] {choice}")
-                real_choices.append(choice)
-
-        print()
-        while True:
-            print(f"Enter number (1-{len(real_choices)}): ", end="")
-            selection = input()
-            if not selection:
-                return None
-            if selection.isdigit() and 1 <= int(selection) <= len(real_choices):
-                return real_choices[int(selection) - 1]
-            print("Please enter a valid number")
-    else:
-        return questionary.select(message, choices=choices, style=style).ask()
-
-
-def ui_text(message: str, default: str = None, qmark: str = "?") -> str:
-    if is_notebook():
-        prompt = f"{message} [{default}]: " if default else f"{message}: "
-        if qmark == ">":  # Chat mode
-            prompt = "User: "
-
-        print(prompt, end="")
-        value = input()
-        return value if value else default
-    else:
-        return questionary.text(
-            message, default=default or "", qmark=qmark
-        ).unsafe_ask()
-
-
-def ui_password(message: str) -> str:
-    if is_notebook():
-        print(f"{message} ", end="")
-        return getpass.getpass("")
-    else:
-        return questionary.password(message).ask()
-
-
-def ui_path(message: str) -> str:
-    if is_notebook():
-        print(f"{message} ", end="")
-        return input()
-    else:
-        return questionary.path(message).ask()
 
 
 def run():
@@ -441,7 +359,7 @@ def run():
 
     while True:
         print()
-        trial = ui_select(
+        trial = prompt_select(
             "Which trial do you want to use?",
             choices=choices,
             style=Style([("highlighted", "reverse")]),
@@ -463,7 +381,7 @@ def run():
 
         while True:
             print()
-            action = ui_select(
+            action = prompt_select(
                 "What do you want to do with the decensored model?",
                 choices=[
                     "Save the model to a local folder",
@@ -483,7 +401,7 @@ def run():
             try:
                 match action:
                     case "Save the model to a local folder":
-                        save_directory = ui_path("Path to the folder:")
+                        save_directory = prompt_path("Path to the folder:")
                         if not save_directory:
                             continue
 
@@ -498,7 +416,7 @@ def run():
                         # it's better to not persist credentials.
                         token = huggingface_hub.get_token()
                         if not token:
-                            token = ui_password("Hugging Face access token:")
+                            token = prompt_password("Hugging Face access token:")
                         if not token:
                             continue
 
@@ -510,12 +428,12 @@ def run():
                         email = user.get("email", "no email found")
                         print(f"Logged in as [bold]{fullname} ({email})[/]")
 
-                        repo_id = ui_text(
+                        repo_id = prompt_text(
                             "Name of repository:",
                             default=f"{user['name']}/{Path(settings.model).name}-heretic",
                         )
 
-                        visibility = ui_select(
+                        visibility = prompt_select(
                             "Should the repository be public or private?",
                             choices=[
                                 "Public",
@@ -576,7 +494,7 @@ def run():
 
                         while True:
                             try:
-                                message = ui_text(
+                                message = prompt_text(
                                     "User:",
                                     qmark=">",
                                 )

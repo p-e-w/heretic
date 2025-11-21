@@ -3,9 +3,10 @@
 
 import gc
 import getpass
+import sys
 from dataclasses import asdict
 from importlib.metadata import version
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import questionary
 import torch
@@ -127,25 +128,11 @@ def get_readme_intro(
 
 
 def is_notebook() -> bool:
-    import os
-    import sys
-
-    # 1. Check for Google Colab environment variables
-    if "COLAB_GPU" in os.environ or "COLAB_RELEASE_TAG" in os.environ:
-        return True
-
-    # 2. Check for Google Colab module
+    # 1. Check for Google Colab module
     if "google.colab" in sys.modules:
         return True
 
-    # 3. Check for Kaggle environment variables
-    if (
-        "KAGGLE_KERNEL_RUN_TYPE" in os.environ
-        or "KAGGLE_DATA_PROXY_TOKEN" in os.environ
-    ):
-        return True
-
-    # 4. Check IPython shell type
+    # 2. Check IPython shell type
     try:
         from IPython import get_ipython
 
@@ -168,7 +155,7 @@ def is_notebook() -> bool:
     return False
 
 
-def prompt_select(message: str, choices: list, style=None):
+def prompt_select(message: str, choices: list, style=None) -> Any:
     if is_notebook():
         print()
         print(message)
@@ -194,24 +181,20 @@ def prompt_select(message: str, choices: list, style=None):
         return questionary.select(message, choices=choices, style=style).ask()
 
 
-def prompt_text(message: str, default: str = None, qmark: str = "?") -> str:
+def prompt_text(
+    message: str, default: str = None, qmark: str = "?", unsafe: bool = False
+) -> str:
     if is_notebook():
         prompt = f"{message} [{default}]: " if default else f"{message}: "
-        if qmark == ">":  # Chat mode
-            prompt = "User: "
-
         print(prompt, end="")
         value = input()
-
-        # Handle exit commands in notebook chat mode
-        if qmark == ">" and value.strip().lower() in ["/exit", "exit", "quit"]:
-            return ""
-
         return value if value else default
     else:
-        return questionary.text(
-            message, default=default or "", qmark=qmark
-        ).unsafe_ask()
+        question = questionary.text(message, default=default or "", qmark=qmark)
+        if unsafe:
+            return question.unsafe_ask()
+        else:
+            return question.ask()
 
 
 def prompt_password(message: str) -> str:

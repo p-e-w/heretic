@@ -520,6 +520,7 @@ def run():
                                 message = prompt_text(
                                     "User:",
                                     qmark=">",
+                                    unsafe=True,
                                 )
                                 if not message:
                                     break

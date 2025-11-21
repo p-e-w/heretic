@@ -42,11 +42,8 @@ class Model:
             self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
                 settings.model
             )
-        except Exception:
-            try:
-                self.tokenizer = AutoProcessor.from_pretrained(settings.model)
-            except Exception as error:
-                raise Exception(f"Failed to load tokenizer or processor: {error}")
+        except Exception as error:
+            raise Exception(f"Failed to load tokenizer: {error}")
 
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:
@@ -60,25 +57,11 @@ class Model:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
 
             try:
-                try:
-                    self.model = AutoModelForCausalLM.from_pretrained(
-                        settings.model,
-                        dtype=dtype,
-                        device_map=settings.device_map,
-                    )
-                except Exception:
-                    try:
-                        self.model = AutoModelForImageTextToText.from_pretrained(
-                            settings.model,
-                            dtype=dtype,
-                            device_map=settings.device_map,
-                        )
-                    except Exception:
-                        self.model = AutoModel.from_pretrained(
-                            settings.model,
-                            dtype=dtype,
-                            device_map=settings.device_map,
-                        )
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    settings.model,
+                    dtype=dtype,
+                    device_map=settings.device_map,
+                )
 
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
@@ -284,55 +267,12 @@ class Model:
             return_token_type_ids=False,
         ).to(self.model.device)
 
-        return inputs, self._generate_with_fallbacks(inputs, **kwargs)
-
-    def _generate_with_fallbacks(
-        self, inputs: BatchEncoding, **kwargs
-    ) -> GenerateOutput | LongTensor:
-        # Standard generation
-        try:
-            return self.model.generate(
-                **inputs,
-                **kwargs,
-                pad_token_id=self.tokenizer.eos_token_id,
-                do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
-            )
-        except (AssertionError, TypeError, ValueError) as e:
-            # Fallback 1: Try explicitly passing pixel_values=None
-            # Some models (like InternVL2) might expect this argument to be present.
-            try:
-                return self.model.generate(
-                    **inputs,
-                    **kwargs,
-                    pixel_values=None,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    do_sample=False,
-                )
-            except Exception:
-                pass  # Fallback 1 failed, try next
-
-            # Fallback 2: Try passing a dummy image tensor
-            # Some models assert that pixel_values must not be None.
-            try:
-                batch_size = inputs["input_ids"].shape[0]
-                # Standard ImageNet size 224x224, 3 channels
-                dummy_pixel_values = torch.zeros(
-                    (batch_size, 3, 224, 224),
-                    device=self.model.device,
-                    dtype=self.model.dtype,
-                )
-                return self.model.generate(
-                    **inputs,
-                    **kwargs,
-                    pixel_values=dummy_pixel_values,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    do_sample=False,
-                )
-            except Exception:
-                pass  # Fallback 2 failed
-
-            # If all fallbacks fail, re-raise the original exception
-            raise e
+        return inputs, self.model.generate(
+            **inputs,
+            **kwargs,
+            pad_token_id=self.tokenizer.eos_token_id,
+            do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
+        )
 
     def get_responses(self, prompts: list[str]) -> list[str]:
         inputs, outputs = self.generate(

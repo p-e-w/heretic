@@ -11,10 +11,7 @@ import torch.nn.functional as F
 from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
-    AutoModel,
     AutoModelForCausalLM,
-    AutoModelForImageTextToText,
-    AutoProcessor,
     AutoTokenizer,
     BatchEncoding,
     PreTrainedTokenizerBase,

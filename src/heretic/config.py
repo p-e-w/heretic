@@ -46,8 +46,8 @@ class Settings(BaseSettings):
         description="Device map to pass to Accelerate when loading the model.",
     )
 
-    trust_remote_code: bool = Field(
-        default=False,
+    trust_remote_code: bool | None = Field(
+        default=None,
         description="Whether to trust remote code when loading the model.",
     )
 

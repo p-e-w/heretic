@@ -43,6 +43,9 @@ class Model:
             trust_remote_code=settings.trust_remote_code,
         )
 
+        if settings.trust_remote_code is None:
+            settings.trust_remote_code = True
+
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token

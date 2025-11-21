@@ -3,7 +3,6 @@
 
 import gc
 import getpass
-
 from dataclasses import asdict
 from importlib.metadata import version
 from typing import Any, TypeVar

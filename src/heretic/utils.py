@@ -2,10 +2,12 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 import gc
+import getpass
 from dataclasses import asdict
 from importlib.metadata import version
 from typing import TypeVar
 
+import questionary
 import torch
 from accelerate.utils import (
     is_mlu_available,
@@ -15,6 +17,7 @@ from accelerate.utils import (
 )
 from datasets import load_dataset
 from optuna import Trial
+from questionary import Choice
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
@@ -166,9 +169,6 @@ def is_notebook() -> bool:
 
 
 def prompt_select(message: str, choices: list, style=None):
-    import questionary
-    from questionary import Choice
-
     if is_notebook():
         print()
         print(message)
@@ -195,8 +195,6 @@ def prompt_select(message: str, choices: list, style=None):
 
 
 def prompt_text(message: str, default: str = None, qmark: str = "?") -> str:
-    import questionary
-
     if is_notebook():
         prompt = f"{message} [{default}]: " if default else f"{message}: "
         if qmark == ">":  # Chat mode
@@ -217,9 +215,6 @@ def prompt_text(message: str, default: str = None, qmark: str = "?") -> str:
 
 
 def prompt_password(message: str) -> str:
-    import getpass
-    import questionary
-
     if is_notebook():
         print(f"{message} ", end="")
         return getpass.getpass("")
@@ -228,8 +223,6 @@ def prompt_password(message: str) -> str:
 
 
 def prompt_path(message: str) -> str:
-    import questionary
-
     if is_notebook():
         print(f"{message} ", end="")
         return input()

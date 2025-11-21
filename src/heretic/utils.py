@@ -155,7 +155,7 @@ def is_notebook() -> bool:
     return False
 
 
-def prompt_select(message: str, choices: list, style=None) -> Any:
+def prompt_select(message: str, choices: list[Any], style=None) -> Any:
     if is_notebook():
         print()
         print(message)

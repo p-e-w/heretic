@@ -3,6 +3,7 @@
 
 import gc
 import getpass
+
 from dataclasses import asdict
 from importlib.metadata import version
 from typing import Any, TypeVar
@@ -127,7 +128,7 @@ def get_readme_intro(
 
 
 def is_notebook() -> bool:
-    # 2. Check IPython shell type
+    # Check IPython shell type
     try:
         from IPython import get_ipython
 
@@ -146,8 +147,6 @@ def is_notebook() -> bool:
 
     except (ImportError, NameError, AttributeError):
         return False
-
-    return False
 
 
 def prompt_select(message: str, choices: list[Any], style=None) -> Any:

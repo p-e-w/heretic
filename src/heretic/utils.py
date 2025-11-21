@@ -3,7 +3,6 @@
 
 import gc
 import getpass
-import sys
 from dataclasses import asdict
 from importlib.metadata import version
 from typing import Any, TypeVar
@@ -128,10 +127,6 @@ def get_readme_intro(
 
 
 def is_notebook() -> bool:
-    # 1. Check for Google Colab module
-    if "google.colab" in sys.modules:
-        return True
-
     # 2. Check IPython shell type
     try:
         from IPython import get_ipython

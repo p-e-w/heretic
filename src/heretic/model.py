@@ -40,11 +40,11 @@ class Model:
 
         self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
             settings.model,
-            trust_remote_code=settings.trust_remote_code,
+            trust_remote_code=self.settings.trust_remote_code,
         )
 
-        if settings.trust_remote_code is None:
-            settings.trust_remote_code = True
+        if self.settings.trust_remote_code is None:
+            self.settings.trust_remote_code = True
 
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:
@@ -61,7 +61,7 @@ class Model:
                     settings.model,
                     dtype=dtype,
                     device_map=settings.device_map,
-                    trust_remote_code=settings.trust_remote_code,
+                    trust_remote_code=self.settings.trust_remote_code,
                 )
 
                 # A test run can reveal dtype-related problems such as the infamous

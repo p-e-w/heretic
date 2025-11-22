@@ -28,7 +28,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
-from questionary import Choice
+from questionary import Choice, Style
 from rich.table import Table
 from rich.traceback import install
 

@@ -12,6 +12,7 @@ from pathlib import Path
 import huggingface_hub
 import optuna
 import torch
+import torch.linalg as LA
 import torch.nn.functional as F
 import transformers
 from accelerate.utils import (
@@ -27,7 +28,8 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
-from questionary import Choice, Style
+from questionary import Choice
+from rich.table import Table
 from rich.traceback import install
 
 from .config import Settings
@@ -40,10 +42,6 @@ from .utils import (
     get_trial_parameters,
     load_prompts,
     print,
-    prompt_password,
-    prompt_path,
-    prompt_select,
-    prompt_text,
 )
 
 
@@ -56,7 +54,7 @@ def run():
         os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
-    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
+    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm-notebook')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(
         "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/]"
@@ -113,6 +111,7 @@ def run():
     # While determining the optimal batch size, we will try many different batch sizes,
     # resulting in many computation graphs being compiled. Raising the limit (default = 8)
     # avoids errors from TorchDynamo assuming that something is wrong because we
+
     # recompile too often.
     torch._dynamo.config.cache_size_limit = 64
 
@@ -207,6 +206,49 @@ def run():
         p=2,
         dim=1,
     )
+
+    if settings.print_refusal_geometry:
+        table = Table()
+        table.add_column("Layer", justify="right")
+        table.add_column("S(g,b)", justify="right")
+        table.add_column("S(g,r)", justify="right")
+        table.add_column("S(b,r)", justify="right")
+        table.add_column("|g|", justify="right")
+        table.add_column("|b|", justify="right")
+        table.add_column("|r|", justify="right")
+
+        g = good_residuals.mean(dim=0)
+        b = bad_residuals.mean(dim=0)
+        r = b - g
+
+        g_b_similarities = F.cosine_similarity(g, b, dim=-1)
+        g_r_similarities = F.cosine_similarity(g, r, dim=-1)
+        b_r_similarities = F.cosine_similarity(b, r, dim=-1)
+
+        g_norms = LA.vector_norm(g, dim=-1)
+        b_norms = LA.vector_norm(b, dim=-1)
+        r_norms = LA.vector_norm(r, dim=-1)
+
+        for layer_index in range(len(model.get_layers()) + 1):
+            table.add_row(
+                "embed" if layer_index == 0 else str(layer_index),
+                f"{g_b_similarities[layer_index].item():.4f}",
+                f"{g_r_similarities[layer_index].item():.4f}",
+                f"{b_r_similarities[layer_index].item():.4f}",
+                f"{g_norms[layer_index].item():.2f}",
+                f"{b_norms[layer_index].item():.2f}",
+                f"{r_norms[layer_index].item():.2f}",
+            )
+
+        print()
+        print("[bold]Refusal Geometry[/]")
+        print(table)
+        print("[bold]g[/] = mean residual vector for good prompts")
+        print("[bold]b[/] = mean residual vector for bad prompts")
+        print("[bold]r[/] = refusal direction (i.e., [bold]b - g[/])")
+        print("[bold]S(x,y)[/] = cosine similarity of [bold]x[/] and [bold]y[/]")
+        print("[bold]|x|[/] = L2 norm of [bold]x[/]")
+
     # We don't need the residuals after computing refusal directions.
     del good_residuals, bad_residuals
     empty_cache()
@@ -382,11 +424,26 @@ def run():
 
     while True:
         print()
-        trial = prompt_select(
-            "Which trial do you want to use?",
-            choices=choices,
-            style=Style([("highlighted", "reverse")]),
-        )
+        print("Select a trial to use:")
+        for i, choice in enumerate(choices, 1):
+            print(f"[{i}] {choice.title}")
+
+        print()
+        try:
+            print(f"Enter number (1-{len(choices)}): ", end="")
+            selection = input()
+
+            if not selection:  # Handle cancellation
+                break
+
+            if not (selection.isdigit() and 1 <= int(selection) <= len(choices)):
+                print("Please enter a valid number")
+                continue
+
+            choice_index = int(selection) - 1
+            trial = choices[choice_index].value
+        except (KeyboardInterrupt, EOFError):
+            break
 
         if trial is None or trial == "":
             break
@@ -404,16 +461,35 @@ def run():
 
         while True:
             print()
-            action = prompt_select(
-                "What do you want to do with the decensored model?",
-                choices=[
-                    "Save the model to a local folder",
-                    "Upload the model to Hugging Face",
-                    "Chat with the model",
-                    "Nothing (return to trial selection menu)",
-                ],
-                style=Style([("highlighted", "reverse")]),
-            )
+            print()
+            action_choices = [
+                "Save the model to a local folder",
+                "Upload the model to Hugging Face",
+                "Chat with the model",
+                "Nothing (return to trial selection menu)",
+            ]
+
+            print("What do you want to do with the decensored model?")
+            for i, choice in enumerate(action_choices, 1):
+                print(f"[{i}] {choice}")
+
+            print()
+            try:
+                print(f"Enter number (1-{len(action_choices)}): ", end="")
+                selection = input()
+
+                if not selection:
+                    action = None
+                elif not (
+                    selection.isdigit() and 1 <= int(selection) <= len(action_choices)
+                ):
+                    print("Please enter a valid number")
+                    action = None  # Loop again
+                    continue
+                else:
+                    action = action_choices[int(selection) - 1]
+            except (KeyboardInterrupt, EOFError):
+                break
 
             if action is None or action == "Nothing (return to trial selection menu)":
                 break
@@ -424,7 +500,8 @@ def run():
             try:
                 match action:
                     case "Save the model to a local folder":
-                        save_directory = prompt_path("Path to the folder:")
+                        print("Path to the folder: ", end="")
+                        save_directory = input()
                         if not save_directory:
                             continue
 
@@ -439,31 +516,32 @@ def run():
                         # it's better to not persist credentials.
                         token = huggingface_hub.get_token()
                         if not token:
-                            token = prompt_password("Hugging Face access token:")
+                            print("Hugging Face access token: ", end="")
+                            token = input()
                         if not token:
                             continue
 
                         user = huggingface_hub.whoami(token)
-                        fullname = user.get(
-                            "fullname",
-                            user.get("name", "unknown user"),
-                        )
-                        email = user.get("email", "no email found")
+                        fullname = user.get("fullname", user.get("name", "Unknown"))
+                        email = user.get("email", "Not provided")
                         print(f"Logged in as [bold]{fullname} ({email})[/]")
 
-                        repo_id = prompt_text(
-                            "Name of repository:",
-                            default=f"{user['name']}/{Path(settings.model).name}-heretic",
+                        default_repo = (
+                            f"{user['name']}/{Path(settings.model).name}-heretic"
                         )
+                        print(f"Name of repository [{default_repo}]: ", end="")
+                        repo_id = input()
+                        if not repo_id:
+                            repo_id = default_repo
 
-                        visibility = prompt_select(
-                            "Should the repository be public or private?",
-                            choices=[
-                                "Public",
-                                "Private",
-                            ],
-                            style=Style([("highlighted", "reverse")]),
-                        )
+                        print("Should the repository be public or private?")
+                        print("[1] Public")
+                        print("[2] Private")
+
+                        print("Enter number (1-2): ", end="")
+                        vis_selection = input()
+
+                        visibility = "Private" if vis_selection == "2" else "Public"
                         private = visibility == "Private"
 
                         print("Uploading model...")
@@ -508,7 +586,7 @@ def run():
                     case "Chat with the model":
                         print()
                         print(
-                            "[cyan]Press Ctrl+C at any time to return to the menu.[/]"
+                            "[cyan]Press Ctrl+C or type '/exit' at any time to return to the menu.[/]"
                         )
 
                         chat = [
@@ -517,13 +595,15 @@ def run():
 
                         while True:
                             try:
-                                message = prompt_text(
-                                    "User:",
-                                    qmark=">",
-                                    unsafe=True,
-                                )
+                                print("User: ", end="")
+                                message = input()
                                 if not message:
+                                    continue
+
+                                if message.strip().lower() in ["/exit", "exit", "quit"]:
+                                    print("Returning to menu...")
                                     break
+
                                 chat.append({"role": "user", "content": message})
 
                                 print("[bold]Assistant:[/] ", end="")

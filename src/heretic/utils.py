@@ -18,7 +18,8 @@ from accelerate.utils import (
 from datasets import load_dataset
 from optuna import Trial
 from questionary import Choice
-from rich.console import Console, _is_jupyter as is_notebook
+from rich.console import Console
+from rich.console import _is_jupyter as is_notebook
 
 from .config import DatasetSpecification, Settings
 

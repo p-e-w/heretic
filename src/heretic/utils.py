@@ -13,7 +13,7 @@ from accelerate.utils import (
     is_sdaa_available,
     is_xpu_available,
 )
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 from optuna import Trial
 from rich.console import Console
 
@@ -36,7 +36,31 @@ def format_duration(seconds: float) -> str:
 
 
 def load_prompts(specification: DatasetSpecification) -> list[str]:
-    dataset = load_dataset(specification.dataset, split=specification.split)
+    import os
+
+    # Check if dataset path is a local directory
+    if os.path.isdir(specification.dataset):
+        # Load from local disk (Arrow format)
+        dataset_dict = load_from_disk(specification.dataset)
+        # Extract the split from the specification (e.g., "train[:400]")
+        split_name = specification.split.split("[")[0] if "[" in specification.split else specification.split
+        dataset = dataset_dict[split_name]
+
+        # Apply slicing if specified (e.g., "train[:400]")
+        if "[" in specification.split:
+            slice_part = specification.split.split("[")[1].rstrip("]")
+            if ":" in slice_part:
+                parts = slice_part.split(":")
+                start = int(parts[0]) if parts[0] else None
+                end = int(parts[1]) if parts[1] else None
+                dataset = dataset.select(range(start or 0, end or len(dataset)))
+            else:
+                idx = int(slice_part)
+                dataset = dataset.select([idx])
+    else:
+        # Load from HuggingFace Hub
+        dataset = load_dataset(specification.dataset, split=specification.split)
+
     return list(dataset[specification.column])
 
 

@@ -18,7 +18,7 @@ from accelerate.utils import (
 from datasets import load_dataset
 from optuna import Trial
 from questionary import Choice
-from rich.console import Console
+from rich.console import Console, _is_jupyter as is_notebook
 
 from .config import DatasetSpecification, Settings
 
@@ -124,28 +124,6 @@ def get_readme_intro(
 -----
 
 """
-
-
-def is_notebook() -> bool:
-    # Check IPython shell type
-    try:
-        from IPython import get_ipython
-
-        shell = get_ipython()
-        if shell is None:
-            return False
-
-        shell_name = shell.__class__.__name__
-        # Standard Jupyter/Colab shells
-        if shell_name in ["ZMQInteractiveShell", "Shell"]:
-            return True
-
-        # Some other environments might have different shell names but still be notebooks
-        if "google.colab" in str(shell.__class__):
-            return True
-
-    except (ImportError, NameError, AttributeError):
-        return False
 
 
 def prompt_select(message: str, choices: list[Any], style=None) -> Any:

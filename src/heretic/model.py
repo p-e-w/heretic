@@ -48,8 +48,7 @@ class Model:
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-            if hasattr(self.tokenizer, "padding_side"):
-                self.tokenizer.padding_side = "left"
+            self.tokenizer.padding_side = "left"
 
         self.model = None
 

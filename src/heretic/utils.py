@@ -43,32 +43,33 @@ def format_duration(seconds: float) -> str:
 def load_prompts(specification: DatasetSpecification) -> list[str]:
     path = specification.dataset
     split_str = specification.split
-    if not os.path.isdir(path):
+    if os.path.isdir(path):
+        if Path(path, DATASET_STATE_JSON_FILENAME).exists():
+            # Dataset saved with datasets.save_to_disk; needs special handling.
+            # Path should be the subdirectory for a particular split.
+            dataset = load_from_disk(path)
+            # Parse the split instructions.
+            ri = ReadInstruction.from_spec(split_str)
+            # Associate the split with its number of examples (lines).
+            split_name = str(dataset.split)
+            name2len = {split_name: len(dataset)}
+            # Convert the instructions to absolute indices and select the first one.
+            abs_i = ri.to_absolute(name2len)[0]
+            # Get the dataset by applying the indices.
+            dataset = dataset[abs_i.from_ : abs_i.to]
+        else:
+            # Path is a local directory.
+            dataset = load_dataset(
+                path,
+                split=split_str,
+                # Don't require the number of examples (lines) per split to be pre-defined.
+                verification_mode=VerificationMode.NO_CHECKS,
+                # But also don't use cached data, as the dataset may have changed on disk.
+                download_mode=DownloadMode.FORCE_REDOWNLOAD,
+            )
+    else:
         # Probably a repository path; let load_dataset figure it out.
         dataset = load_dataset(path, split=split_str)
-    elif not Path(path, DATASET_STATE_JSON_FILENAME).exists():
-        # Path is a local directory.
-        dataset = load_dataset(
-            path,
-            split=split_str,
-            # Don't require the number of examples (lines) per split to be pre-defined.
-            verification_mode=VerificationMode.NO_CHECKS,
-            # But also don't use cached data, as the dataset may have changed on disk.
-            download_mode=DownloadMode.FORCE_REDOWNLOAD,
-        )
-    else:
-        # Dataset saved with datasets.save_to_disk; needs special handling.
-        # Path should be the subdirectory for a particular split.
-        dataset = load_from_disk(path)
-        # Parse the split instructions.
-        ri = ReadInstruction.from_spec(split_str)
-        # Associate the split with its number of examples (lines).
-        split_name = str(dataset.split)
-        name2len = {split_name: len(dataset)}
-        # Convert the instructions to absolute indices and select the first one.
-        abs_i = ri.to_absolute(name2len)[0]
-        # Get the dataset by applying the indices.
-        dataset = dataset[abs_i.from_ : abs_i.to]
 
     return list(dataset[specification.column])
 

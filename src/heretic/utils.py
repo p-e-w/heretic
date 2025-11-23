@@ -9,6 +9,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypeVar
 
+import questionary
 import torch
 from accelerate.utils import (
     is_mlu_available,
@@ -21,7 +22,6 @@ from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
 from optuna import Trial
-import questionary
 from questionary import Choice
 from rich.console import Console
 

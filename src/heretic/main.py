@@ -42,8 +42,8 @@ from .utils import (
     get_trial_parameters,
     load_prompts,
     print,
-    prompt_path,
     prompt_password,
+    prompt_path,
     prompt_select,
     prompt_text,
 )

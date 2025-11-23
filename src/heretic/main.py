@@ -13,6 +13,7 @@ import huggingface_hub
 import optuna
 import questionary
 import torch
+import torch.linalg as LA
 import torch.nn.functional as F
 import transformers
 from accelerate.utils import (
@@ -23,12 +24,13 @@ from accelerate.utils import (
     is_xpu_available,
 )
 from huggingface_hub import ModelCard, ModelCardData
-from optuna import Trial
+from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
 from questionary import Choice, Style
+from rich.table import Table
 from rich.traceback import install
 
 from .config import Settings
@@ -46,8 +48,11 @@ from .utils import (
 
 def run():
     # Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
-    if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    if (
+        "PYTORCH_ALLOC_CONF" not in os.environ
+        and "PYTORCH_CUDA_ALLOC_CONF" not in os.environ
+    ):
+        os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
@@ -201,6 +206,49 @@ def run():
         p=2,
         dim=1,
     )
+
+    if settings.print_refusal_geometry:
+        table = Table()
+        table.add_column("Layer", justify="right")
+        table.add_column("S(g,b)", justify="right")
+        table.add_column("S(g,r)", justify="right")
+        table.add_column("S(b,r)", justify="right")
+        table.add_column("|g|", justify="right")
+        table.add_column("|b|", justify="right")
+        table.add_column("|r|", justify="right")
+
+        g = good_residuals.mean(dim=0)
+        b = bad_residuals.mean(dim=0)
+        r = b - g
+
+        g_b_similarities = F.cosine_similarity(g, b, dim=-1)
+        g_r_similarities = F.cosine_similarity(g, r, dim=-1)
+        b_r_similarities = F.cosine_similarity(b, r, dim=-1)
+
+        g_norms = LA.vector_norm(g, dim=-1)
+        b_norms = LA.vector_norm(b, dim=-1)
+        r_norms = LA.vector_norm(r, dim=-1)
+
+        for layer_index in range(len(model.get_layers()) + 1):
+            table.add_row(
+                "embed" if layer_index == 0 else str(layer_index),
+                f"{g_b_similarities[layer_index].item():.4f}",
+                f"{g_r_similarities[layer_index].item():.4f}",
+                f"{b_r_similarities[layer_index].item():.4f}",
+                f"{g_norms[layer_index].item():.2f}",
+                f"{b_norms[layer_index].item():.2f}",
+                f"{r_norms[layer_index].item():.2f}",
+            )
+
+        print()
+        print("[bold]Refusal Geometry[/]")
+        print(table)
+        print("[bold]g[/] = mean residual vector for good prompts")
+        print("[bold]b[/] = mean residual vector for bad prompts")
+        print("[bold]r[/] = refusal direction (i.e., [bold]b - g[/])")
+        print("[bold]S(x,y)[/] = cosine similarity of [bold]x[/] and [bold]y[/]")
+        print("[bold]|x|[/] = L2 norm of [bold]x[/]")
+
     # We don't need the residuals after computing refusal directions.
     del good_residuals, bad_residuals
     empty_cache()
@@ -307,6 +355,14 @@ def run():
 
         return score
 
+    def objective_wrapper(trial: Trial) -> tuple[float, float]:
+        try:
+            return objective(trial)
+        except KeyboardInterrupt:
+            # Stop the study gracefully on Ctrl+C.
+            trial.study.stop()
+            raise TrialPruned()
+
     study = optuna.create_study(
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
@@ -316,7 +372,19 @@ def run():
         directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
     )
 
-    study.optimize(objective, n_trials=settings.n_trials)
+    try:
+        study.optimize(objective_wrapper, n_trials=settings.n_trials)
+    except KeyboardInterrupt:
+        # This additional handler takes care of the small chance that KeyboardInterrupt
+        # is raised just between trials, which wouldn't be caught by the handler
+        # defined in objective_wrapper above.
+        pass
+
+    # If no trials at all have been evaluated, the study must have been stopped
+    # by pressing Ctrl+C while the first trial was running. In this case, we just
+    # re-raise the interrupt to invoke the standard handler defined below.
+    if not study.best_trials:
+        raise KeyboardInterrupt
 
     best_trials = sorted(
         study.best_trials,

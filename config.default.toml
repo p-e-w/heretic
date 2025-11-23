@@ -24,6 +24,9 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
+# Whether to print detailed information about residuals and refusal directions after calculating them.
+print_refusal_geometry = false
+
 # Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models.
 # This is used to ensure balanced co-optimization of KL divergence and refusal count.
 kl_divergence_scale = 1.0

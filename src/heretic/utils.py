@@ -30,7 +30,7 @@ from .config import DatasetSpecification, Settings
 print = Console(highlight=False).print
 
 
-# Note this function is copied from rich.console._is_jupyter
+
 def is_notebook() -> bool:
     # Check for specific environment variables (Colab, Kaggle)
     # This is necessary because when running as a subprocess (e.g. !heretic),

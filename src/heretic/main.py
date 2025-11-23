@@ -500,6 +500,7 @@ def run():
                             continue
 
                         print("Saving model...")
+                        model.sanitize_generation_config()
                         model.model.save_pretrained(save_directory)
                         model.tokenizer.save_pretrained(save_directory)
                         print(f"Model saved to [bold]{save_directory}[/].")
@@ -541,6 +542,7 @@ def run():
 
                         print("Uploading model...")
 
+                        model.sanitize_generation_config()
                         model.model.push_to_hub(
                             repo_id,
                             private=private,

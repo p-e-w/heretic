@@ -122,6 +122,31 @@ class Model:
         # Text-only models.
         return self.model.model.layers
 
+    def sanitize_generation_config(self) -> None:
+        """
+        Ensure the generation config is valid for saving/pushing by enabling sampling
+        when sampling parameters are set, and validating the config.
+        """
+        gen_config = getattr(self.model, "generation_config", None)
+        if gen_config is None:
+            return
+
+        sampling_fields = []
+        if getattr(gen_config, "temperature", None) not in (None, 1.0):
+            sampling_fields.append("temperature")
+        if getattr(gen_config, "top_k", None) not in (None, 0):
+            sampling_fields.append("top_k")
+        if getattr(gen_config, "top_p", None) not in (None, 1.0):
+            sampling_fields.append("top_p")
+        if getattr(gen_config, "typical_p", None) not in (None, 1.0):
+            sampling_fields.append("typical_p")
+
+        if sampling_fields and not bool(getattr(gen_config, "do_sample", False)):
+            gen_config.do_sample = True
+
+        with suppress(Exception):
+            gen_config.validate()
+
     def get_layer_type(self, layer_index: int) -> str:
         """
         Detect the type of a layer.

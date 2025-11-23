@@ -291,10 +291,23 @@ def run():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.
+            if "conv" in component or "mamba" in component:
+                max_weight_range = (0.8, 2.5)
+                min_weight_fraction_range = (0.0, 0.8)
+            elif "attn" in component:
+                max_weight_range = (0.8, 1.8)
+                min_weight_fraction_range = (0.0, 1.0)
+            elif "shared" in component:
+                max_weight_range = (0.8, 2.0)
+                min_weight_fraction_range = (0.0, 0.9)
+            else:
+                max_weight_range = (0.8, 2.5)
+                min_weight_fraction_range = (0.0, 0.9)
+
             max_weight = trial.suggest_float(
                 f"{component}.max_weight",
-                0.8,
-                1.5,
+                max_weight_range[0],
+                max_weight_range[1],
             )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
@@ -306,8 +319,8 @@ def run():
             # The value is transformed into the actual min_weight value below.
             min_weight = trial.suggest_float(
                 f"{component}.min_weight",
-                0.0,
-                1.0,
+                min_weight_fraction_range[0],
+                min_weight_fraction_range[1],
             )
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",

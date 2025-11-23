@@ -2,6 +2,7 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 import math
+from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -75,12 +76,30 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
+        num_layers = len(self.get_layers())
+        print(f"* Transformer model with [bold]{num_layers}[/] layers")
+
+        layer_types = [self.get_layer_type(index) for index in range(num_layers)]
+        type_counts = Counter(layer_types)
+        print("* Layer types:")
+        for layer_type in ("attention", "mamba", "conv", "hybrid", "unknown"):
+            count = type_counts.get(layer_type, 0)
+            if count > 0:
+                print(f"  * [bold]{layer_type}[/]: [bold]{count}[/]")
+
+        component_counts: dict[str, int] = {}
+        for layer_index in range(num_layers):
+            for component, matrices in self.get_layer_matrices(layer_index).items():
+                component_counts[component] = component_counts.get(component, 0) + len(
+                    matrices
+                )
+
         print("* Abliterable components:")
-        for component, matrices in self.get_layer_matrices(0).items():
-            print(
-                f"  * [bold]{component}[/]: [bold]{len(matrices)}[/] matrices per layer"
-            )
+        if component_counts:
+            for component, count in sorted(component_counts.items()):
+                print(f"  * [bold]{component}[/]: [bold]{count}[/] matrices total")
+        else:
+            print("  * [yellow]None detected[/]")
 
     def reload_model(self):
         dtype = self.model.dtype
@@ -103,27 +122,59 @@ class Model:
         # Text-only models.
         return self.model.model.layers
 
+    def get_layer_type(self, layer_index: int) -> str:
+        """
+        Detect the type of a layer.
+        Returns: 'attention', 'mamba', 'conv', 'hybrid', or 'unknown'
+        """
+        layer = self.get_layers()[layer_index]
+
+        layer_types = []
+
+        # Check for attention
+        if hasattr(layer, "self_attn"):
+            layer_types.append("attention")
+
+        # Check for Mamba/SSM
+        if hasattr(layer, "mamba"):
+            layer_types.append("mamba")
+
+        # Check for Conv
+        if hasattr(layer, "conv"):
+            layer_types.append("conv")
+
+        if len(layer_types) == 0:
+            return "unknown"
+        elif len(layer_types) == 1:
+            return layer_types[0]
+        else:
+            # Layer has multiple operator types
+            return "hybrid"
+
     def get_layer_matrices(self, layer_index: int) -> dict[str, list[Tensor]]:
         layer = self.get_layers()[layer_index]
 
-        matrices = {}
+        matrices: dict[str, list[Tensor]] = {}
 
         def try_add(component: str, matrix: Any):
+            if matrix is None:
+                return
+
             # Handle Triton tensors (e.g., from MXFP4 quantization) by extracting
             # the underlying PyTorch tensor via the .data attribute.
             if hasattr(matrix, "data") and torch.is_tensor(matrix.data):
                 matrix = matrix.data
 
-            assert torch.is_tensor(matrix)
+            if not torch.is_tensor(matrix):
+                return
 
             if component not in matrices:
                 matrices[component] = []
 
             matrices[component].append(matrix)
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj.weight)
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_proj.weight)
 
         # Most dense models.
         with suppress(Exception):
@@ -155,13 +206,19 @@ class Model:
             for expert in layer.moe.experts:
                 try_add("mlp.down_proj", expert.output_linear.weight)
 
-        # We need at least one MLP down-projection.
-        assert matrices["mlp.down_proj"]
+        # Mamba/SSM layers.
+        with suppress(Exception):
+            try_add("mamba.out_proj", layer.mamba.out_proj.weight)
 
         return matrices
 
     def get_abliterable_components(self) -> list[str]:
-        return list(self.get_layer_matrices(0).keys())
+        components: set[str] = set()
+
+        for layer_index in range(len(self.get_layers())):
+            components.update(self.get_layer_matrices(layer_index).keys())
+
+        return sorted(components)
 
     def abliterate(
         self,
@@ -184,11 +241,40 @@ class Model:
                 dim=0,
             )
 
+        abliterated_layers = 0
+        skipped_layers = 0
+        component_counts: dict[str, int] = {
+            component: 0 for component in self.get_abliterable_components()
+        }
+
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
         for layer_index in range(len(self.get_layers())):
-            for component, matrices in self.get_layer_matrices(layer_index).items():
-                params = parameters[component]
+            layer_matrices = self.get_layer_matrices(layer_index)
+
+            if not layer_matrices:
+                skipped_layers += 1
+                continue
+
+            layer_refusal_direction = (
+                refusal_directions[layer_index + 1]
+                if refusal_direction is None
+                else refusal_direction
+            )
+
+            # Projects any right-multiplied vector(s) onto the subspace
+            # spanned by the refusal direction.
+            projector = torch.outer(
+                layer_refusal_direction,
+                layer_refusal_direction,
+            ).to(self.model.dtype)
+
+            layer_modified = False
+
+            for component, matrices in layer_matrices.items():
+                params = parameters.get(component)
+                if params is None:
+                    continue
 
                 distance = abs(layer_index - params.max_weight_position)
 
@@ -203,25 +289,26 @@ class Model:
                     params.min_weight - params.max_weight
                 )
 
-                if refusal_direction is None:
-                    # The index must be shifted by 1 because the first element
-                    # of refusal_directions is the direction for the embeddings.
-                    layer_refusal_direction = refusal_directions[layer_index + 1]
-                else:
-                    layer_refusal_direction = refusal_direction
-
-                # Projects any right-multiplied vector(s) onto the subspace
-                # spanned by the refusal direction.
-                projector = torch.outer(
-                    layer_refusal_direction,
-                    layer_refusal_direction,
-                ).to(self.model.dtype)
-
                 for matrix in matrices:
                     # Ensure projector is on the same device as the matrix for multi-GPU support.
                     device_projector = projector.to(matrix.device)
                     # In-place subtraction is safe as we're not using Autograd.
                     matrix.sub_(weight * (device_projector @ matrix))
+                    component_counts[component] += 1
+                    layer_modified = True
+
+            if layer_modified:
+                abliterated_layers += 1
+            else:
+                skipped_layers += 1
+
+        print("* Abliteration statistics:")
+        print(f"  * Abliterated {abliterated_layers} layers")
+        if skipped_layers > 0:
+            print(f"  * Skipped {skipped_layers} layers (no abliterable matrices)")
+        for component, count in component_counts.items():
+            if count > 0:
+                print(f"  * Modified {count} {component} matrices")
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

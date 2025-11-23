@@ -23,11 +23,31 @@ from datasets.utils.info_utils import VerificationMode
 from optuna import Trial
 import questionary
 from questionary import Choice
-from rich.console import Console, _is_jupyter as is_notebook
+from rich.console import Console
 
 from .config import DatasetSpecification, Settings
 
 print = Console(highlight=False).print
+
+
+def is_notebook() -> bool:
+    try:
+        from IPython import get_ipython
+
+        shell = get_ipython()
+        if shell is None:
+            return False
+
+        shell_name = shell.__class__.__name__
+        if shell_name in ["ZMQInteractiveShell", "Shell"]:
+            return True
+
+        if "google.colab" in str(shell.__class__):
+            return True
+
+        return False
+    except (ImportError, NameError, AttributeError):
+        return False
 
 
 def prompt_select(message: str, choices: list[Any], style=None) -> Any:

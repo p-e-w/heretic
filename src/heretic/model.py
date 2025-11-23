@@ -39,7 +39,8 @@ class Model:
         print(f"Loading model [bold]{settings.model}[/]...")
 
         self.tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
-            settings.model
+            settings.model,
+            trust_remote_code=settings.trust_remote_code,
         )
 
         # Fallback for tokenizers that don't declare a special pad token.
@@ -48,6 +49,10 @@ class Model:
             self.tokenizer.padding_side = "left"
 
         self.model = None
+        self.trusted_models = {settings.model: settings.trust_remote_code}
+
+        if self.settings.evaluate_model is not None:
+            self.trusted_models[settings.evaluate_model] = settings.trust_remote_code
 
         for dtype in settings.dtypes:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
@@ -57,7 +62,13 @@ class Model:
                     settings.model,
                     dtype=dtype,
                     device_map=settings.device_map,
+                    trust_remote_code=self.trusted_models.get(settings.model),
                 )
+
+                # If we reach this point and the model requires trust_remote_code,
+                # the user must have confirmed it.
+                if self.trusted_models.get(settings.model) is None:
+                    self.trusted_models[settings.model] = True
 
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
@@ -93,7 +104,11 @@ class Model:
             self.settings.model,
             dtype=dtype,
             device_map=self.settings.device_map,
+            trust_remote_code=self.trusted_models.get(self.settings.model),
         )
+
+        if self.trusted_models.get(self.settings.model) is None:
+            self.trusted_models[self.settings.model] = True
 
     def get_layers(self) -> ModuleList:
         # Most multimodal models.

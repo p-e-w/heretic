@@ -55,7 +55,7 @@ class Model:
             try:
                 self.model = AutoModelForCausalLM.from_pretrained(
                     settings.model,
-                    dtype=dtype,
+                    # dtype=dtype,
                     device_map=settings.device_map,
                 )
 
@@ -91,7 +91,7 @@ class Model:
 
         self.model = AutoModelForCausalLM.from_pretrained(
             self.settings.model,
-            dtype=dtype,
+            # dtype=dtype,
             device_map=self.settings.device_map,
         )
 

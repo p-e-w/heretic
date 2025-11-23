@@ -175,6 +175,8 @@ class Model:
 
         with suppress(Exception):
             try_add("attn.o_proj", layer.self_attn.o_proj.weight)
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.out_proj.weight)
 
         # Most dense models.
         with suppress(Exception):
@@ -205,6 +207,27 @@ class Model:
         with suppress(Exception):
             for expert in layer.moe.experts:
                 try_add("mlp.down_proj", expert.output_linear.weight)
+
+        # LFM/LFM-MoE feed-forward modules.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.feed_forward.w2.weight)
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.feed_forward.output_linear.weight)
+        with suppress(Exception):
+            # Some MoE blocks expose experts as an attribute.
+            try_add("mlp.down_proj", layer.feed_forward.experts.down_proj)
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.feed_forward.experts.w2)
+        with suppress(Exception):
+            for expert in layer.feed_forward.experts:
+                try_add("mlp.down_proj", expert.down_proj.weight)
+        with suppress(Exception):
+            for expert in layer.feed_forward.experts:
+                try_add("mlp.down_proj", expert.w2.weight)
+
+        # LFM-style conv layers.
+        with suppress(Exception):
+            try_add("conv.out_proj", layer.conv.out_proj.weight)
 
         # Mamba/SSM layers.
         with suppress(Exception):

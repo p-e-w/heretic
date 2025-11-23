@@ -199,7 +199,7 @@ class Model:
 
         # Granite MoE Hybrid - attention layers with shared_mlp.
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.shared_mlp.output_linear.weight)
+            try_add("mlp.shared_down_proj", layer.shared_mlp.output_linear.weight)
 
         # Granite MoE Hybrid - MoE layers with experts.
         with suppress(Exception):
@@ -209,6 +209,10 @@ class Model:
         # Mamba/SSM layers.
         with suppress(Exception):
             try_add("mamba.out_proj", layer.mamba.out_proj.weight)
+
+        # Mixtral/JetMoE style block_sparse_moe where experts aren't exposed individually.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.block_sparse_moe.output_linear.weight)
 
         return matrices
 
@@ -242,7 +246,8 @@ class Model:
             )
 
         abliterated_layers = 0
-        skipped_layers = 0
+        skipped_no_matrices = 0
+        skipped_no_modifications = 0
         component_counts: dict[str, int] = {
             component: 0 for component in self.get_abliterable_components()
         }
@@ -253,7 +258,7 @@ class Model:
             layer_matrices = self.get_layer_matrices(layer_index)
 
             if not layer_matrices:
-                skipped_layers += 1
+                skipped_no_matrices += 1
                 continue
 
             layer_refusal_direction = (
@@ -300,12 +305,16 @@ class Model:
             if layer_modified:
                 abliterated_layers += 1
             else:
-                skipped_layers += 1
+                skipped_no_modifications += 1
 
         print("* Abliteration statistics:")
         print(f"  * Abliterated {abliterated_layers} layers")
-        if skipped_layers > 0:
-            print(f"  * Skipped {skipped_layers} layers (no abliterable matrices)")
+        if skipped_no_matrices > 0:
+            print(f"  * Skipped {skipped_no_matrices} layers (no abliterable matrices)")
+        if skipped_no_modifications > 0:
+            print(
+                f"  * Skipped {skipped_no_modifications} layers (outside configured ranges)"
+            )
         for component, count in component_counts.items():
             if count > 0:
                 print(f"  * Modified {count} {component} matrices")

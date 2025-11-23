@@ -153,6 +153,11 @@ class Settings(BaseSettings):
         description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
     )
 
+    show_all_trials: bool = Field(
+        default=False,
+        description="If set, show all evaluated trials in the selection menu, including those with high KL divergence.",
+    )
+
     # "Model" refers to the Pydantic model of the settings class here,
     # not to the language model. The field must have this exact name.
     model_config = SettingsConfigDict(

@@ -401,20 +401,31 @@ def run():
 
     best_trials = sorted(
         study.best_trials,
-        key=lambda trial: trial.user_attrs["refusals"],
+        key=lambda trial: (
+            trial.user_attrs["refusals"],
+            max(trial.user_attrs["kl_divergence"], 0),
+        ),
     )
 
-    choices = [
-        Choice(
-            title=(
-                f"[Trial {trial.user_attrs['index']:>3}] "
-                f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
-            ),
-            value=trial,
+    kl_threshold = 2.0
+    ordered_trials = best_trials
+    excluded_trials = 0
+
+    if not settings.show_all_trials:
+        kl_filtered = [
+            t for t in best_trials if t.user_attrs["kl_divergence"] <= kl_threshold
+        ]
+        excluded_trials = len(best_trials) - len(kl_filtered)
+        ordered_trials = kl_filtered if kl_filtered else best_trials
+
+    choices = []
+    for trial in ordered_trials:
+        title = (
+            f"[Trial {trial.user_attrs['index']:>3}] "
+            f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+            f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
         )
-        for trial in best_trials
-    ]
+        choices.append(Choice(title=title, value=trial))
 
     choices.append(
         Choice(
@@ -426,6 +437,11 @@ def run():
     print()
     print("[bold green]Optimization finished![/]")
     print()
+    if excluded_trials > 0:
+        print(
+            f"[grey50]Filtered out {excluded_trials} trials with KL divergence > {kl_threshold:.1f}. "
+            f"Set --show-all-trials to include them.[/]"
+        )
     print(
         (
             "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "

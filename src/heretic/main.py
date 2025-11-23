@@ -439,7 +439,7 @@ def run():
     print()
     if excluded_trials > 0:
         print(
-            f"[grey50]Filtered out {excluded_trials} trials with KL divergence > {kl_threshold:.1f}. "
+            f"[grey50]Filtered out {excluded_trials} Pareto trials with KL divergence > {kl_threshold:.1f}. "
             f"Set --show-all-trials to include them.[/]"
         )
     print(

@@ -30,7 +30,15 @@ from .config import DatasetSpecification, Settings
 print = Console(highlight=False).print
 
 
+# Note this function is copied from rich.console._is_jupyter
 def is_notebook() -> bool:
+    # Check for specific environment variables (Colab, Kaggle)
+    # This is necessary because when running as a subprocess (e.g. !heretic),
+    # get_ipython() might not be available or might not reflect the notebook environment.
+    if os.getenv("COLAB_GPU") or os.getenv("KAGGLE_KERNEL_RUN_TYPE"):
+        return True
+
+    # Check IPython shell type (for library usage)
     try:
         from IPython import get_ipython
 

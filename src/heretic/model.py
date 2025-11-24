@@ -227,22 +227,23 @@ class Model:
 
                 # Projects any right-multiplied vector(s) onto the subspace
                 # spanned by the refusal direction.
-                # We use the property (v v^T) M = v (v^T M) to avoid computing
+                # We use the property (r r^T) W = r (r^T W) to avoid computing
                 # the O(d^2) projector matrix and the O(d^3) matrix multiplication.
-                v = layer_refusal_direction.to(self.model.dtype)
+                # W_new = W - r * (r^T W)
+                hat_r = layer_refusal_direction.to(self.model.dtype)
 
                 for matrix in matrices:
-                    # Ensure v is on the same device as the matrix for multi-GPU support.
-                    v_device = v.to(matrix.device)
+                    # Ensure r is on the same device as the matrix for multi-GPU support.
+                    hat_r_device = hat_r.to(matrix.device)
 
-                    # v^T M
-                    # matrix is (d, k), so the result is (k,).
-                    v_dot_matrix = torch.matmul(v_device, matrix)
+                    # Calculate the projection scalars: (r^T W)
+                    # hat_r is (d, 1), matrix is (d, k) -> result is (k,)
+                    r_transpose_W = torch.matmul(hat_r_device, matrix)
 
-                    # v (v^T M) = outer(v, v_dot_matrix)
-                    # The result is (d, k).
+                    # Calculate the update matrix: r * (r^T W)
+                    # Outer product of (d, 1) and (1, k) -> result is (d, k)
                     # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * torch.outer(v_device, v_dot_matrix))
+                    matrix.sub_(weight * torch.outer(hat_r_device, r_transpose_W))
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

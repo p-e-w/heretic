@@ -227,16 +227,22 @@ class Model:
 
                 # Projects any right-multiplied vector(s) onto the subspace
                 # spanned by the refusal direction.
-                projector = torch.outer(
-                    layer_refusal_direction,
-                    layer_refusal_direction,
-                ).to(self.model.dtype)
+                # We use the property (v v^T) M = v (v^T M) to avoid computing
+                # the O(d^2) projector matrix and the O(d^3) matrix multiplication.
+                v = layer_refusal_direction.to(self.model.dtype)
 
                 for matrix in matrices:
-                    # Ensure projector is on the same device as the matrix for multi-GPU support.
-                    device_projector = projector.to(matrix.device)
+                    # Ensure v is on the same device as the matrix for multi-GPU support.
+                    v_device = v.to(matrix.device)
+
+                    # v^T M
+                    # matrix is (d, k), so the result is (k,).
+                    v_dot_matrix = torch.matmul(v_device, matrix)
+
+                    # v (v^T M) = outer(v, v_dot_matrix)
+                    # The result is (d, k).
                     # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * (device_projector @ matrix))
+                    matrix.sub_(weight * torch.outer(v_device, v_dot_matrix))
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

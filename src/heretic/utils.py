@@ -88,27 +88,17 @@ def prompt_select(message: str, choices: list[Any], style=None) -> Any:
 def prompt_text(
     message: str,
     default: str = "",
-    password: bool = False,
     unsafe: bool = False,
-    qmark: str = None,
+    qmark: str = "?",
 ) -> str:
     if is_notebook():
         print()
-        if password:
-            return getpass.getpass(message)
         prompt_msg = f"{message} [{default}]: " if default else f"{message}: "
         result = input(prompt_msg)
         return result if result else default
     else:
-        if password:
-            return questionary.password(message).ask()
-
         # For text input, we might need unsafe_ask if requested
-        kwargs = {"default": default}
-        if qmark:
-            kwargs["qmark"] = qmark
-
-        q = questionary.text(message, **kwargs)
+        q = questionary.text(message, default=default, qmark=qmark)
         if unsafe:
             return q.unsafe_ask()
         return q.ask()
@@ -127,7 +117,11 @@ def prompt_path(message: str, default: str = "", only_directories: bool = False)
 
 
 def prompt_password(message: str) -> str:
-    return prompt_text(message, password=True)
+    if is_notebook():
+        print()
+        return getpass.getpass(message)
+    else:
+        return questionary.password(message).ask()
 
 
 def format_duration(seconds: float) -> str:

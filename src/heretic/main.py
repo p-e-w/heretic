@@ -469,7 +469,9 @@ def run():
             try:
                 match action:
                     case "Save the model to a local folder":
-                        save_directory = prompt_path("Path to the folder:")
+                        save_directory = prompt_path(
+                            "Path to the folder:", only_directories=True
+                        )
                         if not save_directory:
                             continue
 

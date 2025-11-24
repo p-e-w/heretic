@@ -34,6 +34,8 @@ class Settings(BaseSettings):
             "auto",
             # If that doesn't work (e.g. on pre-Ampere hardware), fall back to float16.
             "float16",
+            # If float16 fails (e.g. due to range issues) and float32 is too large, try bfloat16.
+            "bfloat16",
             # If that still doesn't work (e.g. due to https://github.com/meta-llama/llama/issues/380),
             # fall back to float32.
             "float32",

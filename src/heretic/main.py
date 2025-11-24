@@ -11,7 +11,6 @@ from pathlib import Path
 
 import huggingface_hub
 import optuna
-import questionary
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
@@ -43,6 +42,10 @@ from .utils import (
     get_trial_parameters,
     load_prompts,
     print,
+    prompt_password,
+    prompt_path,
+    prompt_select,
+    prompt_text,
 )
 
 
@@ -424,11 +427,11 @@ def run():
 
     while True:
         print()
-        trial = questionary.select(
+        trial = prompt_select(
             "Which trial do you want to use?",
             choices=choices,
             style=Style([("highlighted", "reverse")]),
-        ).ask()
+        )
 
         if trial is None or trial == "":
             break
@@ -446,7 +449,7 @@ def run():
 
         while True:
             print()
-            action = questionary.select(
+            action = prompt_select(
                 "What do you want to do with the decensored model?",
                 choices=[
                     "Save the model to a local folder",
@@ -455,7 +458,7 @@ def run():
                     "Nothing (return to trial selection menu)",
                 ],
                 style=Style([("highlighted", "reverse")]),
-            ).ask()
+            )
 
             if action is None or action == "Nothing (return to trial selection menu)":
                 break
@@ -466,7 +469,9 @@ def run():
             try:
                 match action:
                     case "Save the model to a local folder":
-                        save_directory = questionary.path("Path to the folder:").ask()
+                        save_directory = prompt_path(
+                            "Path to the folder:", only_directories=True
+                        )
                         if not save_directory:
                             continue
 
@@ -481,9 +486,7 @@ def run():
                         # it's better to not persist credentials.
                         token = huggingface_hub.get_token()
                         if not token:
-                            token = questionary.password(
-                                "Hugging Face access token:"
-                            ).ask()
+                            token = prompt_password("Hugging Face access token:")
                         if not token:
                             continue
 
@@ -495,19 +498,19 @@ def run():
                         email = user.get("email", "no email found")
                         print(f"Logged in as [bold]{fullname} ({email})[/]")
 
-                        repo_id = questionary.text(
+                        repo_id = prompt_text(
                             "Name of repository:",
                             default=f"{user['name']}/{Path(settings.model).name}-heretic",
-                        ).ask()
+                        )
 
-                        visibility = questionary.select(
+                        visibility = prompt_select(
                             "Should the repository be public or private?",
                             choices=[
                                 "Public",
                                 "Private",
                             ],
                             style=Style([("highlighted", "reverse")]),
-                        ).ask()
+                        )
                         private = visibility == "Private"
 
                         print("Uploading model...")
@@ -561,10 +564,11 @@ def run():
 
                         while True:
                             try:
-                                message = questionary.text(
+                                message = prompt_text(
                                     "User:",
                                     qmark=">",
-                                ).unsafe_ask()
+                                    unsafe=True,
+                                )
                                 if not message:
                                     break
                                 chat.append({"role": "user", "content": message})

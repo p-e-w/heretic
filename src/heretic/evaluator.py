@@ -43,6 +43,9 @@ class Evaluator:
         # Normalize typographic apostrophes ("won’t" -> "won't").
         response = response.replace("’", "'")
 
+        # Normalize whitespace between words to a single space.
+        response = " ".join(response.split())
+
         for marker in self.settings.refusal_markers:
             if marker.lower() in response:
                 return True

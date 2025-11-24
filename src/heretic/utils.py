@@ -2,12 +2,14 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 import gc
+import getpass
 import os
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
+import questionary
 import torch
 from accelerate.utils import (
     is_mlu_available,
@@ -20,11 +22,106 @@ from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
 from optuna import Trial
+from questionary import Choice
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
 
 print = Console(highlight=False).print
+
+
+def is_notebook() -> bool:
+    # Check for specific environment variables (Colab, Kaggle)
+    # This is necessary because when running as a subprocess (e.g. !heretic),
+    # get_ipython() might not be available or might not reflect the notebook environment.
+    if os.getenv("COLAB_GPU") or os.getenv("KAGGLE_KERNEL_RUN_TYPE"):
+        return True
+
+    # Check IPython shell type (for library usage)
+    try:
+        from IPython import get_ipython
+
+        shell = get_ipython()
+        if shell is None:
+            return False
+
+        shell_name = shell.__class__.__name__
+        if shell_name in ["ZMQInteractiveShell", "Shell"]:
+            return True
+
+        if "google.colab" in str(shell.__class__):
+            return True
+
+        return False
+    except (ImportError, NameError, AttributeError):
+        return False
+
+
+def prompt_select(message: str, choices: list[Any], style=None) -> Any:
+    if is_notebook():
+        print()
+        print(message)
+        real_choices = []
+        for i, choice in enumerate(choices, 1):
+            if isinstance(choice, Choice):
+                print(f"[{i}] {choice.title}")
+                real_choices.append(choice.value)
+            else:
+                print(f"[{i}] {choice}")
+                real_choices.append(choice)
+
+        while True:
+            try:
+                selection = input("Enter number: ")
+                idx = int(selection) - 1
+                if 0 <= idx < len(real_choices):
+                    return real_choices[idx]
+                print(
+                    f"[red]Please enter a number between 1 and {len(real_choices)}[/]"
+                )
+            except ValueError:
+                print("[red]Invalid input. Please enter a number.[/]")
+    else:
+        return questionary.select(message, choices=choices, style=style).ask()
+
+
+def prompt_text(
+    message: str,
+    default: str = "",
+    unsafe: bool = False,
+    qmark: str = "?",
+) -> str:
+    if is_notebook():
+        print()
+        prompt_msg = f"{message} [{default}]: " if default else f"{message}: "
+        result = input(prompt_msg)
+        return result if result else default
+    else:
+        # For text input, we might need unsafe_ask if requested
+        q = questionary.text(message, default=default, qmark=qmark)
+        if unsafe:
+            return q.unsafe_ask()
+        return q.ask()
+
+
+def prompt_path(message: str, default: str = "", only_directories: bool = False) -> str:
+    if is_notebook():
+        print()
+        prompt_msg = f"{message} [{default}]: " if default else f"{message}: "
+        result = input(prompt_msg)
+        return result if result else default
+    else:
+        return questionary.path(
+            message, default=default, only_directories=only_directories
+        ).ask()
+
+
+def prompt_password(message: str) -> str:
+    if is_notebook():
+        print()
+        return getpass.getpass(message)
+    else:
+        return questionary.password(message).ask()
 
 
 def format_duration(seconds: float) -> str:

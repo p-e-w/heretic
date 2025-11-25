@@ -19,6 +19,13 @@ class QuantizationMethod(str, Enum):
     BNB_4BIT = "bnb_4bit"
 
 
+class RowNormalization(str, Enum):
+    NONE = "none"
+    PRE = "pre"
+    # POST = "post"  # Theoretically possible, but provides no advantage.
+    FULL = "full"
+
+
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
@@ -111,6 +118,25 @@ class Settings(BaseSettings):
     max_response_length: int = Field(
         default=100,
         description="Maximum number of tokens to generate for each response.",
+    )
+
+    orthogonalize_direction: bool = Field(
+        default=False,
+        description=(
+            "Whether to adjust the refusal directions so that only the component that is "
+            "orthogonal to the harmless direction is subtracted during abliteration."
+        ),
+    )
+
+    row_normalization: RowNormalization = Field(
+        default=RowNormalization.NONE,
+        description=(
+            "How to apply row normalization of the weights. Options: "
+            "'none' (no normalization), "
+            "'pre' (compute LoRA adapter relative to row-normalized weights), "
+            "'full' (like 'pre', but renormalizes to preserve original row magnitudes). "
+            "Note: Row magnitude preservation is approximate due to non-linear effects."
+        ),
     )
 
     print_responses: bool = Field(

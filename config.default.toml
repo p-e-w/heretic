@@ -34,6 +34,12 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
+# Whether to only remove the harmful part of the refusal direction.
+abliteration_orthogonal_project = false
+
+# Whether to preserve the magnitude of the weights.
+abliteration_preserve_magnitude = false
+
 # Whether to print detailed information about residuals and refusal directions.
 print_residual_geometry = false
 

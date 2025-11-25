@@ -85,6 +85,16 @@ class Settings(BaseSettings):
         description='Direction scope for trials: "global", "per layer" or "all".',
     )
 
+    abliteration_orthogonal_project: bool = Field(
+        default=False,
+        description="Whether to only remove the harmful part of the refusal direction.",
+    )
+
+    abliteration_preserve_magnitude: bool = Field(
+        default=False,
+        description="Whether to keep the overall strength of model weights unchanged.",
+    )
+
     print_residual_geometry: bool = Field(
         default=False,
         description="Whether to print detailed information about residuals and refusal directions.",

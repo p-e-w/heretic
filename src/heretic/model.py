@@ -181,6 +181,7 @@ class Model:
     def abliterate(
         self,
         refusal_directions: Tensor,
+        harmless_directions: Tensor,
         direction_index: float | None,
         parameters: dict[str, AbliterationParameters],
     ):
@@ -225,6 +226,15 @@ class Model:
                 else:
                     layer_refusal_direction = refusal_direction
 
+                if self.settings.abliteration_orthogonal_project:
+                    # Remove only the harmful part of the refusal direction.
+                    harmless_direction = harmless_directions[layer_index + 1]
+                    projection_scalar = layer_refusal_direction @ harmless_direction
+                    layer_refusal_direction -= projection_scalar * harmless_direction
+                    layer_refusal_direction = F.normalize(
+                        layer_refusal_direction, p=2, dim=0
+                    )
+
                 # Projects any right-multiplied vector(s) onto the subspace
                 # spanned by the refusal direction.
                 # We use the property (r r^T) W = r (r^T W) to avoid computing
@@ -237,6 +247,11 @@ class Model:
                     # Ensure r is on the same device as the matrix for multi-GPU support.
                     r_device = r.to(matrix.device)
 
+                    if self.settings.abliteration_preserve_magnitude:
+                        # Normalize weight matrix and store norm separately.
+                        matrix_norm = torch.norm(matrix, dim=1, keepdim=True)
+                        matrix.div_(matrix_norm)
+
                     # Calculate the projection scalars: (r^T W)
                     # r is (d,), matrix is (d, k) -> result is (k,)
                     r_transpose_W = torch.matmul(r_device, matrix)
@@ -248,6 +263,13 @@ class Model:
                     # entries r[i] * (r^T W)[j], equivalent to the outer product of two
                     # vectors, avoiding materializing the full (d x d) projector.
                     matrix.sub_(weight * torch.outer(r_device, r_transpose_W))
+
+                    if self.settings.abliteration_preserve_magnitude:
+                        # Re-normalize the adjusted weight matrix.
+                        matrix_norm_new = torch.norm(matrix, dim=1, keepdim=True)
+                        matrix.div_(matrix_norm_new)
+                        # Restore the original norm of the weight matrix.
+                        matrix.mul_(matrix_norm)
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

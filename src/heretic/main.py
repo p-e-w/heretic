@@ -208,6 +208,11 @@ def run():
         p=2,
         dim=1,
     )
+    harmless_directions = F.normalize(
+        good_residuals.mean(dim=0),
+        p=2,
+        dim=1,
+    )
 
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
@@ -305,7 +310,9 @@ def run():
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, direction_index, parameters)
+        model.abliterate(
+            refusal_directions, harmless_directions, direction_index, parameters
+        )
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
 
@@ -423,6 +430,7 @@ def run():
         print("* Abliterating...")
         model.abliterate(
             refusal_directions,
+            harmless_directions,
             trial.user_attrs["direction_index"],
             trial.user_attrs["parameters"],
         )

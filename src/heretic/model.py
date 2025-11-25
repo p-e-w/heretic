@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import bitsandbytes as bnb
 import torch
+import torch.linalg as LA
 import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear
@@ -46,6 +47,7 @@ class Model:
         self.settings = settings
         self.response_prefix = ""
         self.needs_reload = False
+        self.lora_rank: int = None
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -153,10 +155,19 @@ class Model:
             comp.split(".")[-1] for comp in self.get_abliterable_components()
         ]
 
+        if not self.settings.preserve_magnitudes:
+            # Rank 1 is sufficient for directional ablation
+            self.lora_rank = 1
+        else:
+            # Magnitude preservation introduces nonlinear effects. A rank of 3 is enough to explain most of
+            # the variance in the delta matrix, and reduction of the spectral norm of the error of the
+            # reconstructed matrix falls off at higher ranks.
+            self.lora_rank = 3
+
         peft_config = LoraConfig(
-            r=1,  # Rank 1 is sufficient for directional ablation
+            r=self.lora_rank,
             target_modules=target_modules,
-            lora_alpha=1,
+            lora_alpha=self.lora_rank,
             lora_dropout=0,
             bias="none",
             task_type="CAUSAL_LM",
@@ -224,9 +235,9 @@ class Model:
             print("* Applying LoRA adapters...")
             target_modules = self.get_abliterable_components()
             peft_config = LoraConfig(
-                r=1,
+                r=self.lora_rank,
                 target_modules=target_modules,
-                lora_alpha=1,
+                lora_alpha=self.lora_rank,
                 lora_dropout=0,
                 bias="none",
                 task_type="CAUSAL_LM",
@@ -365,6 +376,7 @@ class Model:
     def abliterate(
         self,
         refusal_directions: Tensor,
+        harmless_directions: Tensor,
         direction_index: float | None,
         parameters: dict[str, AbliterationParameters],
     ):
@@ -374,11 +386,25 @@ class Model:
             # The index must be shifted by 1 because the first element
             # of refusal_directions is the direction for the embeddings.
             weight, index = math.modf(direction_index + 1)
+            refusal_direction_1 = refusal_directions[int(index)]
+            refusal_direction_2 = refusal_directions[int(index) + 1]
+            if (
+                self.settings.orthogonalize_direction
+                and self.settings.orthogonalize_same_layer
+            ):
+                # Remove only the harmful part of the refusal direction.
+                harmless_direction_1 = harmless_directions[int(index)]
+                harmless_direction_2 = harmless_directions[int(index) + 1]
+                # Get the orthogonal component of the first refusal direction.
+                projection_scalar = refusal_direction_1 @ harmless_direction_1
+                refusal_direction_1 -= projection_scalar * harmless_direction_1
+                refusal_direction_1 = F.normalize(refusal_direction_1, p=2, dim=0)
+                # Get the orthogonal component of the second refusal direction.
+                projection_scalar = refusal_direction_2 @ harmless_direction_2
+                refusal_direction_2 -= projection_scalar * harmless_direction_2
+                refusal_direction_2 = F.normalize(refusal_direction_2, p=2, dim=0)
             refusal_direction = F.normalize(
-                refusal_directions[int(index)].lerp(
-                    refusal_directions[int(index) + 1],
-                    weight,
-                ),
+                torch.lerp(refusal_direction_1, refusal_direction_2, weight),
                 p=2,
                 dim=0,
             )
@@ -409,6 +435,19 @@ class Model:
                     layer_refusal_direction = refusal_directions[layer_index + 1]
                 else:
                     layer_refusal_direction = refusal_direction
+
+                if self.settings.orthogonalize_direction and (
+                    refusal_direction is None
+                    or not self.settings.orthogonalize_same_layer
+                ):
+                    # Remove only the harmful part of the refusal direction.
+                    harmless_direction = harmless_directions[layer_index + 1]
+                    # Get the orthogonal component of the refusal direction.
+                    projection_scalar = layer_refusal_direction @ harmless_direction
+                    layer_refusal_direction -= projection_scalar * harmless_direction
+                    layer_refusal_direction = F.normalize(
+                        layer_refusal_direction, p=2, dim=0
+                    )
 
                 for module in modules:
                     # FIXME: This cast is potentially invalid, because the program logic
@@ -450,14 +489,49 @@ class Model:
                             ).to(torch.float32),
                         )
 
+                    # Flatten weight matrix to (out_features, in_features).
+                    W = W.view(W.shape[0], -1)
+
+                    if self.settings.preserve_magnitudes:
+                        # Keep a reference to the original weight matrix so we can subtract it later.
+                        W_org = W
+                        # Get the row norms (cast to work around untyped LA).
+                        W_norm_row = cast(
+                            Tensor, LA.vector_norm(W, dim=1, keepdim=True)
+                        )
+                        # Normalize the weight matrix along the rows.
+                        W = F.normalize(W, p=2, dim=1)
+
                     # Calculate lora_A = v^T W
                     # v is (d_out,), W is (d_out, d_in)
                     # v @ W -> (d_in,)
-                    lora_A = (v @ W).view(1, -1)
+                    lora_A: Tensor = (v @ W).view(1, -1)
 
                     # Calculate lora_B = -weight * v
                     # v is (d_out,)
-                    lora_B = (-weight * v).view(-1, 1)
+                    lora_B: Tensor = (-weight * v).view(-1, 1)
+
+                    if self.settings.preserve_magnitudes:
+                        # Apply the LoRA directly.
+                        W = W + lora_B @ lora_A
+                        # Normalize the adjusted weight matrix along the rows.
+                        W = F.normalize(W, p=2, dim=1)
+                        # Restore the original row norms of the weight matrix.
+                        W = W * W_norm_row
+                        # Subtract the original matrix to turn W into a delta.
+                        W = W - W_org
+                        # Use an SVD to get an approximation of the matrix.
+                        r = self.lora_rank
+                        U, S, Vh = torch.svd_lowrank(W, q=2 * r + 4, niter=6)
+                        # Truncate it to the part we want to store in the LoRA.
+                        # Note: svd_lowrank actually returns V, so transpose it to get Vh.
+                        U = U[:, :r]
+                        S = S[:r]
+                        Vh = Vh[:, :r].T
+                        # Transfer it into the LoRA components.
+                        sqrt_S = torch.sqrt(S)
+                        lora_B = U @ torch.diag(sqrt_S)
+                        lora_A = torch.diag(sqrt_S) @ Vh
 
                     # Assign to adapters. The adapter name is "default", because that's
                     # what PEFT uses when no name is explicitly specified, as above.

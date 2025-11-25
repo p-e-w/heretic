@@ -112,6 +112,24 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
+    orthogonalize_direction: bool = Field(
+        default=False,
+        description="Whether to only remove the harmful part of the refusal direction.",
+    )
+
+    orthogonalize_same_layer: bool = Field(
+        default=False,
+        description=(
+            "Whether to define the harmful part of the refusal direction relative to the harmless direction "
+            "of the same layer, or relative to the harmless direction of the layer being acted upon."
+        ),
+    )
+
+    preserve_magnitudes: bool = Field(
+        default=False,
+        description="Whether to keep the overall strength of model weights unchanged.",
+    )
+
     print_responses: bool = Field(
         default=False,
         description="Whether to print prompt/response pairs when counting refusals.",

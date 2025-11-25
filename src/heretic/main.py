@@ -327,6 +327,11 @@ def run():
         p=2,
         dim=1,
     )
+    harmless_directions = F.normalize(
+        good_residuals.mean(dim=0),
+        p=2,
+        dim=1,
+    )
 
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
@@ -380,11 +385,22 @@ def run():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.
-            max_weight = trial.suggest_float(
-                f"{component}.max_weight",
-                0.8,
-                1.5,
-            )
+            if not settings.abliteration_preserve_magnitude:
+                max_weight = trial.suggest_float(
+                    f"{component}.max_weight",
+                    0.8,
+                    1.5,
+                )
+            else:
+                # Because preserving the magnitude reduces the risk from large adjustments,
+                # much larger weight values become viable. However, we still want to
+                # prioritize lower weight values early on, so sample in the log domain.
+                max_weight = trial.suggest_float(
+                    f"{component}.max_weight",
+                    0.8,
+                    20.0,
+                    log=True,
+                )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
                 0.6 * last_layer_index,
@@ -424,7 +440,9 @@ def run():
         print("* Resetting model...")
         model.reset_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, direction_index, parameters)
+        model.abliterate(
+            refusal_directions, harmless_directions, direction_index, parameters
+        )
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
 
@@ -569,6 +587,7 @@ def run():
             print("* Abliterating...")
             model.abliterate(
                 refusal_directions,
+                harmless_directions,
                 trial.user_attrs["direction_index"],
                 trial.user_attrs["parameters"],
             )

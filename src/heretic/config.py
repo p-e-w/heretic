@@ -112,6 +112,16 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
+    abliteration_orthogonal_project: bool = Field(
+        default=False,
+        description="Whether to only remove the harmful part of the refusal direction.",
+    )
+
+    abliteration_preserve_magnitude: bool = Field(
+        default=False,
+        description="Whether to keep the overall strength of model weights unchanged.",
+    )
+
     print_responses: bool = Field(
         default=False,
         description="Whether to print prompt/response pairs when counting refusals.",

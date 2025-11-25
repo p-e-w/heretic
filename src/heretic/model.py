@@ -181,6 +181,7 @@ class Model:
     def abliterate(
         self,
         refusal_directions: Tensor,
+        harmless_directions: Tensor,
         direction_index: float | None,
         parameters: dict[str, AbliterationParameters],
     ):
@@ -225,6 +226,15 @@ class Model:
                 else:
                     layer_refusal_direction = refusal_direction
 
+                if self.settings.abliteration_orthogonal_project:
+                    # Remove only the harmful part of the refusal direction.
+                    harmless_direction = harmless_directions[layer_index + 1]
+                    projection_scalar = layer_refusal_direction @ harmless_direction
+                    layer_refusal_direction -= projection_scalar * harmless_direction
+                    layer_refusal_direction = F.normalize(
+                        layer_refusal_direction, p=2, dim=0
+                    )
+
                 # Projects any right-multiplied vector(s) onto the subspace
                 # spanned by the refusal direction.
                 projector = torch.outer(
@@ -235,8 +245,20 @@ class Model:
                 for matrix in matrices:
                     # Ensure projector is on the same device as the matrix for multi-GPU support.
                     device_projector = projector.to(matrix.device)
-                    # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * (device_projector @ matrix))
+                    if self.settings.abliteration_preserve_magnitude:
+                        # Decompose weight matrix
+                        matrix_norm = torch.norm(matrix, dim=1, keepdim=True)
+                        matrix.div_(matrix_norm)
+                        # Apply abliteration to the DIRECTIONAL component
+                        matrix.sub_(weight * (device_projector @ matrix))
+                        # Re-normalize the adjusted direction to enable recombination
+                        matrix_norm_new = torch.norm(matrix, dim=1, keepdim=True)
+                        matrix.div_(matrix_norm_new)
+                        # Recombine: keep original magnitude, use new direction
+                        matrix.mul_(matrix_norm)
+                    else:
+                        # In-place subtraction is safe as we're not using Autograd.
+                        matrix.sub_(weight * (device_projector @ matrix))
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

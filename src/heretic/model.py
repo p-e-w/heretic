@@ -251,10 +251,19 @@ class Model:
     ) -> tuple[BatchEncoding, GenerateOutput | LongTensor]:
         chats = [self.get_chat(prompt) for prompt in prompts]
 
+        # Build kwargs for apply_chat_template
+        template_kwargs: dict[str, Any] = {
+            "add_generation_prompt": True,
+            "tokenize": False,
+        }
+
+        # Add enable_thinking if configured (for Qwen3 and similar models)
+        if self.settings.enable_thinking is not None:
+            template_kwargs["enable_thinking"] = self.settings.enable_thinking
+
         chat_prompts: list[str] = self.tokenizer.apply_chat_template(
             chats,
-            add_generation_prompt=True,
-            tokenize=False,
+            **template_kwargs,
         )
 
         inputs = self.tokenizer(
@@ -353,10 +362,19 @@ class Model:
         return torch.cat(logprobs, dim=0)
 
     def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
+        # Build kwargs for apply_chat_template
+        template_kwargs: dict[str, Any] = {
+            "add_generation_prompt": True,
+            "tokenize": False,
+        }
+
+        # Add enable_thinking if configured (for Qwen3 and similar models)
+        if self.settings.enable_thinking is not None:
+            template_kwargs["enable_thinking"] = self.settings.enable_thinking
+
         chat_prompt: str = self.tokenizer.apply_chat_template(
             chat,
-            add_generation_prompt=True,
-            tokenize=False,
+            **template_kwargs,
         )
 
         inputs = self.tokenizer(

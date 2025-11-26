@@ -53,6 +53,15 @@ class Settings(BaseSettings):
         description="Whether to trust remote code when loading the model.",
     )
 
+    enable_thinking: bool | None = Field(
+        default=None,
+        description=(
+            "Whether to enable thinking mode for models that support it (e.g., Qwen3). "
+            "Set to False to disable thinking tokens during abliteration. "
+            "If None, uses the model's default behavior."
+        ),
+    )
+
     batch_size: int = Field(
         default=0,  # auto
         description="Number of input sequences to process in parallel (0 = auto).",

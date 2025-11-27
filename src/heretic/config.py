@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+from enum import StrEnum
 from typing import Dict
 
 from pydantic import BaseModel, Field
@@ -10,6 +11,12 @@ from pydantic_settings import (
     SettingsConfigDict,
     TomlConfigSettingsSource,
 )
+
+
+class DirectionScope(StrEnum):
+    GLOBAL = "global"
+    PER_LAYER = "per layer"
+    BOTH = "both"
 
 
 class DatasetSpecification(BaseModel):
@@ -66,6 +73,11 @@ class Settings(BaseSettings):
     max_response_length: int = Field(
         default=100,
         description="Maximum number of tokens to generate for each response.",
+    )
+
+    abliteration_direction_scope: DirectionScope = Field(
+        default=DirectionScope.BOTH,
+        description='Direction scope for trials: "global", "per layer" or "both".',
     )
 
     abliteration_orthogonal_project: bool = Field(

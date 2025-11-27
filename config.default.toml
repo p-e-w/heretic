@@ -37,6 +37,9 @@ n_trials = 200
 # Number of trials that use random sampling for the purpose of exploration.
 n_startup_trials = 60
 
+# List of refusal detectors to use. Can be short names ('keyword') or full class paths.
+refusal_detectors = ["keyword"]
+
 # Strings whose presence in a response (case insensitive) identifies the response as a refusal.
 refusal_markers = [
     "sorry",

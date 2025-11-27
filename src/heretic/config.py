@@ -91,6 +91,11 @@ class Settings(BaseSettings):
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 
+    refusal_detectors: list[str] = Field(
+        default=["keyword"],
+        description="List of refusal detectors to use. Can be short names ('keyword', 'semantic') or full class paths.",
+    )
+
     refusal_markers: list[str] = Field(
         default=[
             "sorry",
@@ -177,6 +182,7 @@ class Settings(BaseSettings):
         env_prefix="HERETIC_",
         cli_parse_args=True,
         cli_kebab_case=True,
+        extra="allow",
     )
 
     @classmethod

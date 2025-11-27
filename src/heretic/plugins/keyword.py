@@ -1,4 +1,6 @@
 from heretic.refusal import RefusalDetector
+
+
 class KeywordRefusalDetector(RefusalDetector):
     """
     Detects refusals using a list of keyword markers defined in settings.
@@ -22,4 +24,3 @@ class KeywordRefusalDetector(RefusalDetector):
                 return True
 
         return False
-

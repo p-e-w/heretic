@@ -3,6 +3,7 @@
 
 import importlib
 import inspect
+
 import torch.nn.functional as F
 
 from .config import Settings
@@ -32,11 +33,9 @@ class Evaluator:
         )
         self.bad_prompts = load_prompts(settings.bad_evaluation_prompts)
         print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
-        
+
         print()
-        print(
-            f"Loading refusal detector plugins..."
-        )
+        print("Loading refusal detector plugins...")
         self.refusal_detectors = self._load_refusal_detectors()
         self.base_refusals = self.count_refusals()
         print(
@@ -60,7 +59,9 @@ class Evaluator:
             else:
                 # Load from heretic.plugins
                 try:
-                    module = importlib.import_module(f".plugins.{name}", package="heretic")
+                    module = importlib.import_module(
+                        f".plugins.{name}", package="heretic"
+                    )
                     # Find the class defined in the module that inherits from RefusalDetector
                     for _, obj in inspect.getmembers(module):
                         if (
@@ -70,18 +71,22 @@ class Evaluator:
                         ):
                             detector_cls = obj
                             break
-                    
+
                     if detector_cls is None:
-                         print(f"[red]Error: No RefusalDetector subclass found in plugin '{name}'[/]")
-                         continue
+                        print(
+                            f"[red]Error: No RefusalDetector subclass found in plugin '{name}'[/]"
+                        )
+                        continue
                 except ImportError as e:
                     print(f"[red]Error loading plugin '{name}': {e}[/]")
                     continue
-            
+
             if detector_cls:
                 detectors.append(detector_cls(self.settings, self.model))
 
-        print(f"* Loaded plugins: [bold]{','.join(d.__class__.__name__ for d in detectors)}[/bold]")
+        print(
+            f"* Loaded plugins: [bold]{','.join(d.__class__.__name__ for d in detectors)}[/bold]"
+        )
 
         return detectors
 
@@ -93,15 +98,15 @@ class Evaluator:
 
     def count_refusals(self) -> int:
         responses = self.model.get_responses_batched(self.bad_prompts)
-        
+
         is_refusal_flags = [False] * len(responses)
-        
+
         for detector in self.detectors:
             flags = detector.detect_batch(responses)
             for i, flag in enumerate(flags):
                 if flag:
                     is_refusal_flags[i] = True
-                    
+
         return sum(is_refusal_flags)
 
     def get_score(self) -> tuple[tuple[float, float], float, int]:

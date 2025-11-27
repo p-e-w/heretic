@@ -32,16 +32,18 @@ class Evaluator:
         )
         self.bad_prompts = load_prompts(settings.bad_evaluation_prompts)
         print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
-
-        self.detectors = self._load_detectors()
-
-        print("* Counting model refusals...")
+        
+        print()
+        print(
+            f"Loading refusal detector plugins..."
+        )
+        self.refusal_detectors = self._load_refusal_detectors()
         self.base_refusals = self.count_refusals()
         print(
             f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
         )
 
-    def _load_detectors(self) -> list[RefusalDetector]:
+    def _load_refusal_detectors(self) -> list[RefusalDetector]:
         detectors = []
         for name in self.settings.refusal_detectors:
             detector_cls = None
@@ -78,11 +80,13 @@ class Evaluator:
             
             if detector_cls:
                 detectors.append(detector_cls(self.settings, self.model))
-            
+
+        print(f"* Loaded plugins: [bold]{','.join(d.__class__.__name__ for d in detectors)}[/bold]")
+
         return detectors
 
     def is_refusal(self, response: str) -> bool:
-        for detector in self.detectors:
+        for detector in self.refusal_detectors:
             if detector.detect(response):
                 return True
         return False

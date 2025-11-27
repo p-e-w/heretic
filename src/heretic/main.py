@@ -229,13 +229,16 @@ def run():
         trial_index += 1
         trial.set_user_attr("index", trial_index)
 
-        direction_scope = trial.suggest_categorical(
-            "direction_scope",
-            [
-                "global",
-                "per layer",
-            ],
-        )
+        if settings.direction_scope == "all":
+            direction_scope = trial.suggest_categorical(
+                "direction_scope",
+                [
+                    "global",
+                    "per layer",
+                ],
+            )
+        else:
+            direction_scope = settings.direction_scope
 
         # Discrimination between "harmful" and "harmless" inputs is usually strongest
         # in layers slightly past the midpoint of the layer stack. See the original
@@ -359,17 +362,25 @@ def run():
         key=lambda trial: trial.user_attrs["refusals"],
     )
 
-    choices = [
-        Choice(
-            title=(
-                f"[Trial {trial.user_attrs['index']:>3}] "
-                f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
-            ),
-            value=trial,
+    choices = []
+    for trial in best_trials:
+        if settings.direction_scope != "all":
+            direction_scope = ""
+        elif trial.user_attrs["direction_index"] is None:
+            direction_scope = "(per layer)"
+        else:
+            direction_scope = "(global)"
+        choices.append(
+            Choice(
+                title=(
+                    f"[Trial {trial.user_attrs['index']:>3}] "
+                    f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+                    f"KL divergence: {trial.user_attrs['kl_divergence']:.2f} "
+                    f"{direction_scope}"
+                ),
+                value=trial,
+            )
         )
-        for trial in best_trials
-    ]
 
     choices.append(
         Choice(

@@ -24,6 +24,9 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
+# Direction scope for trials: "global", "per layer" or "all".
+direction_scope = "all"
+
 # Whether to print detailed information about residuals and refusal directions.
 print_residual_geometry = false
 

@@ -80,6 +80,11 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
+    direction_scope: str = Field(
+        default="all",
+        description='Direction scope for trials: "global", "per layer" or "all".',
+    )
+
     print_residual_geometry: bool = Field(
         default=False,
         description="Whether to print detailed information about residuals and refusal directions.",

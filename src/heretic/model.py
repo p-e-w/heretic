@@ -593,7 +593,17 @@ class Model:
 
         # Upcast the data type to avoid precision (bfloat16) or range (float16)
         # problems during calculations involving residual vectors.
-        return residuals.to(torch.float32)
+        residuals = residuals.to(torch.float32)
+
+        if 0 <= self.settings.winsorization_quantile < 1:
+            # Perform symmetric magnitude winsorization on the residuals.
+            abs_residuals = torch.abs(residuals)
+            thresholds = torch.quantile(
+                abs_residuals, self.settings.winsorization_quantile, 2, True
+            )
+            return torch.clamp(residuals, -thresholds, thresholds)
+
+        return residuals
 
     def get_residuals_batched(self, prompts: list[Prompt]) -> Tensor:
         residuals = []

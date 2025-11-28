@@ -575,6 +575,14 @@ class Model:
             dim=1,
         )
 
+        if 0 <= self.settings.winsorization_quantile < 1:
+            # Winsorize the residuals.
+            abs_residuals = torch.abs(residuals).to(torch.float32)
+            thresholds = torch.quantile(
+                abs_residuals, self.settings.winsorization_quantile, dim=2, keepdim=True
+            )
+            residuals.clamp_(min=-thresholds, max=thresholds)
+
         # Upcast the data type to avoid precision (bfloat16) or range (float16)
         # problems during calculations involving residual vectors.
         return residuals.to(torch.float32)

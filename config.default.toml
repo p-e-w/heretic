@@ -40,6 +40,9 @@ print_refusal_geometry = false
 # This is used to ensure balanced co-optimization of KL divergence and refusal count.
 kl_divergence_scale = 1.0
 
+# The winsorization applied to the residuals, expressed as a percentage.
+winsorization_level = 100.0
+
 # Number of abliteration trials to run during optimization.
 n_trials = 200
 

@@ -144,6 +144,11 @@ class Settings(BaseSettings):
         ),
     )
 
+    winsorization_level: float = Field(
+        default=100.0,
+        description="The winsorization applied to the residuals, expressed as a percentage.",
+    )
+
     n_trials: int = Field(
         default=200,
         description="Number of abliteration trials to run during optimization.",

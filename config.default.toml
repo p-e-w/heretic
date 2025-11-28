@@ -59,6 +59,9 @@ kl_divergence_scale = 1.0
 # This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".
 kl_divergence_target = 0.01
 
+# The winsorization applied to the residuals, expressed as a percentage.
+winsorization_level = 100.0
+
 # Number of abliteration trials to run during optimization.
 n_trials = 200
 

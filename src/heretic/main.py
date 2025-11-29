@@ -35,6 +35,7 @@ from rich.traceback import install
 from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
+from .plugins import ClassifierPlugin, RefusalPlugin
 from .utils import (
     empty_cache,
     format_duration,
@@ -47,7 +48,6 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
-from .plugins import ClassifierPlugin, RefusalPlugin
 
 
 def run():

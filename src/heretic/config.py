@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+from enum import StrEnum
 from typing import Dict
 
 from pydantic import BaseModel, Field
@@ -10,6 +11,12 @@ from pydantic_settings import (
     SettingsConfigDict,
     TomlConfigSettingsSource,
 )
+
+
+class DirectionScope(StrEnum):
+    GLOBAL = "global"
+    PER_LAYER = "per layer"
+    BOTH = "both"
 
 
 class DatasetSpecification(BaseModel):
@@ -68,6 +75,21 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
+    abliteration_direction_scope: DirectionScope = Field(
+        default=DirectionScope.BOTH,
+        description='Direction scope for trials: "global", "per layer" or "both".',
+    )
+
+    abliteration_orthogonal_project: bool = Field(
+        default=False,
+        description="Whether to only remove the harmful part of the refusal direction.",
+    )
+
+    abliteration_preserve_magnitude: bool = Field(
+        default=False,
+        description="Whether to keep the overall strength of model weights unchanged.",
+    )
+
     print_refusal_geometry: bool = Field(
         default=False,
         description="Whether to print detailed information about residuals and refusal directions after calculating them.",
@@ -79,6 +101,11 @@ class Settings(BaseSettings):
             'Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models. '
             "This is used to ensure balanced co-optimization of KL divergence and refusal count."
         ),
+    )
+
+    winsorization_level: float = Field(
+        default=100.0,
+        description="The winsorization applied to the residuals, expressed as a percentage.",
     )
 
     n_trials: int = Field(

@@ -24,12 +24,24 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
+# Direction scope for trials: "global", "per layer" or "both".
+abliteration_direction_scope = "both"
+
+# Whether to only remove the harmful part of the refusal direction.
+abliteration_orthogonal_project = false
+
+# Whether to preserve the magnitude of the weights.
+abliteration_preserve_magnitude = false
+
 # Whether to print detailed information about residuals and refusal directions after calculating them.
 print_refusal_geometry = false
 
 # Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models.
 # This is used to ensure balanced co-optimization of KL divergence and refusal count.
 kl_divergence_scale = 1.0
+
+# The winsorization applied to the residuals, expressed as a percentage.
+winsorization_level = 100.0
 
 # Number of abliteration trials to run during optimization.
 n_trials = 200

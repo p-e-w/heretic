@@ -32,7 +32,7 @@ from questionary import Choice, Style
 from rich.table import Table
 from rich.traceback import install
 
-from .config import Settings
+from .config import DirectionScope, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
@@ -209,6 +209,11 @@ def run():
         p=2,
         dim=1,
     )
+    harmless_directions = F.normalize(
+        good_residuals.mean(dim=0),
+        p=2,
+        dim=1,
+    )
 
     if settings.print_refusal_geometry:
         table = Table()
@@ -264,13 +269,16 @@ def run():
         trial_index += 1
         trial.set_user_attr("index", trial_index)
 
-        direction_scope = trial.suggest_categorical(
-            "direction_scope",
-            [
-                "global",
-                "per layer",
-            ],
-        )
+        if settings.abliteration_direction_scope is DirectionScope.BOTH:
+            direction_scope = trial.suggest_categorical(
+                "direction_scope",
+                [
+                    DirectionScope.GLOBAL.value,
+                    DirectionScope.PER_LAYER.value,
+                ],
+            )
+        else:
+            direction_scope = settings.abliteration_direction_scope.value
 
         # Discrimination between "harmful" and "harmless" inputs is usually strongest
         # in layers slightly past the midpoint of the layer stack. See the original
@@ -285,7 +293,7 @@ def run():
             0.9 * (len(model.get_layers()) - 1),
         )
 
-        if direction_scope == "per layer":
+        if direction_scope == DirectionScope.PER_LAYER:
             direction_index = None
 
         parameters = {}
@@ -338,7 +346,9 @@ def run():
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, direction_index, parameters)
+        model.abliterate(
+            refusal_directions, harmless_directions, direction_index, parameters
+        )
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
 
@@ -394,17 +404,25 @@ def run():
         key=lambda trial: trial.user_attrs["refusals"],
     )
 
-    choices = [
-        Choice(
-            title=(
-                f"[Trial {trial.user_attrs['index']:>3}] "
-                f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
-            ),
-            value=trial,
+    choices = []
+    for trial in best_trials:
+        if settings.abliteration_direction_scope is not DirectionScope.BOTH:
+            direction_scope = ""
+        elif trial.user_attrs["direction_index"] is None:
+            direction_scope = f"({DirectionScope.PER_LAYER})"
+        else:
+            direction_scope = f"({DirectionScope.GLOBAL})"
+        choices.append(
+            Choice(
+                title=(
+                    f"[Trial {trial.user_attrs['index']:>3}] "
+                    f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+                    f"KL divergence: {trial.user_attrs['kl_divergence']:.2f} "
+                    f"{direction_scope}"
+                ),
+                value=trial,
+            )
         )
-        for trial in best_trials
-    ]
 
     choices.append(
         Choice(
@@ -443,6 +461,7 @@ def run():
         print("* Abliterating...")
         model.abliterate(
             refusal_directions,
+            harmless_directions,
             trial.user_attrs["direction_index"],
             trial.user_attrs["parameters"],
         )

@@ -18,6 +18,14 @@ class DatasetSpecification(BaseModel):
     )
     split: str = Field(description="Portion of the dataset to use")
     column: str = Field(description="Column in the dataset that contains the prompts")
+    random_sample: bool | None = Field(
+        default=None,
+        description="If True, randomly sample from the dataset instead of taking the first N records. Requires split to specify a count (e.g., 'train[:400]')."
+    )
+    random_seed: int | None = Field(
+        default=None,
+        description="Random seed for reproducible sampling when random_sample is True. Defaults to 42 if not specified."
+    )
 
 
 class Settings(BaseSettings):

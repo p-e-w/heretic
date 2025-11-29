@@ -140,33 +140,115 @@ def format_duration(seconds: float) -> str:
 def load_prompts(specification: DatasetSpecification) -> list[str]:
     path = specification.dataset
     split_str = specification.split
+    
+    # Determine if we should use random sampling
+    use_random_sampling = specification.random_sample is True
+    
     if os.path.isdir(path):
         if Path(path, DATASET_STATE_JSON_FILENAME).exists():
             # Dataset saved with datasets.save_to_disk; needs special handling.
             # Path should be the subdirectory for a particular split.
             dataset = load_from_disk(path)
-            # Parse the split instructions.
-            ri = ReadInstruction.from_spec(split_str)
-            # Associate the split with its number of examples (lines).
-            split_name = str(dataset.split)
-            name2len = {split_name: len(dataset)}
-            # Convert the instructions to absolute indices and select the first one.
-            abs_i = ri.to_absolute(name2len)[0]
-            # Get the dataset by applying the indices.
-            dataset = dataset[abs_i.from_ : abs_i.to]
+            
+            if use_random_sampling:
+                # For random sampling, load the full split first, then sample
+                split_name = str(dataset.split)
+                # Parse the split to extract the desired sample size
+                ri = ReadInstruction.from_spec(split_str)
+                name2len = {split_name: len(dataset)}
+                abs_i = ri.to_absolute(name2len)[0]
+                sample_size = abs_i.to - abs_i.from_
+                
+                # Shuffle and select
+                seed = specification.random_seed if specification.random_seed is not None else 42
+                dataset = dataset.shuffle(seed=seed).select(range(min(sample_size, len(dataset))))
+            else:
+                # Original head slicing behavior
+                # Parse the split instructions.
+                ri = ReadInstruction.from_spec(split_str)
+                # Associate the split with its number of examples (lines).
+                split_name = str(dataset.split)
+                name2len = {split_name: len(dataset)}
+                # Convert the instructions to absolute indices and select the first one.
+                abs_i = ri.to_absolute(name2len)[0]
+                # Get the dataset by applying the indices.
+                dataset = dataset[abs_i.from_ : abs_i.to]
         else:
             # Path is a local directory.
-            dataset = load_dataset(
-                path,
-                split=split_str,
-                # Don't require the number of examples (lines) per split to be pre-defined.
-                verification_mode=VerificationMode.NO_CHECKS,
-                # But also don't use cached data, as the dataset may have changed on disk.
-                download_mode=DownloadMode.FORCE_REDOWNLOAD,
-            )
+            if use_random_sampling:
+                # Load the base split without slicing, then randomly sample
+                import re
+                # Extract the split name and sample size from split_str (e.g., "train[:400]")
+                match = re.match(r'([^[]+)\[(\d+)?:(\d+)?\]', split_str)
+                if match:
+                    base_split = match.group(1)
+                    start = int(match.group(2)) if match.group(2) else 0
+                    end = int(match.group(3)) if match.group(3) else None
+                    
+                    # Load full split
+                    dataset = load_dataset(
+                        path,
+                        split=base_split,
+                        verification_mode=VerificationMode.NO_CHECKS,
+                        download_mode=DownloadMode.FORCE_REDOWNLOAD,
+                    )
+                    
+                    # Calculate sample size
+                    if end is not None:
+                        sample_size = end - start
+                    else:
+                        sample_size = len(dataset) - start
+                    
+                    # Shuffle and select
+                    seed = specification.random_seed if specification.random_seed is not None else 42
+                    dataset = dataset.shuffle(seed=seed).select(range(min(sample_size, len(dataset))))
+                else:
+                    # No slice notation, load as-is
+                    dataset = load_dataset(
+                        path,
+                        split=split_str,
+                        verification_mode=VerificationMode.NO_CHECKS,
+                        download_mode=DownloadMode.FORCE_REDOWNLOAD,
+                    )
+            else:
+                # Original behavior
+                dataset = load_dataset(
+                    path,
+                    split=split_str,
+                    # Don't require the number of examples (lines) per split to be pre-defined.
+                    verification_mode=VerificationMode.NO_CHECKS,
+                    # But also don't use cached data, as the dataset may have changed on disk.
+                    download_mode=DownloadMode.FORCE_REDOWNLOAD,
+                )
     else:
         # Probably a repository path; let load_dataset figure it out.
-        dataset = load_dataset(path, split=split_str)
+        if use_random_sampling:
+            # Parse split to extract base split name and sample size
+            import re
+            match = re.match(r'([^[]+)\[(\d+)?:(\d+)?\]', split_str)
+            if match:
+                base_split = match.group(1)
+                start = int(match.group(2)) if match.group(2) else 0
+                end = int(match.group(3)) if match.group(3) else None
+                
+                # Load the full base split
+                dataset = load_dataset(path, split=base_split)
+                
+                # Calculate sample size
+                if end is not None:
+                    sample_size = end - start
+                else:
+                    sample_size = len(dataset) - start
+                
+                # Shuffle and select
+                seed = specification.random_seed if specification.random_seed is not None else 42
+                dataset = dataset.shuffle(seed=seed).select(range(min(sample_size, len(dataset))))
+            else:
+                # No slice notation, load as-is
+                dataset = load_dataset(path, split=split_str)
+        else:
+            # Original behavior
+            dataset = load_dataset(path, split=split_str)
 
     return list(dataset[specification.column])
 

@@ -177,39 +177,27 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
             # Path is a local directory.
             if use_random_sampling:
                 # Load the base split without slicing, then randomly sample
-                import re
-                # Extract the split name and sample size from split_str (e.g., "train[:400]")
-                match = re.match(r'([^[]+)\[(\d+)?:(\d+)?\]', split_str)
-                if match:
-                    base_split = match.group(1)
-                    start = int(match.group(2)) if match.group(2) else 0
-                    end = int(match.group(3)) if match.group(3) else None
-                    
-                    # Load full split
-                    dataset = load_dataset(
-                        path,
-                        split=base_split,
-                        verification_mode=VerificationMode.NO_CHECKS,
-                        download_mode=DownloadMode.FORCE_REDOWNLOAD,
-                    )
-                    
-                    # Calculate sample size
-                    if end is not None:
-                        sample_size = end - start
-                    else:
-                        sample_size = len(dataset) - start
-                    
-                    # Shuffle and select
-                    seed = specification.random_seed if specification.random_seed is not None else 42
-                    dataset = dataset.shuffle(seed=seed).select(range(min(sample_size, len(dataset))))
-                else:
-                    # No slice notation, load as-is
-                    dataset = load_dataset(
-                        path,
-                        split=split_str,
-                        verification_mode=VerificationMode.NO_CHECKS,
-                        download_mode=DownloadMode.FORCE_REDOWNLOAD,
-                    )
+                # Use ReadInstruction to parse split notation (supports both absolute and percentage)
+                ri = ReadInstruction.from_spec(split_str)
+                # Extract base split name (e.g., "train" from "train[:400]" or "train[:10%]")
+                base_split = ri._relative_instructions[0].splitname
+                
+                # Load full base split
+                dataset = load_dataset(
+                    path,
+                    split=base_split,
+                    verification_mode=VerificationMode.NO_CHECKS,
+                    download_mode=DownloadMode.FORCE_REDOWNLOAD,
+                )
+                
+                # Calculate sample size using ReadInstruction
+                name2len = {base_split: len(dataset)}
+                abs_i = ri.to_absolute(name2len)[0]
+                sample_size = abs_i.to - abs_i.from_
+                
+                # Shuffle and select
+                seed = specification.random_seed if specification.random_seed is not None else 42
+                dataset = dataset.shuffle(seed=seed).select(range(min(sample_size, len(dataset))))
             else:
                 # Original behavior
                 dataset = load_dataset(
@@ -224,28 +212,22 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
         # Probably a repository path; let load_dataset figure it out.
         if use_random_sampling:
             # Parse split to extract base split name and sample size
-            import re
-            match = re.match(r'([^[]+)\[(\d+)?:(\d+)?\]', split_str)
-            if match:
-                base_split = match.group(1)
-                start = int(match.group(2)) if match.group(2) else 0
-                end = int(match.group(3)) if match.group(3) else None
-                
-                # Load the full base split
-                dataset = load_dataset(path, split=base_split)
-                
-                # Calculate sample size
-                if end is not None:
-                    sample_size = end - start
-                else:
-                    sample_size = len(dataset) - start
-                
-                # Shuffle and select
-                seed = specification.random_seed if specification.random_seed is not None else 42
-                dataset = dataset.shuffle(seed=seed).select(range(min(sample_size, len(dataset))))
-            else:
-                # No slice notation, load as-is
-                dataset = load_dataset(path, split=split_str)
+            # Use ReadInstruction to parse split notation (supports both absolute and percentage)
+            ri = ReadInstruction.from_spec(split_str)
+            # Extract base split name (e.g., "train" from "train[:400]" or "train[:10%]")
+            base_split = ri._relative_instructions[0].splitname
+            
+            # Load the full base split
+            dataset = load_dataset(path, split=base_split)
+            
+            # Calculate sample size using ReadInstruction
+            name2len = {base_split: len(dataset)}
+            abs_i = ri.to_absolute(name2len)[0]
+            sample_size = abs_i.to - abs_i.from_
+            
+            # Shuffle and select
+            seed = specification.random_seed if specification.random_seed is not None else 42
+            dataset = dataset.shuffle(seed=seed).select(range(min(sample_size, len(dataset))))
         else:
             # Original behavior
             dataset = load_dataset(path, split=split_str)

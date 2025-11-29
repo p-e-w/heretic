@@ -47,6 +47,7 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
+from .plugins import ClassifierPlugin, RefusalPlugin
 
 
 def run():
@@ -187,7 +188,16 @@ def run():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
-    evaluator = Evaluator(settings, model)
+    if settings.steering_mode == "classifier":
+        print(
+            f"Initializing classifier plugin: [bold]{settings.classifier_model}[/] ({settings.classifier_label})"
+        )
+        plugin = ClassifierPlugin(settings.classifier_model, settings.classifier_label)
+    else:
+        print("Initializing refusal plugin...")
+        plugin = RefusalPlugin(settings.refusal_markers)
+
+    evaluator = Evaluator(settings, model, plugin)
 
     if settings.evaluate_model is not None:
         print()
@@ -340,7 +350,7 @@ def run():
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
-        score, kl_divergence, refusals = evaluator.get_score()
+        (combined_obj, metric_term), kl_divergence, raw_score = evaluator.get_score()
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / trial_index) * (
@@ -354,9 +364,9 @@ def run():
             )
 
         trial.set_user_attr("kl_divergence", kl_divergence)
-        trial.set_user_attr("refusals", refusals)
+        trial.set_user_attr("score", raw_score)
 
-        return score
+        return metric_term, kl_divergence
 
     def objective_wrapper(trial: Trial) -> tuple[float, float]:
         try:
@@ -391,14 +401,14 @@ def run():
 
     best_trials = sorted(
         study.best_trials,
-        key=lambda trial: trial.user_attrs["refusals"],
+        key=lambda trial: trial.user_attrs["score"],
     )
 
     choices = [
         Choice(
             title=(
                 f"[Trial {trial.user_attrs['index']:>3}] "
-                f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+                f"Score: {trial.user_attrs['score']:.4f}, "
                 f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
             ),
             value=trial,
@@ -418,7 +428,7 @@ def run():
     print()
     print(
         (
-            "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
+            "The following trials resulted in Pareto optimal combinations of score and KL divergence. "
             "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
             "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
             "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"

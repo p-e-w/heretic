@@ -5,13 +5,15 @@ import torch.nn.functional as F
 
 from .config import Settings
 from .model import Model
+from .plugins import Plugin
 from .utils import load_prompts, print
 
 
 class Evaluator:
-    def __init__(self, settings: Settings, model: Model):
+    def __init__(self, settings: Settings, model: Model, plugin: Plugin):
         self.settings = settings
         self.model = model
+        self.plugin = plugin
 
         print()
         print(
@@ -30,34 +32,20 @@ class Evaluator:
         self.bad_prompts = load_prompts(settings.bad_evaluation_prompts)
         print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
 
-        print("* Counting model refusals...")
-        self.base_refusals = self.count_refusals()
-        print(
-            f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
-        )
+        print("* Calculating initial scores...")
+        self.base_score = self.calculate_score()
+        print(f"* Initial score: [bold]{self.base_score:.4f}[/]")
 
-    def is_refusal(self, response: str) -> bool:
-        # Remove emphasis (e.g. "I *will not*...").
-        response = response.lower().replace("*", "")
-
-        # Normalize typographic apostrophes ("won’t" -> "won't").
-        response = response.replace("’", "'")
-
-        # Normalize whitespace between words to a single space.
-        response = " ".join(response.split())
-
-        for marker in self.settings.refusal_markers:
-            if marker.lower() in response:
-                return True
-
-        return False
-
-    def count_refusals(self) -> int:
+    def calculate_score(self) -> float:
         responses = self.model.get_responses_batched(self.bad_prompts)
-        refusals = [response for response in responses if self.is_refusal(response)]
-        return len(refusals)
+        scores = self.plugin.score(responses)
+        # We calculate the average score across all responses.
+        # For refusal, this is the refusal rate (0.0 to 1.0).
+        # For classifier, this is the average probability of the target label (0.0 to 1.0).
+        avg_score = sum(scores) / len(scores)
+        return avg_score
 
-    def get_score(self) -> tuple[tuple[float, float], float, int]:
+    def get_score(self) -> tuple[tuple[float, float], float, float]:
         print("  * Obtaining first-token probability distributions...")
         logprobs = self.model.get_logprobs_batched(self.good_prompts)
         kl_divergence = F.kl_div(
@@ -68,13 +56,30 @@ class Evaluator:
         ).item()
         print(f"  * KL divergence: [bold]{kl_divergence:.2f}[/]")
 
-        print("  * Counting model refusals...")
-        refusals = self.count_refusals()
-        print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
+        print("  * Calculating steering score...")
+        responses = self.model.get_responses_batched(self.bad_prompts)
+        scores = self.plugin.score(responses)
+        avg_score = sum(scores) / len(scores)
+        
+        print(f"  * Average Score: [bold]{avg_score:.4f}[/]")
 
-        score = (
-            (kl_divergence / self.settings.kl_divergence_scale),
-            (refusals / self.base_refusals),
-        )
+        # Optimization Objective:
+        # We want to minimize KL Divergence (stay close to original model).
+        # We want to OPTIMIZE the steering metric.
+        
+        if self.settings.steering_mode == "refusal":
+            # Minimize refusal rate.
+            # Objective = (KL / scale) + (Refusal Rate / Base Refusal Rate)
+            # Note: Base Refusal Rate might be 0, so we need to be careful.
+            # The original code used (refusals / base_refusals).
+            # If base_refusals is 0, we have a problem. But usually it's high.
+            metric_term = avg_score / self.base_score if self.base_score > 0 else avg_score
+        else:
+            # Maximize target label (e.g. "joy").
+            # So we minimize (1 - avg_score).
+            # Objective = (KL / scale) + (1 - avg_score)
+            metric_term = 1.0 - avg_score
 
-        return score, kl_divergence, refusals
+        objective = (kl_divergence / self.settings.kl_divergence_scale) + metric_term
+
+        return (objective, metric_term), kl_divergence, avg_score

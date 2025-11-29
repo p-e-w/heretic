@@ -60,20 +60,22 @@ class Evaluator:
         responses = self.model.get_responses_batched(self.bad_prompts)
         scores = self.plugin.score(responses)
         avg_score = sum(scores) / len(scores)
-        
+
         print(f"  * Average Score: [bold]{avg_score:.4f}[/]")
 
         # Optimization Objective:
         # We want to minimize KL Divergence (stay close to original model).
         # We want to OPTIMIZE the steering metric.
-        
+
         if self.settings.steering_mode == "refusal":
             # Minimize refusal rate.
             # Objective = (KL / scale) + (Refusal Rate / Base Refusal Rate)
             # Note: Base Refusal Rate might be 0, so we need to be careful.
             # The original code used (refusals / base_refusals).
             # If base_refusals is 0, we have a problem. But usually it's high.
-            metric_term = avg_score / self.base_score if self.base_score > 0 else avg_score
+            metric_term = (
+                avg_score / self.base_score if self.base_score > 0 else avg_score
+            )
         else:
             # Maximize target label (e.g. "joy").
             # So we minimize (1 - avg_score).

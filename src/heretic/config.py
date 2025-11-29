@@ -17,7 +17,9 @@ class DatasetSpecification(BaseModel):
         default="mlabonne/harmless_alpaca",
         description="Hugging Face dataset ID, or path to dataset on disk",
     )
-    split: str = Field(default="train[:400]", description="Portion of the dataset to use")
+    split: str = Field(
+        default="train[:400]", description="Portion of the dataset to use"
+    )
     column: str = Field(
         default="text", description="Column in the dataset that contains the prompts"
     )

@@ -164,6 +164,14 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
                 # But also don't use cached data, as the dataset may have changed on disk.
                 download_mode=DownloadMode.FORCE_REDOWNLOAD,
             )
+    elif str(path).endswith(".txt") and os.path.exists(path):
+        # Path is a local text file.
+        dataset = load_dataset(
+            "text",
+            data_files={"train": str(path)},
+            split=split_str,
+            sample_by="line",
+        )
     else:
         # Probably a repository path; let load_dataset figure it out.
         dataset = load_dataset(path, split=split_str)

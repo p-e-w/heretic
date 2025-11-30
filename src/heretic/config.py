@@ -14,10 +14,15 @@ from pydantic_settings import (
 
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
-        description="Hugging Face dataset ID, or path to dataset on disk"
+        default="mlabonne/harmless_alpaca",
+        description="Hugging Face dataset ID, or path to dataset on disk",
     )
-    split: str = Field(description="Portion of the dataset to use")
-    column: str = Field(description="Column in the dataset that contains the prompts")
+    split: str = Field(
+        default="train[:400]", description="Portion of the dataset to use"
+    )
+    column: str = Field(
+        default="text", description="Column in the dataset that contains the prompts"
+    )
 
 
 class Settings(BaseSettings):
@@ -127,6 +132,21 @@ class Settings(BaseSettings):
             "ethical boundaries",
         ],
         description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
+    )
+
+    steering_mode: str = Field(
+        default="refusal",
+        description='Mode of steering: "refusal" (default) or "classifier".',
+    )
+
+    classifier_model: str = Field(
+        default="j-hartmann/emotion-english-distilroberta-base",
+        description='Hugging Face model ID for the classifier plugin (used when steering_mode="classifier").',
+    )
+
+    classifier_label: str = Field(
+        default="joy",
+        description='Target label to optimize for (used when steering_mode="classifier").',
     )
 
     system_prompt: str = Field(

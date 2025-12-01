@@ -8,16 +8,19 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
+import bitsandbytes as bnb
 from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BatchEncoding,
+    BitsAndBytesConfig,
     PreTrainedTokenizerBase,
     TextStreamer,
 )
 from transformers.generation.utils import GenerateOutput
+from peft import LoraConfig, get_peft_model, PeftModel
 
 from .config import Settings
 from .utils import batchify, empty_cache, print
@@ -58,9 +61,25 @@ class Model:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
 
             try:
+                quantization_config = None
+                if settings.load_in_4bit:
+                    # BitsAndBytesConfig expects a torch.dtype, not a string.
+                    if dtype == "auto":
+                        compute_dtype = torch.bfloat16
+                    else:
+                        compute_dtype = getattr(torch, dtype)
+
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=compute_dtype,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_use_double_quant=True,
+                    )
+
                 self.model = AutoModelForCausalLM.from_pretrained(
                     settings.model,
                     dtype=dtype,
+                    quantization_config=quantization_config,
                     device_map=settings.device_map,
                     trust_remote_code=self.trusted_models.get(settings.model),
                 )
@@ -81,19 +100,44 @@ class Model:
                 continue
 
             print("[green]Ok[/]")
+            if settings.load_in_4bit:
+                print("[bold green]Model loaded in 4-bit precision.[/]")
             break
 
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
+        if settings.use_lora:
+            print("* Initializing LoRA adapters...")
+            target_modules = self.get_abliterable_components()
+            peft_config = LoraConfig(
+                r=1,  # Rank 1 is sufficient for directional ablation
+                target_modules=target_modules,
+                lora_alpha=1,
+                lora_dropout=0,
+                bias="none",
+                task_type="CAUSAL_LM",
+            )
+            self.model = get_peft_model(self.model, peft_config)
+            
+            # LoRA B matrices are initialized to zero by default in PEFT,
+            # so we don't need to do anything manually.
+
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print("* Abliterable components:")
-        for component, matrices in self.get_layer_matrices(0).items():
+        for component, modules in self.get_layer_modules(0).items():
             print(
-                f"  * [bold]{component}[/]: [bold]{len(matrices)}[/] matrices per layer"
+                f"  * [bold]{component}[/]: [bold]{len(modules)}[/] matrices per layer"
             )
 
     def reload_model(self):
+        if self.settings.use_lora:
+            # Reset LoRA adapters to zero
+            for name, module in self.model.named_modules():
+                if "lora_B" in name and hasattr(module, "weight"):
+                    torch.nn.init.zeros_(module.weight)
+            return
+
         dtype = self.model.dtype
 
         # Purge existing model object from memory to make space.
@@ -111,48 +155,47 @@ class Model:
             self.trusted_models[self.settings.model] = True
 
     def get_layers(self) -> ModuleList:
+        model = self.model
+        
+        # Unwrap PeftModel
+        if isinstance(model, PeftModel):
+            model = model.base_model.model
+
         # Most multimodal models.
         with suppress(Exception):
-            return self.model.model.language_model.layers
+            return model.model.language_model.layers
 
         # Text-only models.
-        return self.model.model.layers
+        return model.model.layers
 
-    def get_layer_matrices(self, layer_index: int) -> dict[str, list[Tensor]]:
+    def get_layer_modules(self, layer_index: int) -> dict[str, list[torch.nn.Module]]:
         layer = self.get_layers()[layer_index]
 
-        matrices = {}
+        modules = {}
 
-        def try_add(component: str, matrix: Any):
-            # Handle Triton tensors (e.g., from MXFP4 quantization) by extracting
-            # the underlying PyTorch tensor via the .data attribute.
-            if hasattr(matrix, "data") and torch.is_tensor(matrix.data):
-                matrix = matrix.data
+        def try_add(component: str, module: Any):
+            if component not in modules:
+                modules[component] = []
 
-            assert torch.is_tensor(matrix)
-
-            if component not in matrices:
-                matrices[component] = []
-
-            matrices[component].append(matrix)
+            modules[component].append(module)
 
         # Exceptions aren't suppressed here, because there is currently
         # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj.weight)
+        try_add("attn.o_proj", layer.self_attn.o_proj)
 
         # Most dense models.
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.mlp.down_proj.weight)
+            try_add("mlp.down_proj", layer.mlp.down_proj)
 
         # Some MoE models (e.g. Qwen3).
         with suppress(Exception):
             for expert in layer.mlp.experts:
-                try_add("mlp.down_proj", expert.down_proj.weight)
+                try_add("mlp.down_proj", expert.down_proj)
 
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
             for expert in layer.block_sparse_moe.experts:
-                try_add("mlp.down_proj", expert.w2.weight)
+                try_add("mlp.down_proj", expert.w2)
 
         # gpt-oss MoE.
         with suppress(Exception):
@@ -163,20 +206,20 @@ class Model:
 
         # Granite MoE Hybrid - attention layers with shared_mlp.
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.shared_mlp.output_linear.weight)
+            try_add("mlp.down_proj", layer.shared_mlp.output_linear)
 
         # Granite MoE Hybrid - MoE layers with experts.
         with suppress(Exception):
             for expert in layer.moe.experts:
-                try_add("mlp.down_proj", expert.output_linear.weight)
+                try_add("mlp.down_proj", expert.output_linear)
 
         # We need at least one MLP down-projection.
-        assert matrices["mlp.down_proj"]
+        assert modules["mlp.down_proj"]
 
-        return matrices
+        return modules
 
     def get_abliterable_components(self) -> list[str]:
-        return list(self.get_layer_matrices(0).keys())
+        return list(self.get_layer_modules(0).keys())
 
     def abliterate(
         self,
@@ -202,7 +245,7 @@ class Model:
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
         for layer_index in range(len(self.get_layers())):
-            for component, matrices in self.get_layer_matrices(layer_index).items():
+            for component, modules in self.get_layer_modules(layer_index).items():
                 params = parameters[component]
 
                 distance = abs(layer_index - params.max_weight_position)
@@ -232,11 +275,52 @@ class Model:
                     layer_refusal_direction,
                 ).to(self.model.dtype)
 
-                for matrix in matrices:
-                    # Ensure projector is on the same device as the matrix for multi-GPU support.
-                    device_projector = projector.to(matrix.device)
-                    # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * (device_projector @ matrix))
+                for module in modules:
+                    if self.settings.use_lora:
+                        # LoRA abliteration: delta W = -lambda * v * (v^T W)
+                        # lora_B = -lambda * v
+                        # lora_A = v^T W
+                        
+                        # Ensure refusal direction is on the correct device
+                        v = layer_refusal_direction.to(module.weight.device).to(torch.float32)
+                        
+                        # Get W (dequantize if necessary)
+                        if hasattr(module.weight, "quant_state"):
+                            W = bnb.functional.dequantize_4bit(
+                                module.weight.data, module.weight.quant_state
+                            ).to(torch.float32)
+                        else:
+                            W = module.weight.to(torch.float32)
+
+                        # Calculate lora_A = v^T W
+                        # v is (d_out,), W is (d_out, d_in)
+                        # v @ W -> (d_in,)
+                        lora_A = (v @ W).view(1, -1)
+                        
+                        # Calculate lora_B = -weight * v
+                        # v is (d_out,)
+                        lora_B = (-weight * v).view(-1, 1)
+
+                        # Assign to adapters
+                        # We assume the default adapter name "default"
+                        if hasattr(module, "lora_A"):
+                            module.lora_A["default"].weight.data = lora_A.to(module.lora_A["default"].weight.dtype)
+                            module.lora_B["default"].weight.data = lora_B.to(module.lora_B["default"].weight.dtype)
+                    else:
+                        # Legacy direct weight modification
+                        matrix = module.weight
+                        
+                        # Handle Triton tensors (e.g., from MXFP4 quantization) by extracting
+                        # the underlying PyTorch tensor via the .data attribute.
+                        if hasattr(matrix, "data") and torch.is_tensor(matrix.data):
+                            matrix = matrix.data
+
+                        assert torch.is_tensor(matrix)
+
+                        # Ensure projector is on the same device as the matrix for multi-GPU support.
+                        device_projector = projector.to(matrix.device)
+                        # In-place subtraction is safe as we're not using Autograd.
+                        matrix.sub_(weight * (device_projector @ matrix))
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

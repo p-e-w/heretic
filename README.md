@@ -1,3 +1,21 @@
+# Heretic (4-bit LoRA Fork)
+
+> [!NOTE]
+> **This is a fork of [Heretic](https://github.com/p-e-w/heretic) optimized for low VRAM usage.**
+
+## Features
+*   **4-bit Quantization:** Loads models in 4-bit precision using `bitsandbytes`, drastically reducing memory requirements.
+*   **LoRA Adapters:** Instead of modifying the full model weights, this fork trains Low-Rank Adapters (LoRA). This is faster and allows you to keep the base model untouched.
+
+## Usage
+The usage remains the same as the original Heretic, but it will automatically use 4-bit loading and LoRA.
+
+```bash
+heretic Qwen/Qwen3-4B-Instruct-2507
+```
+
+---
+
 # Heretic: Fully automatic censorship removal for language models
 
 Heretic is a tool that removes censorship (aka "safety alignment") from

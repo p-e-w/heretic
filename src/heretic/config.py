@@ -53,6 +53,16 @@ class Settings(BaseSettings):
         description="Whether to trust remote code when loading the model.",
     )
 
+    load_in_4bit: bool = Field(
+        default=True,
+        description="Whether to load the model in 4-bit precision using bitsandbytes.",
+    )
+
+    use_lora: bool = Field(
+        default=True,
+        description="Whether to use LoRA adapters for abliteration instead of direct weight modification.",
+    )
+
     batch_size: int = Field(
         default=0,  # auto
         description="Number of input sequences to process in parallel (0 = auto).",

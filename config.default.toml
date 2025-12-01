@@ -15,6 +15,12 @@ dtypes = [
 # Device map to pass to Accelerate when loading the model.
 device_map = "auto"
 
+# Whether to load the model in 4-bit precision using bitsandbytes.
+load_in_4bit = true
+
+# Whether to use LoRA adapters for abliteration instead of direct weight modification.
+use_lora = true
+
 # Number of input sequences to process in parallel (0 = auto).
 batch_size = 0  # auto
 

@@ -57,6 +57,8 @@ def run():
         and "PYTORCH_CUDA_ALLOC_CONF" not in os.environ
     ):
         os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+
+    # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(

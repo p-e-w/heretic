@@ -7,7 +7,7 @@ import os
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import questionary
 import torch
@@ -26,6 +26,9 @@ from questionary import Choice
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
+
+if TYPE_CHECKING:
+    from .plugin_interface import Plugin
 
 print = Console(highlight=False).print
 
@@ -260,3 +263,53 @@ def get_readme_intro(
 -----
 
 """
+
+
+def load_plugin(name_or_path: str, **kwargs) -> "Plugin":
+    """
+    Load a plugin by name (built-in) or path (custom).
+    """
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    from .plugin_interface import Plugin
+
+    # Check if it's a built-in plugin
+    builtin_plugins = {
+        "refusal": "heretic.plugins.refusal",
+        "classifier": "heretic.plugins.classifier",
+    }
+
+    if name_or_path in builtin_plugins:
+        module_name = builtin_plugins[name_or_path]
+        module = importlib.import_module(module_name)
+    else:
+        # Load from path
+        path = Path(name_or_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Plugin file not found: {path}")
+
+        spec = importlib.util.spec_from_file_location("custom_plugin", path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load plugin from {path}")
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["custom_plugin"] = module
+        spec.loader.exec_module(module)
+
+    # Look for PLUGIN_CLASS
+    if not hasattr(module, "PLUGIN_CLASS"):
+        raise ImportError(
+            f"Plugin {name_or_path} does not define 'PLUGIN_CLASS'. "
+            "Please assign your plugin class to this variable."
+        )
+
+    plugin_class = getattr(module, "PLUGIN_CLASS")
+    if not issubclass(plugin_class, Plugin):
+        raise TypeError(
+            f"Plugin class {plugin_class.__name__} must inherit from Plugin interface."
+        )
+
+    # Instantiate with kwargs
+    return plugin_class(**kwargs)

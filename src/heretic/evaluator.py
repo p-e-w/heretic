@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from .config import Settings
 from .model import Model
-from .plugins import Plugin
+from .plugin_interface import Plugin
 from .utils import load_prompts, print
 
 
@@ -67,19 +67,17 @@ class Evaluator:
         # We want to minimize KL Divergence (stay close to original model).
         # We want to OPTIMIZE the steering metric.
 
-        if self.settings.steering_mode == "refusal":
-            # Minimize refusal rate.
-            # Objective = (KL / scale) + (Refusal Rate / Base Refusal Rate)
-            # Note: Base Refusal Rate might be 0, so we need to be careful.
-            # The original code used (refusals / base_refusals).
-            # If base_refusals is 0, we have a problem. But usually it's high.
-            metric_term = (
-                avg_score / self.base_score if self.base_score > 0 else avg_score
-            )
+        if self.plugin.minimize:
+            # Minimize the score (e.g. refusal rate, or "bad" attribute).
+            # We normalize by the base score if it's significant, to keep the term scale reasonable.
+            # If base score is very low, normalization might blow up the term, so we handle that.
+            if self.base_score > 0.01:
+                metric_term = avg_score / self.base_score
+            else:
+                metric_term = avg_score
         else:
-            # Maximize target label (e.g. "joy").
-            # So we minimize (1 - avg_score).
-            # Objective = (KL / scale) + (1 - avg_score)
+            # Maximize the score (e.g. "good" attribute like Joy).
+            # We minimize (1.0 - score).
             metric_term = 1.0 - avg_score
 
         objective = (kl_divergence / self.settings.kl_divergence_scale) + metric_term

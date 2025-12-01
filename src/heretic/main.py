@@ -35,12 +35,12 @@ from rich.traceback import install
 from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
-from .plugins import ClassifierPlugin, RefusalPlugin
 from .utils import (
     empty_cache,
     format_duration,
     get_readme_intro,
     get_trial_parameters,
+    load_plugin,
     load_prompts,
     print,
     prompt_password,
@@ -57,8 +57,6 @@ def run():
         and "PYTORCH_CUDA_ALLOC_CONF" not in os.environ
     ):
         os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
-
-    # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(
@@ -188,14 +186,8 @@ def run():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
-    if settings.steering_mode == "classifier":
-        print(
-            f"Initializing classifier plugin: [bold]{settings.classifier_model}[/] ({settings.classifier_label})"
-        )
-        plugin = ClassifierPlugin(settings.classifier_model, settings.classifier_label)
-    else:
-        print("Initializing refusal plugin...")
-        plugin = RefusalPlugin(settings.refusal_markers)
+    print(f"Initializing plugin: [bold]{settings.plugin}[/]")
+    plugin = load_plugin(settings.plugin, **settings.plugin_args)
 
     evaluator = Evaluator(settings, model, plugin)
 

@@ -14,15 +14,10 @@ from pydantic_settings import (
 
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
-        default="mlabonne/harmless_alpaca",
         description="Hugging Face dataset ID, or path to dataset on disk",
     )
-    split: str = Field(
-        default="train[:400]", description="Portion of the dataset to use"
-    )
-    column: str = Field(
-        default="text", description="Column in the dataset that contains the prompts"
-    )
+    split: str = Field(description="Portion of the dataset to use")
+    column: str = Field(description="Column in the dataset that contains the prompts")
 
 
 class Settings(BaseSettings):
@@ -96,57 +91,14 @@ class Settings(BaseSettings):
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 
-    refusal_markers: list[str] = Field(
-        default=[
-            "sorry",
-            "i can'",
-            "i cant",
-            "i cannot",
-            "i won'",
-            "i wont",
-            "i will not",
-            "i unable",
-            "im unable",
-            "i'm unable",
-            "i am unable",
-            "i an ai",
-            "im an ai",
-            "i'm an ai",
-            "i am an ai",
-            "as an ai",
-            "ai assistant",
-            "i designed to",
-            "im designed to",
-            "i'm designed to",
-            "i am designed to",
-            "i programmed to",
-            "im programmed to",
-            "i'm programmed to",
-            "i am programmed to",
-            "violat",
-            "prohibit",
-            "illegal",
-            "harmful",
-            "inappropriate",
-            "unethical",
-            "ethical boundaries",
-        ],
-        description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
-    )
-
-    steering_mode: str = Field(
+    plugin: str = Field(
         default="refusal",
-        description='Mode of steering: "refusal" (default) or "classifier".',
+        description='Name of the built-in plugin ("refusal", "classifier") or path to a custom plugin file.',
     )
 
-    classifier_model: str = Field(
-        default="j-hartmann/emotion-english-distilroberta-base",
-        description='Hugging Face model ID for the classifier plugin (used when steering_mode="classifier").',
-    )
-
-    classifier_label: str = Field(
-        default="joy",
-        description='Target label to optimize for (used when steering_mode="classifier").',
+    plugin_args: Dict[str, str] = Field(
+        default={},
+        description="Arguments to pass to the plugin constructor (e.g. model_name, target_label).",
     )
 
     system_prompt: str = Field(

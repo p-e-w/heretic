@@ -1,48 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-from abc import ABC, abstractmethod
-
 from transformers import pipeline
 
-
-class Plugin(ABC):
-    @abstractmethod
-    def score(self, responses: list[str]) -> list[float]:
-        """
-        Return a score (0.0 to 1.0) for each response.
-        The meaning of the score depends on the plugin, but generally
-        higher scores indicate a stronger presence of the target attribute.
-        """
-        pass
-
-
-class RefusalPlugin(Plugin):
-    def __init__(self, markers: list[str]):
-        self.markers = markers
-
-    def is_refusal(self, response: str) -> bool:
-        # Remove emphasis (e.g. "I *will not*...").
-        response = response.lower().replace("*", "")
-
-        # Normalize typographic apostrophes ("won’t" -> "won't").
-        response = response.replace("’", "'")
-
-        # Normalize whitespace between words to a single space.
-        response = " ".join(response.split())
-
-        for marker in self.markers:
-            if marker.lower() in response:
-                return True
-
-        return False
-
-    def score(self, responses: list[str]) -> list[float]:
-        return [1.0 if self.is_refusal(r) else 0.0 for r in responses]
+from ..plugin_interface import Plugin
 
 
 class ClassifierPlugin(Plugin):
-    def __init__(self, model_name: str, target_label: str):
+    def __init__(
+        self,
+        model_name: str = "j-hartmann/emotion-english-distilroberta-base",
+        target_label: str = "joy",
+        minimize: bool = False,
+    ):
         # We use top_k=None to get probabilities for all labels.
         # device=0 uses the first GPU if available, otherwise CPU.
         # Note: This might conflict with the main model if VRAM is tight.
@@ -54,6 +24,11 @@ class ClassifierPlugin(Plugin):
             device_map="auto",
         )
         self.target_label = target_label
+        self._minimize = minimize
+
+    @property
+    def minimize(self) -> bool:
+        return self._minimize
 
     def score(self, responses: list[str]) -> list[float]:
         scores = []
@@ -71,3 +46,7 @@ class ClassifierPlugin(Plugin):
             scores.append(label_score)
 
         return scores
+
+
+# Expose the class as PLUGIN_CLASS for the loader
+PLUGIN_CLASS = ClassifierPlugin

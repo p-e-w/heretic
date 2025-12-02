@@ -228,8 +228,9 @@ class Model:
                 # Projects any right-multiplied vector(s) onto the subspace
                 # spanned by the refusal direction.
                 # We use the property (r r^T) W = r (r^T W) to avoid computing
-                # the O(d^2 k) projector matrix and the O(d^3) matrix multiplication.
-                # W_new = W - r * (r^T W)
+                # the O(d^2) projector matrix and the O(d^2 k) matrix multiplication.
+                # (α is the weight)
+                # W_new = W - α(r (r^T W))
                 r = layer_refusal_direction.to(self.model.dtype)
 
                 for matrix in matrices:
@@ -237,7 +238,7 @@ class Model:
                     r_device = r.to(matrix.device)
 
                     # Calculate the projection scalars: (r^T W)
-                    # r is (1, d), matrix is (d, k) -> result is (k,)
+                    # r is (d,), matrix is (d, k) -> result is (k,)
                     r_transpose_W = torch.matmul(r_device, matrix)
 
                     # Compute the rank-1 update r (r^T W) using the outer product form
@@ -362,7 +363,7 @@ class Model:
 
         return torch.cat(logprobs, dim=0)
 
-    def stream_cresponse(self, chat: list[dict[str, str]]) -> str:
+    def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
         chat_prompt: str = self.tokenizer.apply_chat_template(
             chat,
             add_generation_prompt=True,

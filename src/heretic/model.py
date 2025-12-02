@@ -276,8 +276,9 @@ class Model:
                 # W_new = W - α(r (r^T W))
                 r = layer_refusal_direction.to(self.model.dtype)
 
+
                 for module in modules:
-                    if self.settings.use_lora:
+                    if self.settings.use_lora and hasattr(module, "lora_A"):
                         # LoRA abliteration: delta W = -lambda * v * (v^T W)
                         # lora_B = -lambda * v
                         # lora_A = v^T W
@@ -304,12 +305,12 @@ class Model:
 
                         # Assign to adapters
                         # We assume the default adapter name "default"
-                        if hasattr(module, "lora_A"):
-                            module.lora_A["default"].weight.data = lora_A.to(module.lora_A["default"].weight.dtype)
-                            module.lora_B["default"].weight.data = lora_B.to(module.lora_B["default"].weight.dtype)
+                        module.lora_A["default"].weight.data = lora_A.to(module.lora_A["default"].weight.dtype)
+                        module.lora_B["default"].weight.data = lora_B.to(module.lora_B["default"].weight.dtype)
                     else:
-                        # Legacy direct weight modification
-                        matrix = module.weight
+                        # Direct weight modification (for non-LoRA mode or modules without LoRA adapters)
+                        # This handles cases like GPT-OSS where down_proj is an nn.Parameter
+                        matrix = module.weight if hasattr(module, "weight") else module
                         
                         # Handle Triton tensors (e.g., from MXFP4 quantization) by extracting
                         # the underlying PyTorch tensor via the .data attribute.
@@ -322,6 +323,7 @@ class Model:
                         device_projector = projector.to(matrix.device)
                         # In-place subtraction is safe as we're not using Autograd.
                         matrix.sub_(weight * (device_projector @ matrix))
+
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

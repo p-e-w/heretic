@@ -228,22 +228,25 @@ class Model:
                 # Projects any right-multiplied vector(s) onto the subspace
                 # spanned by the refusal direction.
                 # We use the property (r r^T) W = r (r^T W) to avoid computing
-                # the O(d^2) projector matrix and the O(d^3) matrix multiplication.
+                # the O(d^2 k) projector matrix and the O(d^3) matrix multiplication.
                 # W_new = W - r * (r^T W)
-                hat_r = layer_refusal_direction.to(self.model.dtype)
+                r = layer_refusal_direction.to(self.model.dtype)
 
                 for matrix in matrices:
                     # Ensure r is on the same device as the matrix for multi-GPU support.
-                    hat_r_device = hat_r.to(matrix.device)
+                    r_device = r.to(matrix.device)
 
                     # Calculate the projection scalars: (r^T W)
-                    # hat_r is (d, 1), matrix is (d, k) -> result is (k,)
-                    r_transpose_W = torch.matmul(hat_r_device, matrix)
+                    # r is (1, d), matrix is (d, k) -> result is (k,)
+                    r_transpose_W = torch.matmul(r_device, matrix)
 
-                    # Calculate the update matrix: r * (r^T W)
-                    # Outer product of (d, 1) and (1, k) -> result is (d, k)
-                    # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * torch.outer(hat_r_device, r_transpose_W))
+                    # Compute the rank-1 update r (r^T W) using the outer product form
+                    # r_device: (d,)          — projection direction
+                    # r_transpose_W: (k,)     — r^T W result for this matrix
+                    # torch.outer(r_device, r_times_W) constructs the (d, k) matrix with
+                    # entries r[i] * (r^T W)[j], equivalent to the outer product of two
+                    # vectors, avoiding materializing the full (d x d) projector.
+                    matrix.sub_(weight * torch.outer(r_device, r_transpose_W))
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [
@@ -359,7 +362,7 @@ class Model:
 
         return torch.cat(logprobs, dim=0)
 
-    def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
+    def stream_cresponse(self, chat: list[dict[str, str]]) -> str:
         chat_prompt: str = self.tokenizer.apply_chat_template(
             chat,
             add_generation_prompt=True,

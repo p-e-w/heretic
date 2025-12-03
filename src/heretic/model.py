@@ -6,9 +6,10 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
+import bitsandbytes as bnb
 import torch
 import torch.nn.functional as F
-import bitsandbytes as bnb
+from peft import LoraConfig, PeftModel, get_peft_model
 from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
@@ -20,7 +21,6 @@ from transformers import (
     TextStreamer,
 )
 from transformers.generation.utils import GenerateOutput
-from peft import LoraConfig, get_peft_model, PeftModel
 
 from .config import Settings
 from .utils import batchify, empty_cache, print

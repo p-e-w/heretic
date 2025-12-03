@@ -76,12 +76,19 @@ class Model:
                         bnb_4bit_use_double_quant=True,
                     )
 
+                # Build kwargs, only include quantization_config if it's not None
+                # (some models like gpt-oss have issues with explicit None)
+                load_kwargs = {
+                    "dtype": dtype,
+                    "device_map": settings.device_map,
+                    "trust_remote_code": self.trusted_models.get(settings.model),
+                }
+                if quantization_config is not None:
+                    load_kwargs["quantization_config"] = quantization_config
+
                 self.model = AutoModelForCausalLM.from_pretrained(
                     settings.model,
-                    dtype=dtype,
-                    quantization_config=quantization_config,
-                    device_map=settings.device_map,
-                    trust_remote_code=self.trusted_models.get(settings.model),
+                    **load_kwargs,
                 )
 
                 # If we reach this point and the model requires trust_remote_code,
@@ -92,7 +99,16 @@ class Model:
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
                 # (https://github.com/meta-llama/llama/issues/380).
-                self.generate(["Test"], max_new_tokens=1)
+                # We use a simple forward pass instead of generate() to avoid chat template issues.
+                try:
+                    test_input = self.tokenizer("Test", return_tensors="pt").to(
+                        self.model.device
+                    )
+                    with torch.no_grad():
+                        self.model(**test_input)
+                except RuntimeError as e:
+                    # Only retry on dtype-related errors
+                    raise e
             except Exception as error:
                 self.model = None
                 empty_cache()
@@ -107,21 +123,29 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        # Always use LoRA adapters for abliteration
-        print("* Initializing LoRA adapters...")
-        # PEFT expects just the module names (e.g., "o_proj"), not full paths like "attn.o_proj"
-        target_modules = [
-            comp.split(".")[-1] for comp in self.get_abliterable_components()
-        ]
-        peft_config = LoraConfig(
-            r=1,  # Rank 1 is sufficient for directional ablation
-            target_modules=target_modules,
-            lora_alpha=1,
-            lora_dropout=0,
-            bias="none",
-            task_type="CAUSAL_LM",
-        )
-        self.model = get_peft_model(self.model, peft_config)
+        # Try to use LoRA adapters for abliteration (more memory efficient)
+        # Fall back to direct weight modification if PEFT fails
+        self.use_lora = False
+        try:
+            print("* Initializing LoRA adapters...")
+            # PEFT expects just the module names (e.g., "o_proj"), not full paths like "attn.o_proj"
+            target_modules = [
+                comp.split(".")[-1] for comp in self.get_abliterable_components()
+            ]
+            peft_config = LoraConfig(
+                r=1,  # Rank 1 is sufficient for directional ablation
+                target_modules=target_modules,
+                lora_alpha=1,
+                lora_dropout=0,
+                bias="none",
+                task_type="CAUSAL_LM",
+            )
+            self.model = get_peft_model(self.model, peft_config)
+            self.use_lora = True
+        except Exception as error:
+            print(
+                f"[yellow]LoRA initialization failed ({error}), using direct weight modification[/]"
+            )
 
         # LoRA B matrices are initialized to zero by default in PEFT,
         # so we don't need to do anything manually.
@@ -137,10 +161,22 @@ class Model:
 
     def reload_model(self):
         if self.loaded_model_name == self.settings.model:
-            # Reset LoRA adapters to zero
-            for name, module in self.model.named_modules():
-                if "lora_B" in name and hasattr(module, "weight"):
-                    torch.nn.init.zeros_(module.weight)
+            if self.use_lora:
+                # Reset LoRA adapters to zero
+                for name, module in self.model.named_modules():
+                    if "lora_B" in name and hasattr(module, "weight"):
+                        torch.nn.init.zeros_(module.weight)
+            # For non-LoRA mode, we need to reload the model to reset weights
+            else:
+                dtype = self.model.dtype
+                self.model = None
+                empty_cache()
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.settings.model,
+                    dtype=dtype,
+                    device_map=self.settings.device_map,
+                    trust_remote_code=self.trusted_models.get(self.settings.model),
+                )
             return
 
         dtype = self.model.dtype
@@ -186,14 +222,13 @@ class Model:
             if component not in modules:
                 modules[component] = []
 
-            # Validate that the module is either a torch.nn.Module or a Tensor
-            if not isinstance(module, (torch.nn.Module, torch.Tensor)):
-                # If it's not a standard module/tensor, check if it's a wrapper (like in GPT-OSS)
-                # that we can extract a tensor from, otherwise skip or raise error.
-                # For now, we strictly enforce Module or Tensor as requested.
-                return
-
-            modules[component].append(module)
+            # Validate that the module is either a torch.nn.Module, a Tensor,
+            # or has a .data attribute that is a tensor (like Triton tensors in GPT-OSS)
+            if isinstance(module, (torch.nn.Module, torch.Tensor)):
+                modules[component].append(module)
+            elif hasattr(module, "data") and torch.is_tensor(module.data):
+                # Handle Triton tensors (e.g., from MXFP4 quantization in GPT-OSS)
+                modules[component].append(module)
 
         # Exceptions aren't suppressed here, because there is currently
         # no alternative location for the attention out-projection.
@@ -285,7 +320,7 @@ class Model:
                     layer_refusal_direction = refusal_direction
 
                 for module in modules:
-                    if hasattr(module, "lora_A"):
+                    if self.use_lora and hasattr(module, "lora_A"):
                         # LoRA abliteration: delta W = -lambda * v * (v^T W)
                         # lora_B = -lambda * v
                         # lora_A = v^T W

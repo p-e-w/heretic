@@ -281,14 +281,6 @@ class Model:
                 else:
                     layer_refusal_direction = refusal_direction
 
-                # Projects any right-multiplied vector(s) onto the subspace
-                # spanned by the refusal direction.
-                # We use the property (r r^T) W = r (r^T W) to avoid computing
-                # the O(d^2) projector matrix and the O(d^2 k) matrix multiplication.
-                # (α is the weight)
-                # W_new = W - α(r (r^T W))
-                r = layer_refusal_direction.to(self.model.dtype)
-
                 for module in modules:
                     if self.settings.use_lora and hasattr(module, "lora_A"):
                         # LoRA abliteration: delta W = -lambda * v * (v^T W)
@@ -327,6 +319,15 @@ class Model:
                     else:
                         # Direct weight modification (for non-LoRA mode or modules without LoRA adapters)
                         # This handles cases like GPT-OSS where down_proj is an nn.Parameter
+                        
+                        # Projects any right-multiplied vector(s) onto the subspace
+                        # spanned by the refusal direction.
+                        # We use the property (r r^T) W = r (r^T W) to avoid computing
+                        # the O(d^2) projector matrix and the O(d^2 k) matrix multiplication.
+                        # (α is the weight)
+                        # W_new = W - α(r (r^T W))
+                        r = layer_refusal_direction.to(self.model.dtype)
+                        
                         matrix = module.weight if hasattr(module, "weight") else module
 
                         # Handle Triton tensors (e.g., from MXFP4 quantization) by extracting

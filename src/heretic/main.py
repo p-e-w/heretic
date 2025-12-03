@@ -488,7 +488,10 @@ def run():
                     style=Style([("highlighted", "reverse")]),
                 )
 
-                if action is None or action == "Nothing (return to trial selection menu)":
+                if (
+                    action is None
+                    or action == "Nothing (return to trial selection menu)"
+                ):
                     break
 
                 # All actions are wrapped in a try/except block so that if an error occurs,
@@ -603,7 +606,9 @@ def run():
 
                                     print("[bold]Assistant:[/] ", end="")
                                     response = model.stream_chat_response(chat)
-                                    chat.append({"role": "assistant", "content": response})
+                                    chat.append(
+                                        {"role": "assistant", "content": response}
+                                    )
                                 except (KeyboardInterrupt, EOFError):
                                     # Ctrl+C/Ctrl+D
                                     break

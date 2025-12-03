@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+from enum import Enum
 from typing import Dict
 
 from pydantic import BaseModel, Field
@@ -10,6 +11,11 @@ from pydantic_settings import (
     SettingsConfigDict,
     TomlConfigSettingsSource,
 )
+
+
+class QuantizationMethod(str, Enum):
+    NONE = "none"
+    BNB_4BIT = "bnb_4bit"
 
 
 class DatasetSpecification(BaseModel):
@@ -53,9 +59,9 @@ class Settings(BaseSettings):
         description="Whether to trust remote code when loading the model.",
     )
 
-    load_in_4bit: bool = Field(
-        default=True,
-        description="Whether to load the model in 4-bit precision using bitsandbytes.",
+    quantization: QuantizationMethod = Field(
+        default=QuantizationMethod.NONE,
+        description="Quantization method to use when loading the model. Options: 'none' (no quantization), 'bnb_4bit' (4-bit quantization using bitsandbytes).",
     )
 
     use_lora: bool = Field(

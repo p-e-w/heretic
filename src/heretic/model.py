@@ -22,7 +22,7 @@ from transformers import (
 )
 from transformers.generation.utils import GenerateOutput
 
-from .config import Settings
+from .config import QuantizationMethod, Settings
 from .utils import batchify, empty_cache, print
 
 
@@ -62,7 +62,7 @@ class Model:
 
             try:
                 quantization_config = None
-                if settings.load_in_4bit:
+                if settings.quantization == QuantizationMethod.BNB_4BIT:
                     # BitsAndBytesConfig expects a torch.dtype, not a string.
                     if dtype == "auto":
                         compute_dtype = torch.bfloat16
@@ -100,7 +100,7 @@ class Model:
                 continue
 
             print("[green]Ok[/]")
-            if settings.load_in_4bit:
+            if settings.quantization == QuantizationMethod.BNB_4BIT:
                 print("[bold green]Model loaded in 4-bit precision.[/]")
             break
 

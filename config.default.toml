@@ -81,21 +81,33 @@ system_prompt = "You are a helpful assistant."
 dataset = "mlabonne/harmless_alpaca"
 split = "train[:400]"
 column = "text"
+# Optionally enable random sampling instead of taking the first N records:
+# random_sample = true
+# random_seed = 42  # Optional, defaults to 42 for reproducibility
 
 # Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
 [bad_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "train[:400]"
 column = "text"
+# Optionally enable random sampling instead of taking the first N records:
+# random_sample = true
+# random_seed = 42  # Optional, defaults to 42 for reproducibility
 
 # Dataset of prompts that tend to not result in refusals (used for evaluating model performance).
 [good_evaluation_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
+# Optionally enable random sampling instead of taking the first N records:
+# random_sample = true
+# random_seed = 42  # Optional, defaults to 42 for reproducibility
 
 # Dataset of prompts that tend to result in refusals (used for evaluating model performance).
 [bad_evaluation_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
+# Optionally enable random sampling instead of taking the first N records:
+# random_sample = true
+# random_seed = 42  # Optional, defaults to 42 for reproducibility

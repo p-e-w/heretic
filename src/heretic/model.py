@@ -21,7 +21,7 @@ from transformers.generation.utils import GenerateOutput
 
 from .config import Settings
 from .utils import batchify, empty_cache, print
-
+from .schemas import ResponseMetadata
 
 @dataclass
 class AbliterationParameters:
@@ -283,14 +283,15 @@ class Model:
             skip_special_tokens=True,
         )
 
-    def get_responses_batched(self, prompts: list[str]) -> list[str]:
+    def get_responses_batched(self, prompts: list[str]) -> tuple[list[str], list[ResponseMetadata]]:
         responses = []
-
+        metadata = []
         for batch in batchify(prompts, self.settings.batch_size):
             for response in self.get_responses(batch):
                 responses.append(response)
+                # metadata.append(ResponseMetadata(prompt_text=batch[0]))
 
-        return responses
+        return responses, metadata
 
     def get_residuals(self, prompts: list[str]) -> Tensor:
         # We only generate one token, and we return the residual vectors

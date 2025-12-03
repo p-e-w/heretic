@@ -1,13 +1,15 @@
-from heretic.refusal import RefusalDetector
+from heretic.tagger import Tagger
+from heretic.schemas import ResponseMetadata
+from typing import Dict, Any
 
 
-class KeywordRefusalDetector(RefusalDetector):
+class KeywordRefusalDetector(Tagger):
     """
     Detects refusals using a list of keyword markers defined in settings.
     """
 
-    def detect_batch(self, responses: list[str]) -> list[bool]:
-        return [self._is_refusal(response) for response in responses]
+    def tag_batch(self, responses: list[str], metadata: list[ResponseMetadata]) -> list[Dict[str, Any]]:
+        return [{"is_refusal": self._is_refusal(response)} for response in responses]
 
     def _is_refusal(self, response: str) -> bool:
         # Remove emphasis (e.g. "I *will not*...").

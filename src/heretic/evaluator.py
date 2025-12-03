@@ -4,11 +4,13 @@
 import importlib
 import inspect
 
+from typing import Dict, Any
 import torch.nn.functional as F
 
 from .config import Settings
 from .model import Model
-from .refusal import RefusalDetector
+from .tagger import Tagger
+from .scorer import Scorer
 from .utils import load_prompts, print
 
 
@@ -35,79 +37,101 @@ class Evaluator:
         print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
 
         print()
-        print("Loading refusal detector plugins...")
-        self.refusal_detectors = self._load_refusal_detectors()
-        self.base_refusals = self.count_refusals()
+        print("Loading tagger plugin...")
+        self.tagger_plugin = self._load_tagger_plugin()
+
+        print()
+        print("Loading scorer plugin...")
+        self.scorer_plugin = self._load_scorer_plugin()
+        
+        self.base_score = self.tag_and_score_batch()
         print(
-            f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
+            f"* Initial score: [bold]{self.base_score}[/]/{len(self.bad_prompts)}"
         )
 
-    def _load_refusal_detectors(self) -> list[RefusalDetector]:
-        detectors = []
-        for name in self.settings.refusal_detectors:
-            detector_cls = None
+    def _load_tagger_plugin(self) -> Tagger:
+        name = self.settings.tagger_plugin
+        tagger = None
 
-            if "." in name:
-                # Load from arbitrary python path
-                try:
-                    module_name, class_name = name.rsplit(".", 1)
-                    module = importlib.import_module(module_name)
-                    detector_cls = getattr(module, class_name)
-                except (ImportError, AttributeError) as e:
-                    print(f"[red]Error loading detector '{name}': {e}[/]")
-                    continue
-            else:
-                # Load from heretic.plugins
-                try:
-                    module = importlib.import_module(
-                        f".plugins.{name}", package="heretic"
+        if "." in name:
+            # Load from arbitrary python path
+            try:
+                module_name, class_name = name.rsplit(".", 1)
+                module = importlib.import_module(module_name)
+                tagger = getattr(module, class_name)
+            except (ImportError, AttributeError) as e:
+                print(f"[red]Error loading tagger plugin '{name}': {e}[/]")
+        else:
+            try:
+                module = importlib.import_module(
+                    f".tagger_plugins.{name}", package="heretic"
+                )
+                # Find the class defined in the module that inherits from Tagger
+                for _, obj in inspect.getmembers(module):
+                    if (
+                        inspect.isclass(obj)
+                        and issubclass(obj, Tagger)
+                        and obj.__module__ == module.__name__
+                    ):
+                        tagger = obj
+                        break
+
+                if tagger is None:
+                    print(
+                        f"[red]Error: No Tagger subclass found in plugin '{name}'[/]"
                     )
-                    # Find the class defined in the module that inherits from RefusalDetector
-                    for _, obj in inspect.getmembers(module):
-                        if (
-                            inspect.isclass(obj)
-                            and issubclass(obj, RefusalDetector)
-                            and obj.__module__ == module.__name__
-                        ):
-                            detector_cls = obj
-                            break
-
-                    if detector_cls is None:
-                        print(
-                            f"[red]Error: No RefusalDetector subclass found in plugin '{name}'[/]"
-                        )
-                        continue
-                except ImportError as e:
-                    print(f"[red]Error loading plugin '{name}': {e}[/]")
-                    continue
-
-            if detector_cls:
-                detectors.append(detector_cls(self.settings, self.model))
+            except ImportError as e:
+                print(f"[red]Error loading plugin '{name}': {e}[/]")
 
         print(
-            f"* Loaded plugins: [bold]{','.join(d.__class__.__name__ for d in detectors)}[/bold]"
+            f"* Loaded tagger plugin: [bold]{tagger.__name__}[/bold]"
         )
+        return tagger(settings=self.settings, model=self.model)
+    
+    def _load_scorer_plugin(self) -> Scorer:
+        name = self.settings.scorer_plugin
+        scorer = None
 
-        return detectors
+        if "." in name:
+            # Load from arbitrary python path
+            try:
+                module_name, class_name = name.rsplit(".", 1)
+                module = importlib.import_module(module_name)
+                scorer = getattr(module, class_name)
+            except (ImportError, AttributeError) as e:
+                print(f"[red]Error loading scorer plugin '{name}': {e}[/]")
+        else:
+            try:
+                module = importlib.import_module(
+                    f".scorer_plugins.{name}", package="heretic"
+                )
+                # Find the class defined in the module that inherits from Scorer
+                for _, obj in inspect.getmembers(module):
+                    if (
+                        inspect.isclass(obj)
+                        and issubclass(obj, Scorer)
+                        and obj.__module__ == module.__name__
+                    ):
+                        scorer = obj
+                        break
 
-    def is_refusal(self, response: str) -> bool:
-        for detector in self.refusal_detectors:
-            if detector.detect(response):
-                return True
-        return False
+                if scorer is None:
+                    print(
+                        f"[red]Error: No Scorer subclass found in plugin '{name}'[/]"
+                    )
+            except ImportError as e:
+                print(f"[red]Error loading plugin '{name}': {e}[/]")
 
-    def count_refusals(self) -> int:
-        responses = self.model.get_responses_batched(self.bad_prompts)
+        print(
+            f"* Loaded scorer plugin: [bold]{scorer.__name__}[/bold]"
+        )
+        return scorer()
 
-        is_refusal_flags = [False] * len(responses)
-
-        for detector in self.detectors:
-            flags = detector.detect_batch(responses)
-            for i, flag in enumerate(flags):
-                if flag:
-                    is_refusal_flags[i] = True
-
-        return sum(is_refusal_flags)
+    def tag_and_score_batch(self) -> float:
+        responses, metadata = self.model.get_responses_batched(self.bad_prompts)
+        tags = self.tagger_plugin.tag_batch(responses=responses, metadata=metadata)
+        score = self.scorer_plugin.score_batch(tags)
+        return score
 
     def get_score(self) -> tuple[tuple[float, float], float, int]:
         print("  * Obtaining first-token probability distributions...")
@@ -120,13 +144,13 @@ class Evaluator:
         ).item()
         print(f"  * KL divergence: [bold]{kl_divergence:.2f}[/]")
 
-        print("  * Counting model refusals...")
-        refusals = self.count_refusals()
+        print("  * Counting model score...")
+        refusals = self.tag_and_score_batch()
         print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
 
         score = (
             (kl_divergence / self.settings.kl_divergence_scale),
-            (refusals / self.base_refusals),
+            (refusals / self.base_score),
         )
 
         return score, kl_divergence, refusals

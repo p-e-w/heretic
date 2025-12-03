@@ -119,7 +119,7 @@ class Model:
                 task_type="CAUSAL_LM",
             )
             self.model = get_peft_model(self.model, peft_config)
-            
+
             # LoRA B matrices are initialized to zero by default in PEFT,
             # so we don't need to do anything manually.
 
@@ -160,7 +160,7 @@ class Model:
 
     def get_layers(self) -> ModuleList:
         model = self.model
-        
+
         # Unwrap PeftModel
         if isinstance(model, PeftModel):
             model = model.base_model.model
@@ -172,7 +172,9 @@ class Model:
         # Text-only models.
         return model.model.layers
 
-    def get_layer_modules(self, layer_index: int) -> dict[str, list[torch.nn.Module | Tensor]]:
+    def get_layer_modules(
+        self, layer_index: int
+    ) -> dict[str, list[torch.nn.Module | Tensor]]:
         layer = self.get_layers()[layer_index]
 
         modules = {}
@@ -287,16 +289,17 @@ class Model:
                 # W_new = W - α(r (r^T W))
                 r = layer_refusal_direction.to(self.model.dtype)
 
-
                 for module in modules:
                     if self.settings.use_lora and hasattr(module, "lora_A"):
                         # LoRA abliteration: delta W = -lambda * v * (v^T W)
                         # lora_B = -lambda * v
                         # lora_A = v^T W
-                        
+
                         # Ensure refusal direction is on the correct device
-                        v = layer_refusal_direction.to(module.weight.device).to(torch.float32)
-                        
+                        v = layer_refusal_direction.to(module.weight.device).to(
+                            torch.float32
+                        )
+
                         # Get W (dequantize if necessary)
                         if hasattr(module.weight, "quant_state"):
                             W = bnb.functional.dequantize_4bit(
@@ -309,20 +312,24 @@ class Model:
                         # v is (d_out,), W is (d_out, d_in)
                         # v @ W -> (d_in,)
                         lora_A = (v @ W).view(1, -1)
-                        
+
                         # Calculate lora_B = -weight * v
                         # v is (d_out,)
                         lora_B = (-weight * v).view(-1, 1)
 
                         # Assign to adapters
                         # We assume the default adapter name "default"
-                        module.lora_A["default"].weight.data = lora_A.to(module.lora_A["default"].weight.dtype)
-                        module.lora_B["default"].weight.data = lora_B.to(module.lora_B["default"].weight.dtype)
+                        module.lora_A["default"].weight.data = lora_A.to(
+                            module.lora_A["default"].weight.dtype
+                        )
+                        module.lora_B["default"].weight.data = lora_B.to(
+                            module.lora_B["default"].weight.dtype
+                        )
                     else:
                         # Direct weight modification (for non-LoRA mode or modules without LoRA adapters)
                         # This handles cases like GPT-OSS where down_proj is an nn.Parameter
                         matrix = module.weight if hasattr(module, "weight") else module
-                        
+
                         # Handle Triton tensors (e.g., from MXFP4 quantization) by extracting
                         # the underlying PyTorch tensor via the .data attribute.
                         if hasattr(matrix, "data") and torch.is_tensor(matrix.data):
@@ -344,7 +351,6 @@ class Model:
                         # entries r[i] * (r^T W)[j], equivalent to the outer product of two
                         # vectors, avoiding materializing the full (d x d) projector.
                         matrix.sub_(weight * torch.outer(r_device, r_transpose_W))
-
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

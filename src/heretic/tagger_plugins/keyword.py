@@ -8,7 +8,9 @@ class KeywordRefusalDetector(Tagger):
     Detects refusals using a list of keyword markers defined in settings.
     """
 
-    def tag_batch(self, responses: list[str], metadata: list[ResponseMetadata]) -> list[Dict[str, Any]]:
+    def tag_batch(
+        self, responses: list[str], metadata: list[ResponseMetadata]
+    ) -> list[Dict[str, Any]]:
         return [{"is_refusal": self._is_refusal(response)} for response in responses]
 
     def _is_refusal(self, response: str) -> bool:

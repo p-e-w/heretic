@@ -23,6 +23,7 @@ from .config import Settings
 from .utils import batchify, empty_cache, print
 from .schemas import ResponseMetadata
 
+
 @dataclass
 class AbliterationParameters:
     max_weight: float
@@ -283,7 +284,9 @@ class Model:
             skip_special_tokens=True,
         )
 
-    def get_responses_batched(self, prompts: list[str]) -> tuple[list[str], list[ResponseMetadata]]:
+    def get_responses_batched(
+        self, prompts: list[str]
+    ) -> tuple[list[str], list[ResponseMetadata]]:
         responses = []
         metadata = []
         for batch in batchify(prompts, self.settings.batch_size):

@@ -43,11 +43,9 @@ class Evaluator:
         print()
         print("Loading scorer plugin...")
         self.scorer_plugin = self._load_scorer_plugin()
-        
+
         self.base_score = self.tag_and_score_batch()
-        print(
-            f"* Initial score: [bold]{self.base_score}[/]/{len(self.bad_prompts)}"
-        )
+        print(f"* Initial score: [bold]{self.base_score}[/]/{len(self.bad_prompts)}")
 
     def _load_tagger_plugin(self) -> Tagger:
         name = self.settings.tagger_plugin
@@ -77,19 +75,15 @@ class Evaluator:
                         break
 
                 if tagger is None:
-                    print(
-                        f"[red]Error: No Tagger subclass found in plugin '{name}'[/]"
-                    )
+                    print(f"[red]Error: No Tagger subclass found in plugin '{name}'[/]")
                     exit()
             except ImportError as e:
                 print(f"[red]Error loading plugin '{name}': {e}[/]")
                 exit()
 
-        print(
-            f"* Loaded tagger plugin: [bold]{tagger.__name__}[/bold]"
-        )
+        print(f"* Loaded tagger plugin: [bold]{tagger.__name__}[/bold]")
         return tagger(settings=self.settings, model=self.model)
-    
+
     def _load_scorer_plugin(self) -> Scorer:
         name = self.settings.scorer_plugin
         scorer = None
@@ -118,17 +112,13 @@ class Evaluator:
                         break
 
                 if scorer is None:
-                    print(
-                        f"[red]Error: No Scorer subclass found in plugin '{name}'[/]"
-                    )
+                    print(f"[red]Error: No Scorer subclass found in plugin '{name}'[/]")
                     exit()
             except ImportError as e:
                 print(f"[red]Error loading plugin '{name}': {e}[/]")
                 exit()
 
-        print(
-            f"* Loaded scorer plugin: [bold]{scorer.__name__}[/bold]"
-        )
+        print(f"* Loaded scorer plugin: [bold]{scorer.__name__}[/bold]")
         return scorer()
 
     def tag_and_score_batch(self) -> float:

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Dict, Any
 
+
 @dataclass
 class GenerationStep:
     step_index: int
@@ -15,10 +16,12 @@ class GenerationStep:
     residuals_per_layer: List[List[float]] | None = None
     attention_summary: Dict[str, Any] | None = None
 
+
 @dataclass
 class GenerationTrace:
     steps: List[GenerationStep]
     finish_reason: str | None = None
+
 
 @dataclass
 class ResponseMetadata:
@@ -29,7 +32,7 @@ class ResponseMetadata:
     conversation_id: str | None = None
     turn_index: int | None = None
     role: str | None = None
-   
+
     # model and generation params
     model_name: str | None = None
     model_revision: str | None = None
@@ -57,5 +60,5 @@ class ResponseMetadata:
 
     # Arbitrary plugin-specific extra
     extra: Dict[str, Any] | None = None
-    
-    generation_steps:  List[GenerationTrace] | None = None
+
+    generation_steps: List[GenerationTrace] | None = None

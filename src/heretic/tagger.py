@@ -22,7 +22,9 @@ class Tagger(ABC):
         self.model = model
 
     @abstractmethod
-    def tag_batch(self, responses: list[str], metadata: list[ResponseMetadata]) -> list[Dict[str, Any]]:
+    def tag_batch(
+        self, responses: list[str], metadata: list[ResponseMetadata]
+    ) -> list[Dict[str, Any]]:
         """
         tags a batch of responses.
 

@@ -109,7 +109,8 @@ class Model:
 
         # Always use LoRA adapters for abliteration
         print("* Initializing LoRA adapters...")
-        target_modules = self.get_abliterable_components()
+        # PEFT expects just the module names (e.g., "o_proj"), not full paths like "attn.o_proj"
+        target_modules = [comp.split(".")[-1] for comp in self.get_abliterable_components()]
         peft_config = LoraConfig(
             r=1,  # Rank 1 is sufficient for directional ablation
             target_modules=target_modules,

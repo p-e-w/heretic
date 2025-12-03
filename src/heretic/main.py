@@ -54,26 +54,84 @@ from .utils import (
 def get_merged_model(model: Model, settings: Settings):
     """
     Returns the model with LoRA adapters merged if applicable.
-    For quantized models, returns None and prints a warning.
+    For quantized models, attempts to reload the base model and merge.
+    Returns None if merging fails (e.g., due to OOM), with appropriate warnings.
     """
     if not isinstance(model.model, PeftModel):
         # No LoRA adapters, return the model as-is
         return model.model
 
-    if settings.quantization != QuantizationMethod.NONE:
-        # Quantized models can't be directly merged - the base model is in 4-bit
-        # and merge_and_unload() would fail or produce incorrect results.
-        print("[yellow]Warning: Cannot merge LoRA adapters into quantized model.[/]")
-        print(
-            "[yellow]To export a full merged model, reload with quantization='none'.[/]"
-        )
-        print("[yellow]Saving LoRA adapter only...[/]")
-        return None
+    try:
+        if settings.quantization != QuantizationMethod.NONE:
+            # Quantized models need special handling - we must reload the base model
+            # in full precision to merge the LoRA adapters
+            print(
+                "[yellow]Model was loaded in 4-bit. Attempting to reload base model for merging...[/]"
+            )
+            print(
+                "[yellow]This requires significant RAM. If it fails, only the LoRA adapter will be saved.[/]"
+            )
 
-    # Merge LoRA adapters into base model
-    print("* Merging LoRA adapters into base model...")
-    merged_model = model.model.merge_and_unload()
-    return merged_model
+            from transformers import AutoModelForCausalLM
+
+            # Get the adapter state dict before we do anything
+            adapter_state = {}
+            for name, param in model.model.named_parameters():
+                if "lora_" in name:
+                    adapter_state[name] = param.data.clone().cpu()
+
+            # Load base model in full precision on CPU to avoid VRAM issues
+            print("* Loading base model on CPU (this may take a while)...")
+            base_model = AutoModelForCausalLM.from_pretrained(
+                settings.model,
+                torch_dtype=torch.bfloat16,
+                device_map="cpu",
+                trust_remote_code=model.trusted_models.get(settings.model),
+            )
+
+            # Apply LoRA adapters to the CPU model
+            from peft import LoraConfig, get_peft_model
+
+            print("* Applying LoRA adapters...")
+            target_modules = model.get_abliterable_components()
+            peft_config = LoraConfig(
+                r=1,
+                target_modules=target_modules,
+                lora_alpha=1,
+                lora_dropout=0,
+                bias="none",
+                task_type="CAUSAL_LM",
+            )
+            peft_model = get_peft_model(base_model, peft_config)
+
+            # Copy the trained adapter weights
+            for name, param in peft_model.named_parameters():
+                if name in adapter_state:
+                    param.data = adapter_state[name].to(param.device)
+
+            # Merge and unload
+            print("* Merging LoRA adapters into base model...")
+            merged_model = peft_model.merge_and_unload()
+            return merged_model
+        else:
+            # Non-quantized model - can merge directly
+            print("* Merging LoRA adapters into base model...")
+            merged_model = model.model.merge_and_unload()
+            return merged_model
+
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower() or "oom" in str(e).lower():
+            print()
+            print("[bold red]⚠️ Not enough memory to merge the full model![/]")
+            print(
+                "[yellow]Saving LoRA adapter only. You can merge this later using:[/]"
+            )
+            print("[yellow]  - llama.cpp (recommended for GGUF conversion)[/]")
+            print("[yellow]  - A machine with more RAM[/]")
+            print("[yellow]  - peft.PeftModel.merge_and_unload()[/]")
+            return None
+        else:
+            raise
 
 
 def run():

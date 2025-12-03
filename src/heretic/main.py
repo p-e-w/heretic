@@ -63,9 +63,7 @@ def get_merged_model(model: Model, settings: Settings):
     if settings.quantization != QuantizationMethod.NONE:
         # Quantized models can't be directly merged - the base model is in 4-bit
         # and merge_and_unload() would fail or produce incorrect results.
-        print(
-            "[yellow]Warning: Cannot merge LoRA adapters into quantized model.[/]"
-        )
+        print("[yellow]Warning: Cannot merge LoRA adapters into quantized model.[/]")
         print(
             "[yellow]To export a full merged model, reload with quantization='none'.[/]"
         )

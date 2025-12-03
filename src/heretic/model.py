@@ -127,7 +127,7 @@ class Model:
         print("* Abliterable components:")
         for component, modules in self.get_layer_modules(0).items():
             print(
-                f"  * [bold]{component}[/]: [bold]{len(modules)}[/] matrices per layer"
+                f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
 
     def reload_model(self):
@@ -319,10 +319,20 @@ class Model:
 
                         assert torch.is_tensor(matrix)
 
-                        # Ensure projector is on the same device as the matrix for multi-GPU support.
-                        device_projector = projector.to(matrix.device)
-                        # In-place subtraction is safe as we're not using Autograd.
-                        matrix.sub_(weight * (device_projector @ matrix))
+                        # Ensure r is on the same device as the matrix
+                        r_device = r.to(matrix.device)
+
+                        # Calculate the projection scalars: (r^T W)
+                        # r is (d,), matrix is (d, k) -> result is (k,)
+                        r_transpose_W = torch.matmul(r_device, matrix)
+
+                        # Compute the rank-1 update r (r^T W) using the outer product form
+                        # r_device: (d,)          — projection direction
+                        # r_transpose_W: (k,)     — r^T W result for this matrix
+                        # torch.outer(r_device, r_times_W) constructs the (d, k) matrix with
+                        # entries r[i] * (r^T W)[j], equivalent to the outer product of two
+                        # vectors, avoiding materializing the full (d x d) projector.
+                        matrix.sub_(weight * torch.outer(r_device, r_transpose_W))
 
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:

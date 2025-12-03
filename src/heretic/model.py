@@ -295,10 +295,9 @@ class Model:
                         # lora_B = -lambda * v
                         # lora_A = v^T W
 
-                        # Ensure refusal direction is on the correct device
-                        v = layer_refusal_direction.to(module.weight.device).to(
-                            torch.float32
-                        )
+                        # Use the FP32 refusal direction directly (no downcast/upcast)
+                        # and move to the correct device
+                        v = layer_refusal_direction.to(module.weight.device)
 
                         # Get W (dequantize if necessary)
                         if hasattr(module.weight, "quant_state"):

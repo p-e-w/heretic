@@ -32,7 +32,9 @@ from questionary import Choice, Style
 from rich.table import Table
 from rich.traceback import install
 
-from .config import Settings
+from peft import PeftModel
+
+from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
@@ -47,6 +49,33 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
+
+
+def get_merged_model(model: Model, settings: Settings):
+    """
+    Returns the model with LoRA adapters merged if applicable.
+    For quantized models, returns None and prints a warning.
+    """
+    if not isinstance(model.model, PeftModel):
+        # No LoRA adapters, return the model as-is
+        return model.model
+
+    if settings.quantization != QuantizationMethod.NONE:
+        # Quantized models can't be directly merged - the base model is in 4-bit
+        # and merge_and_unload() would fail or produce incorrect results.
+        print(
+            "[yellow]Warning: Cannot merge LoRA adapters into quantized model.[/]"
+        )
+        print(
+            "[yellow]To export a full merged model, reload with quantization='none'.[/]"
+        )
+        print("[yellow]Saving LoRA adapter only...[/]")
+        return None
+
+    # Merge LoRA adapters into base model
+    print("* Merging LoRA adapters into base model...")
+    merged_model = model.model.merge_and_unload()
+    return merged_model
 
 
 def run():
@@ -476,7 +505,12 @@ def run():
                             continue
 
                         print("Saving model...")
-                        model.model.save_pretrained(save_directory)
+                        merged_model = get_merged_model(model, settings)
+                        if merged_model is not None:
+                            merged_model.save_pretrained(save_directory)
+                        else:
+                            # Fallback: save LoRA adapter only (for quantized models)
+                            model.model.save_pretrained(save_directory)
                         model.tokenizer.save_pretrained(save_directory)
                         print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -514,12 +548,20 @@ def run():
                         private = visibility == "Private"
 
                         print("Uploading model...")
-
-                        model.model.push_to_hub(
-                            repo_id,
-                            private=private,
-                            token=token,
-                        )
+                        merged_model = get_merged_model(model, settings)
+                        if merged_model is not None:
+                            merged_model.push_to_hub(
+                                repo_id,
+                                private=private,
+                                token=token,
+                            )
+                        else:
+                            # Fallback: upload LoRA adapter only (for quantized models)
+                            model.model.push_to_hub(
+                                repo_id,
+                                private=private,
+                                token=token,
+                            )
                         model.tokenizer.push_to_hub(
                             repo_id,
                             private=private,

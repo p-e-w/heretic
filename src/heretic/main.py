@@ -66,7 +66,7 @@ def get_merged_model(model: Model, settings: Settings):
         # in full precision to merge the LoRA adapters
         print()
         print(
-            "[yellow]Model was loaded in 4-bit. Merging requires reloading the base model.[/]"
+            "[yellow]Model was loaded with quantization. Merging requires reloading the base model.[/]"
         )
         print(
             "[yellow]This requires significant system RAM (roughly 2x model size in BF16).[/]"

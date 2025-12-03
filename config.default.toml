@@ -16,7 +16,7 @@ dtypes = [
 device_map = "auto"
 
 # Quantization method to use when loading the model.
-# Options: "none" (no quantization), "bnb_4bit" (4-bit quantization using bitsandbytes).
+# Options: "none" (no quantization), "bnb_4bit" (4-bit quantization using bitsandbytes), "bnb_8bit" (8-bit quantization using bitsandbytes).
 quantization = "none"
 
 # Number of input sequences to process in parallel (0 = auto).

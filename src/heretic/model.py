@@ -75,6 +75,10 @@ class Model:
                         bnb_4bit_quant_type="nf4",
                         bnb_4bit_use_double_quant=True,
                     )
+                elif settings.quantization == QuantizationMethod.BNB_8BIT:
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_8bit=True,
+                    )
 
                 # Build kwargs, only include quantization_config if it's not None
                 # (some models like gpt-oss have issues with explicit None)
@@ -118,6 +122,8 @@ class Model:
             print("[green]Ok[/]")
             if settings.quantization == QuantizationMethod.BNB_4BIT:
                 print("[bold green]Model loaded in 4-bit precision.[/]")
+            elif settings.quantization == QuantizationMethod.BNB_8BIT:
+                print("[bold green]Model loaded in 8-bit precision.[/]")
             break
 
         if self.model is None:

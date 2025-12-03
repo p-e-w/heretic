@@ -19,9 +19,6 @@ device_map = "auto"
 # Options: "none" (no quantization), "bnb_4bit" (4-bit quantization using bitsandbytes).
 quantization = "none"
 
-# Whether to use LoRA adapters for abliteration instead of direct weight modification.
-use_lora = true
-
 # Number of input sequences to process in parallel (0 = auto).
 batch_size = 0  # auto
 

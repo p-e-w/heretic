@@ -64,11 +64,6 @@ class Settings(BaseSettings):
         description="Quantization method to use when loading the model. Options: 'none' (no quantization), 'bnb_4bit' (4-bit quantization using bitsandbytes).",
     )
 
-    use_lora: bool = Field(
-        default=True,
-        description="Whether to use LoRA adapters for abliteration instead of direct weight modification.",
-    )
-
     batch_size: int = Field(
         default=0,  # auto
         description="Number of input sequences to process in parallel (0 = auto).",

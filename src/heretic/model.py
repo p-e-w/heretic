@@ -107,21 +107,21 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        if settings.use_lora:
-            print("* Initializing LoRA adapters...")
-            target_modules = self.get_abliterable_components()
-            peft_config = LoraConfig(
-                r=1,  # Rank 1 is sufficient for directional ablation
-                target_modules=target_modules,
-                lora_alpha=1,
-                lora_dropout=0,
-                bias="none",
-                task_type="CAUSAL_LM",
-            )
-            self.model = get_peft_model(self.model, peft_config)
+        # Always use LoRA adapters for abliteration
+        print("* Initializing LoRA adapters...")
+        target_modules = self.get_abliterable_components()
+        peft_config = LoraConfig(
+            r=1,  # Rank 1 is sufficient for directional ablation
+            target_modules=target_modules,
+            lora_alpha=1,
+            lora_dropout=0,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        self.model = get_peft_model(self.model, peft_config)
 
-            # LoRA B matrices are initialized to zero by default in PEFT,
-            # so we don't need to do anything manually.
+        # LoRA B matrices are initialized to zero by default in PEFT,
+        # so we don't need to do anything manually.
 
         self.loaded_model_name = settings.model
 
@@ -133,7 +133,7 @@ class Model:
             )
 
     def reload_model(self):
-        if self.settings.use_lora and self.loaded_model_name == self.settings.model:
+        if self.loaded_model_name == self.settings.model:
             # Reset LoRA adapters to zero
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
@@ -282,7 +282,7 @@ class Model:
                     layer_refusal_direction = refusal_direction
 
                 for module in modules:
-                    if self.settings.use_lora and hasattr(module, "lora_A"):
+                    if hasattr(module, "lora_A"):
                         # LoRA abliteration: delta W = -lambda * v * (v^T W)
                         # lora_B = -lambda * v
                         # lora_A = v^T W

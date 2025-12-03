@@ -123,6 +123,8 @@ class Model:
             # LoRA B matrices are initialized to zero by default in PEFT,
             # so we don't need to do anything manually.
 
+        self.loaded_model_name = settings.model
+
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print("* Abliterable components:")
         for component, modules in self.get_layer_modules(0).items():
@@ -131,7 +133,7 @@ class Model:
             )
 
     def reload_model(self):
-        if self.settings.use_lora:
+        if self.settings.use_lora and self.loaded_model_name == self.settings.model:
             # Reset LoRA adapters to zero
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
@@ -154,6 +156,8 @@ class Model:
         if self.trusted_models.get(self.settings.model) is None:
             self.trusted_models[self.settings.model] = True
 
+        self.loaded_model_name = self.settings.model
+
     def get_layers(self) -> ModuleList:
         model = self.model
         
@@ -168,7 +172,7 @@ class Model:
         # Text-only models.
         return model.model.layers
 
-    def get_layer_modules(self, layer_index: int) -> dict[str, list[torch.nn.Module]]:
+    def get_layer_modules(self, layer_index: int) -> dict[str, list[torch.nn.Module | Tensor]]:
         layer = self.get_layers()[layer_index]
 
         modules = {}
@@ -176,6 +180,13 @@ class Model:
         def try_add(component: str, module: Any):
             if component not in modules:
                 modules[component] = []
+
+            # Validate that the module is either a torch.nn.Module or a Tensor
+            if not isinstance(module, (torch.nn.Module, torch.Tensor)):
+                # If it's not a standard module/tensor, check if it's a wrapper (like in GPT-OSS)
+                # that we can extract a tensor from, otherwise skip or raise error.
+                # For now, we strictly enforce Module or Tensor as requested.
+                return
 
             modules[component].append(module)
 

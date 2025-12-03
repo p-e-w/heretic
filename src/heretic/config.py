@@ -23,6 +23,15 @@ class DatasetSpecification(BaseModel):
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
+    tagger_plugin: str = Field(
+        default="keyword",
+        description="Tagger plugin to use."
+    )
+    scorer_plugin: str = Field(
+        default="count_refusals",
+        description="Scorer plugin to use."
+    )
+
     evaluate_model: str | None = Field(
         default=None,
         description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model.",

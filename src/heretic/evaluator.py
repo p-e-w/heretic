@@ -80,8 +80,10 @@ class Evaluator:
                     print(
                         f"[red]Error: No Tagger subclass found in plugin '{name}'[/]"
                     )
+                    exit()
             except ImportError as e:
                 print(f"[red]Error loading plugin '{name}': {e}[/]")
+                exit()
 
         print(
             f"* Loaded tagger plugin: [bold]{tagger.__name__}[/bold]"
@@ -119,8 +121,10 @@ class Evaluator:
                     print(
                         f"[red]Error: No Scorer subclass found in plugin '{name}'[/]"
                     )
+                    exit()
             except ImportError as e:
                 print(f"[red]Error loading plugin '{name}': {e}[/]")
+                exit()
 
         print(
             f"* Loaded scorer plugin: [bold]{scorer.__name__}[/bold]"

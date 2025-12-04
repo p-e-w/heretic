@@ -1,6 +1,7 @@
+
 from heretic.config import QuantizationMethod
 from heretic.model import Model
-from peft import PeftModel
+
 
 class TestSettings:
     model = 'HuggingFaceM4/tiny-random-LlamaForCausalLM'

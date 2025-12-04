@@ -27,12 +27,11 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
+from peft import PeftModel
 from pydantic import ValidationError
 from questionary import Choice, Style
 from rich.table import Table
 from rich.traceback import install
-
-from peft import PeftModel
 
 from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator

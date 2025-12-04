@@ -33,6 +33,14 @@ dependencies = [
     "transformers>=4.55.2",
 ]
 
+[project.optional-dependencies]
+research = [
+    "geom-median>=0.1.0",
+    "imageio>=2.37.2",
+    "matplotlib>=3.10.7",
+    "pacmap>=0.8.0",
+]
+
 [dependency-groups]
 dev = [
     "ruff>=0.14.5",

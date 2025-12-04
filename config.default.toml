@@ -46,6 +46,14 @@ residual_plot_style = "dark_background"
 # This is used to ensure balanced co-optimization of KL divergence and refusal count.
 kl_divergence_scale = 1.0
 
+# Transition point for the KL divergence and the refusal count.
+# Below this point, the refusal count dominates the objective.
+kld_transition_point = 0.01
+
+# The 10-90 transition width of the region centered on the transition point.
+# At the edge of this region, one objective has 90% of the weight and the other has 10%.
+kld_transition_width = 0.01
+
 # Number of abliteration trials to run during optimization.
 n_trials = 200
 

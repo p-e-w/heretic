@@ -3,6 +3,7 @@
 
 import gc
 import getpass
+import math
 import os
 from dataclasses import asdict
 from importlib.metadata import version
@@ -135,6 +136,32 @@ def format_duration(seconds: float) -> str:
         return f"{minutes}m {seconds}s"
     else:
         return f"{seconds}s"
+
+
+def smooth_transition(
+    determinant: float,
+    threshold: float,
+    low_value: float,
+    high_value: float,
+    transition_width: float,
+) -> float:
+    """Transitions from low_value to high_value using a logistic curve centered
+    at threshold. transition_width is the full distance across which the weight
+    on low_value shifts from 0.9 (below threshold) to 0.1 (above), determining
+    the sharpness of the transition.
+    """
+    if determinant == threshold:
+        return (low_value + high_value) / 2
+    if transition_width <= 0:
+        return low_value if determinant < threshold else high_value
+    k = -math.log(81) / transition_width  # Slope factor
+    z = k * (determinant - threshold)
+    if z >= 0:
+        w = 1 / (1 + math.exp(-z))  # Weight on low_value
+    else:
+        ez = math.exp(z)
+        w = ez / (1 + ez)  # Weight on low_value
+    return w * low_value + (1 - w) * high_value
 
 
 def load_prompts(specification: DatasetSpecification) -> list[str]:

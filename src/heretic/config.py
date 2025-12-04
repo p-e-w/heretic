@@ -118,6 +118,22 @@ class Settings(BaseSettings):
         ),
     )
 
+    kld_transition_point: float = Field(
+        default=0.01,
+        description=(
+            "Transition point for the KL divergence and the refusal count."
+            "Below this point, the refusal count dominates the objective."
+        ),
+    )
+
+    kld_transition_width: float = Field(
+        default=0.01,
+        description=(
+            "The 10-90 transition width of the region centered on the transition point."
+            "At the edge of this region, one objective has 90% of the weight and the other has 10%."
+        ),
+    )
+
     n_trials: int = Field(
         default=200,
         description="Number of abliteration trials to run during optimization.",

@@ -1,6 +1,5 @@
 from heretic.config import QuantizationMethod
 from heretic.model import Model
-from peft import PeftModel
 
 class TestSettings:
     model = 'Qwen/Qwen2.5-0.5B-Instruct'

@@ -69,7 +69,16 @@ def get_merged_model(model: Model, settings: Settings):
             "[yellow]Model was loaded with quantization. Merging requires reloading the base model.[/]"
         )
         print(
-            "[yellow]This requires significant system RAM (roughly 2x model size in BF16).[/]"
+            "[red](!) WARNING: CPU Merging requires dequantizing the entire model to System RAM.[/]"
+        )
+        print(
+            "[red]    This can lead to SYSTEM FREEZES if you run out of memory.[/]"
+        )
+        print(
+            "[yellow]    Rule of thumb: You need approx. 3x the parameter count in GB.[/]"
+        )
+        print(
+            "[yellow]    Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
         )
         print()
 

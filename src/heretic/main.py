@@ -71,9 +71,7 @@ def get_merged_model(model: Model, settings: Settings):
         print(
             "[red](!) WARNING: CPU Merging requires dequantizing the entire model to System RAM.[/]"
         )
-        print(
-            "[red]    This can lead to SYSTEM FREEZES if you run out of memory.[/]"
-        )
+        print("[red]    This can lead to SYSTEM FREEZES if you run out of memory.[/]")
         print(
             "[yellow]    Rule of thumb: You need approx. 3x the parameter count in GB.[/]"
         )

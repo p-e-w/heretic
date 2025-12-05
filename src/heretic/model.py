@@ -231,7 +231,9 @@ class Model:
                 # the O(d^2) projector matrix and the O(d^2 k) matrix multiplication.
                 # (α is the weight)
                 # W_new = W - α(r (r^T W))
-                r = layer_refusal_direction.to(self.model.dtype)
+                #r = layer_refusal_direction.to(self.model.dtype)
+                r = layer_refusal_direction
+                
                 printed_debug = False
                 for matrix in matrices:
                     # Ensure r is on the same device AND dtype as the matrix

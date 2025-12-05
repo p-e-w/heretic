@@ -232,22 +232,60 @@ class Model:
                 # (α is the weight)
                 # W_new = W - α(r (r^T W))
                 r = layer_refusal_direction.to(self.model.dtype)
-
+                printed_debug = False
                 for matrix in matrices:
-                    # Ensure r is on the same device as the matrix for multi-GPU support.
-                    r_device = r.to(matrix.device)
+                    # Ensure r is on the same device AND dtype as the matrix
+                    target_device = matrix.device
+                    target_dtype = matrix.dtype
+                    r_device = r.to(device=target_device, dtype=target_dtype)
 
-                    # Calculate the projection scalars: (r^T W)
-                    # r is (d,), matrix is (d, k) -> result is (k,)
-                    r_transpose_W = torch.matmul(r_device, matrix)
+                    try:
+                        # r^T W
+                        r_transpose_W = torch.matmul(r_device, matrix)
 
-                    # Compute the rank-1 update r (r^T W) using the outer product form
-                    # r_device: (d,)          — projection direction
-                    # r_transpose_W: (k,)     — r^T W result for this matrix
-                    # torch.outer(r_device, r_times_W) constructs the (d, k) matrix with
-                    # entries r[i] * (r^T W)[j], equivalent to the outer product of two
-                    # vectors, avoiding materializing the full (d x d) projector.
-                    matrix.sub_(weight * torch.outer(r_device, r_transpose_W))
+                        # Handle both 2D (d,k) and 3D (E,d,k) matrices
+                        if r_transpose_W.ndim == 1:
+                            update = torch.outer(r_device, r_transpose_W)
+                        elif r_transpose_W.ndim == 2:
+                            update = torch.einsum("d,ek->edk", r_device, r_transpose_W)
+                        else:
+                            leading = r_transpose_W.shape[:-1]
+                            expanded_r = r_device.view((1,) * len(leading) + r_device.shape)
+                            expanded_r = expanded_r.expand(*leading, *r_device.shape)
+                            expanded_r_tW = r_transpose_W.unsqueeze(-2)
+                            update = expanded_r.unsqueeze(-1) * expanded_r_tW
+
+                        scalar = matrix.new_tensor(weight)
+                        matrix.sub_(scalar * update)
+
+                        if not printed_debug:
+                            print(
+                                f"[ABLITERATE DEBUG]\n"
+                                f"  layer_index   = {layer_index}\n"
+                                f"  component     = {component}\n"
+                                f"  matrix.shape  = {tuple(matrix.shape)}\n"
+                                f"  matrix.device = {matrix.device}\n"
+                                f"  matrix.dtype  = {matrix.dtype}\n"
+                                f"  r.shape       = {tuple(r_device.shape)}\n"
+                                f"  r.device      = {r_device.device}\n"
+                                f"  r.dtype       = {r_device.dtype}\n"
+                                f"  rTW.shape     = {tuple(r_transpose_W.shape)}\n"
+                                f"  weight        = {weight}\n"
+                            )
+                            printed_debug = True
+
+                    except Exception as e:
+                        print("\n[ABLITERATE ERROR]")
+                        print(f"  layer_index   = {layer_index}")
+                        print(f"  component     = {component}")
+                        print(f"  matrix.shape  = {tuple(matrix.shape)}")
+                        print(f"  matrix.device = {matrix.device}")
+                        print(f"  matrix.dtype  = {matrix.dtype}")
+                        print(f"  r.shape       = {tuple(r.shape)}")
+                        print(f"  r.device      = {r.device}")
+                        print(f"  r.dtype       = {r.dtype}")
+                        print(f"  weight        = {weight}")
+                        raise e
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

@@ -59,7 +59,8 @@ def get_merged_model(model: Model, settings: Settings):
         # No LoRA adapters, return the model as-is
         return model.model
 
-    if settings.quantization != QuantizationMethod.NONE:
+    # Prompt for all PEFT models to ensure user is aware of merge implications
+    if True:
         # Quantized models need special handling - we must reload the base model
         # in full precision to merge the LoRA adapters
         print()

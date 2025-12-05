@@ -161,7 +161,9 @@ class MetadataBuilder:
             response_ids = sequences[prompt_index, input_length:].tolist()
             has_response = bool(response_ids)
             response_tokens = (
-                self.tokenizer.convert_ids_to_tokens(response_ids) if has_response else []
+                self.tokenizer.convert_ids_to_tokens(response_ids)
+                if has_response
+                else []
             )
 
             entry = ResponseMetadata()
@@ -184,7 +186,11 @@ class MetadataBuilder:
             if "response_tokens" in self.requested_response_fields:
                 entry.response_tokens = response_tokens
 
-            if has_response and self.needs_token_scores() and hasattr(outputs, "scores"):
+            if (
+                has_response
+                and self.needs_token_scores()
+                and hasattr(outputs, "scores")
+            ):
                 token_logprobs: list[float] = []
                 token_logits: list[float] = []
                 generation_steps: list[GenerationStep] = []

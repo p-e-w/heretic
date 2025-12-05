@@ -20,6 +20,8 @@ from transformers import (
 from transformers.generation.utils import GenerateOutput
 
 from .config import Settings
+from .metadata import MetadataBuilder
+from .schemas import ContextMetadata, ResponseMetadata
 from .utils import batchify, empty_cache, print
 
 
@@ -92,6 +94,26 @@ class Model:
             print(
                 f"  * [bold]{component}[/]: [bold]{len(matrices)}[/] matrices per layer"
             )
+
+        self.metadata_builder = MetadataBuilder(
+            settings=self.settings,
+            tokenizer=self.tokenizer,
+            model_getter=lambda: self.model,
+        )
+
+    def set_requested_metadata_fields(self, requested_fields: set[str]):
+        return self.metadata_builder.set_requested_response_fields(requested_fields)
+
+    def set_requested_context_metadata_fields(self, requested_fields: set[str]):
+        return self.metadata_builder.set_requested_context_metadata_fields(
+            requested_fields
+        )
+
+    def get_context_metadata(self) -> ContextMetadata:
+        """
+        Build context-level metadata to pass to taggers at initialization time.
+        """
+        return self.metadata_builder.build_context_metadata()
 
     def reload_model(self):
         dtype = self.model.dtype
@@ -294,14 +316,28 @@ class Model:
             skip_special_tokens=True,
         )
 
-    def get_responses_batched(self, prompts: list[str]) -> list[str]:
-        responses = []
+    def get_responses_batched(
+        self, prompts: list[str]
+    ) -> tuple[list[str], list[ResponseMetadata]]:
+        responses: list[str] = []
+        metadata: list[ResponseMetadata] = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            for response in self.get_responses(batch):
-                responses.append(response)
+            if self.metadata_builder.has_response_fields():
+                batch_responses, batch_metadata = self._get_responses_with_metadata(
+                    batch
+                )
+            else:
+                batch_responses = self.get_responses(batch)
+                batch_metadata = [
+                    self.metadata_builder.build_metadata_stub(prompt)
+                    for prompt in batch
+                ]
 
-        return responses
+            responses.extend(batch_responses)
+            metadata.extend(batch_metadata)
+
+        return responses, metadata
 
     def get_residuals(self, prompts: list[str]) -> Tensor:
         # We only generate one token, and we return the residual vectors
@@ -392,3 +428,31 @@ class Model:
             outputs[0, inputs["input_ids"].shape[1] :],
             skip_special_tokens=True,
         )
+
+    def _get_responses_with_metadata(
+        self, prompts: list[str]
+    ) -> tuple[list[str], list[ResponseMetadata]]:
+        needs_token_scores = self.metadata_builder.needs_token_scores()
+        needs_hidden_states = self.metadata_builder.needs_hidden_states()
+
+        generate_kwargs = self.metadata_builder.build_generate_kwargs(
+            needs_token_scores=needs_token_scores,
+            needs_hidden_states=needs_hidden_states,
+            max_new_tokens=self.settings.max_response_length,
+        )
+
+        inputs, outputs = self.generate(prompts, **generate_kwargs)
+
+        responses = self.tokenizer.batch_decode(
+            outputs.sequences[:, inputs["input_ids"].shape[1] :],
+            skip_special_tokens=True,
+        )
+
+        metadata = self.metadata_builder.collect_response_metadata(
+            prompts=prompts,
+            inputs=inputs,
+            outputs=outputs,
+            generate_kwargs=generate_kwargs,
+        )
+
+        return responses, metadata

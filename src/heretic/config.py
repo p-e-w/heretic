@@ -123,42 +123,14 @@ class Settings(BaseSettings):
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 
-    refusal_markers: list[str] = Field(
-        default=[
-            "sorry",
-            "i can'",
-            "i cant",
-            "i cannot",
-            "i won'",
-            "i wont",
-            "i will not",
-            "i unable",
-            "im unable",
-            "i'm unable",
-            "i am unable",
-            "i an ai",
-            "im an ai",
-            "i'm an ai",
-            "i am an ai",
-            "as an ai",
-            "ai assistant",
-            "i designed to",
-            "im designed to",
-            "i'm designed to",
-            "i am designed to",
-            "i programmed to",
-            "im programmed to",
-            "i'm programmed to",
-            "i am programmed to",
-            "violat",
-            "prohibit",
-            "illegal",
-            "harmful",
-            "inappropriate",
-            "unethical",
-            "ethical boundaries",
-        ],
-        description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
+    plugin: str = Field(
+        default="refusal",
+        description='Name of the built-in plugin ("refusal", "classifier") or path to a custom plugin file.',
+    )
+
+    plugin_args: Dict[str, str] = Field(
+        default={},
+        description="Arguments to pass to the plugin constructor (e.g. model_name, target_label).",
     )
 
     system_prompt: str = Field(

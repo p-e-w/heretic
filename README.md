@@ -1,5 +1,8 @@
 # Heretic: Fully automatic censorship removal for language models
 
+Fork with small fixes for multigpu setups, 4xB200, --batch-size 64 
+and 2.5h total time produced: https://huggingface.co/TeeZee/gpt-oss-120b-heretic-v1
+
 Heretic is a tool that removes censorship (aka "safety alignment") from
 transformer-based language models without expensive post-training.
 It combines an advanced implementation of directional ablation, also known

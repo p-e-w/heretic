@@ -21,7 +21,9 @@ from transformers.generation.utils import GenerateOutput
 
 from .config import Settings
 from .utils import batchify, empty_cache, print
+import os
 
+ABLITERATE_DEBUG = os.getenv("ABLITERATE_DEBUG", "").lower() in ("1", "true", "yes", "on")
 
 @dataclass
 class AbliterationParameters:
@@ -234,7 +236,7 @@ class Model:
                 #r = layer_refusal_direction.to(self.model.dtype)
                 r = layer_refusal_direction
                 
-                printed_debug = False
+                #printed_debug = False
                 for matrix in matrices:
                     # Ensure r is on the same device AND dtype as the matrix
                     target_device = matrix.device
@@ -260,7 +262,7 @@ class Model:
                         scalar = matrix.new_tensor(weight)
                         matrix.sub_(scalar * update)
 
-                        if not printed_debug:
+                        if ABLITERATE_DEBUG:
                             print(
                                 f"[ABLITERATE DEBUG]\n"
                                 f"  layer_index   = {layer_index}\n"
@@ -274,7 +276,7 @@ class Model:
                                 f"  rTW.shape     = {tuple(r_transpose_W.shape)}\n"
                                 f"  weight        = {weight}\n"
                             )
-                            printed_debug = True
+                            #printed_debug = True
 
                     except Exception as e:
                         print("\n[ABLITERATE ERROR]")

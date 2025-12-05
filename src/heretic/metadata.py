@@ -327,8 +327,11 @@ class MetadataBuilder:
         if max_new_tokens is None:
             return None
 
-        # TODO: this is pretty primitive, we need to finetune this heuristic in the future
         if len(response_ids) >= max_new_tokens:
-            return "length"
+            return "len"
 
-        return "stop"
+        elif response_ids[-1] == self.tokenizer.eos_token_id:
+            return "stop"
+
+        else:
+            return "unk"

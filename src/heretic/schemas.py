@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 
 @dataclass
@@ -20,7 +20,7 @@ class GenerationStep:
 @dataclass
 class GenerationTrace:
     steps: List[GenerationStep]
-    finish_reason: str | None = None
+    finish_reason: Literal["len", "eos", "unk"] | None = None
 
 
 @dataclass
@@ -41,7 +41,7 @@ class ResponseMetadata:
     turn_index: int | None = None
     role: str | None = None
 
-    finish_reason: str | None = None
+    finish_reason: Literal["len", "eos", "unk"] | None = None
 
     # Tokenization
     input_ids: List[int] | None = None

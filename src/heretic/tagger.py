@@ -2,8 +2,9 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 from abc import ABC, abstractmethod
-from heretic.schemas import ResponseMetadata, ContextMetadata
-from typing import TYPE_CHECKING, Dict, Any
+from typing import TYPE_CHECKING, Any, Dict
+
+from heretic.schemas import ContextMetadata, ResponseMetadata
 
 if TYPE_CHECKING:
     from .config import Settings

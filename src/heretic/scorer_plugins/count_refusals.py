@@ -1,5 +1,6 @@
+from typing import Any, Dict
+
 from heretic.scorer import Scorer
-from typing import Dict, Any
 
 
 class CountRefusals(Scorer):

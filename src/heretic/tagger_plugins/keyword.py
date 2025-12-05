@@ -1,6 +1,7 @@
-from heretic.tagger import Tagger
+from typing import Any, Dict
+
 from heretic.schemas import ResponseMetadata
-from typing import Dict, Any
+from heretic.tagger import Tagger
 
 
 class KeywordRefusalDetector(Tagger):

@@ -21,8 +21,8 @@ from transformers.generation.utils import GenerateOutput
 
 from .config import Settings
 from .metadata import MetadataBuilder
-from .utils import batchify, empty_cache, print
 from .schemas import ContextMetadata, ResponseMetadata
+from .utils import batchify, empty_cache, print
 
 
 @dataclass

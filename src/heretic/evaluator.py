@@ -3,12 +3,13 @@
 
 import importlib
 import inspect
+
 import torch.nn.functional as F
 
 from .config import Settings
 from .model import Model
-from .tagger import Tagger
 from .scorer import Scorer
+from .tagger import Tagger
 from .utils import load_prompts, print
 
 

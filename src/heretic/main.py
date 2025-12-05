@@ -12,7 +12,6 @@ from pathlib import Path
 import huggingface_hub
 import optuna
 import torch
-import torch.linalg as LA
 import torch.nn.functional as F
 import transformers
 from accelerate.utils import (
@@ -29,9 +28,9 @@ from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
 from questionary import Choice, Style
-from rich.table import Table
 from rich.traceback import install
 
+from .analyzer import Analyzer
 from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
@@ -214,50 +213,16 @@ def run():
         dim=1,
     )
 
-    if settings.print_refusal_geometry:
-        table = Table()
-        table.add_column("Layer", justify="right")
-        table.add_column("S(g,b)", justify="right")
-        table.add_column("S(g,r)", justify="right")
-        table.add_column("S(b,r)", justify="right")
-        table.add_column("|g|", justify="right")
-        table.add_column("|b|", justify="right")
-        table.add_column("|r|", justify="right")
+    analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
-        g = good_residuals.mean(dim=0)
-        b = bad_residuals.mean(dim=0)
-        r = b - g
+    if settings.print_residual_geometry:
+        analyzer.print_residual_geometry()
 
-        g_b_similarities = F.cosine_similarity(g, b, dim=-1)
-        g_r_similarities = F.cosine_similarity(g, r, dim=-1)
-        b_r_similarities = F.cosine_similarity(b, r, dim=-1)
-
-        g_norms = LA.vector_norm(g, dim=-1)
-        b_norms = LA.vector_norm(b, dim=-1)
-        r_norms = LA.vector_norm(r, dim=-1)
-
-        for layer_index in range(len(model.get_layers()) + 1):
-            table.add_row(
-                "embed" if layer_index == 0 else str(layer_index),
-                f"{g_b_similarities[layer_index].item():.4f}",
-                f"{g_r_similarities[layer_index].item():.4f}",
-                f"{b_r_similarities[layer_index].item():.4f}",
-                f"{g_norms[layer_index].item():.2f}",
-                f"{b_norms[layer_index].item():.2f}",
-                f"{r_norms[layer_index].item():.2f}",
-            )
-
-        print()
-        print("[bold]Refusal Geometry[/]")
-        print(table)
-        print("[bold]g[/] = mean residual vector for good prompts")
-        print("[bold]b[/] = mean residual vector for bad prompts")
-        print("[bold]r[/] = refusal direction (i.e., [bold]b - g[/])")
-        print("[bold]S(x,y)[/] = cosine similarity of [bold]x[/] and [bold]y[/]")
-        print("[bold]|x|[/] = L2 norm of [bold]x[/]")
+    if settings.plot_residuals:
+        analyzer.plot_residuals()
 
     # We don't need the residuals after computing refusal directions.
-    del good_residuals, bad_residuals
+    del good_residuals, bad_residuals, analyzer
     empty_cache()
 
     trial_index = 0

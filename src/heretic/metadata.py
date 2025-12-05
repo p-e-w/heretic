@@ -159,7 +159,10 @@ class MetadataBuilder:
 
         for prompt_index, prompt in enumerate(prompts):
             response_ids = sequences[prompt_index, input_length:].tolist()
-            response_tokens = self.tokenizer.convert_ids_to_tokens(response_ids)
+            has_response = bool(response_ids)
+            response_tokens = (
+                self.tokenizer.convert_ids_to_tokens(response_ids) if has_response else []
+            )
 
             entry = ResponseMetadata()
 
@@ -168,7 +171,8 @@ class MetadataBuilder:
 
             if "finish_reason" in self.requested_response_fields:
                 entry.finish_reason = self._infer_finish_reason(
-                    response_ids, generate_kwargs
+                    response_ids=response_ids,
+                    generate_kwargs=generate_kwargs,
                 )
 
             if "input_ids" in self.requested_response_fields:
@@ -180,7 +184,7 @@ class MetadataBuilder:
             if "response_tokens" in self.requested_response_fields:
                 entry.response_tokens = response_tokens
 
-            if self.needs_token_scores() and hasattr(outputs, "scores"):
+            if has_response and self.needs_token_scores() and hasattr(outputs, "scores"):
                 token_logprobs: list[float] = []
                 token_logits: list[float] = []
                 generation_steps: list[GenerationStep] = []
@@ -327,11 +331,13 @@ class MetadataBuilder:
         if max_new_tokens is None:
             return None
 
+        if not response_ids:
+            return "empty"
+
         if len(response_ids) >= max_new_tokens:
             return "len"
 
-        elif response_ids[-1] == self.tokenizer.eos_token_id:
+        if response_ids[-1] == self.tokenizer.eos_token_id:
             return "stop"
 
-        else:
-            return "unk"
+        return "unk"

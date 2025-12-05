@@ -20,7 +20,7 @@ class GenerationStep:
 @dataclass
 class GenerationTrace:
     steps: List[GenerationStep]
-    finish_reason: Literal["len", "eos", "unk"] | None = None
+    finish_reason: Literal["len", "eos", "unk", "empty"] | None = None
 
 
 @dataclass
@@ -41,7 +41,7 @@ class ResponseMetadata:
     turn_index: int | None = None
     role: str | None = None
 
-    finish_reason: Literal["len", "eos", "unk"] | None = None
+    finish_reason: Literal["len", "eos", "unk", "empty"] | None = None
 
     # Tokenization
     input_ids: List[int] | None = None

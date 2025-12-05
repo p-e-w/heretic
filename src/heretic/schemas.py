@@ -24,6 +24,14 @@ class GenerationTrace:
 
 
 @dataclass
+class ContextMetadata:
+    # model and generation params
+    system_prompt: str | None = None
+    model_name: str | None = None
+    generation_params: Dict[str, Any] | None = None
+
+
+@dataclass
 class ResponseMetadata:
     # basic prompt stuff
     prompt_text: str | None = None
@@ -32,11 +40,6 @@ class ResponseMetadata:
     conversation_id: str | None = None
     turn_index: int | None = None
     role: str | None = None
-
-    # model and generation params
-    model_name: str | None = None
-    model_revision: str | None = None
-    generation_params: Dict[str, Any] | None = None
 
     finish_reason: str | None = None
 

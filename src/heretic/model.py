@@ -21,7 +21,12 @@ from transformers.generation.utils import GenerateOutput
 
 from .config import Settings
 from .utils import batchify, empty_cache, print
-from .schemas import ResponseMetadata
+from .schemas import (
+    ContextMetadata,
+    GenerationStep,
+    GenerationTrace,
+    ResponseMetadata,
+)
 
 
 @dataclass
@@ -33,6 +38,26 @@ class AbliterationParameters:
 
 
 class Model:
+    SUPPORTED_METADATA_FIELDS = {
+        "prompt_text",
+        "finish_reason",
+        "input_ids",
+        "response_ids",
+        "response_tokens",
+        "token_logprobs",
+        "token_logits",
+        "generation_steps",
+        "response_embedding",
+        "prompt_embedding",
+        "last_hidden_states",
+        "residuals_last_token_per_layer",
+    }
+    SUPPORTED_CONTEXT_METADATA_FIELDS = {
+        "system_prompt",
+        "model_name",
+        "generation_params",
+    }
+
     def __init__(self, settings: Settings):
         self.settings = settings
 
@@ -51,6 +76,8 @@ class Model:
 
         self.model = None
         self.trusted_models = {settings.model: settings.trust_remote_code}
+        self.requested_metadata_fields = set()
+        self.requested_context_metadata_fields = set()
 
         if self.settings.evaluate_model is not None:
             self.trusted_models[settings.evaluate_model] = settings.trust_remote_code
@@ -93,6 +120,58 @@ class Model:
             print(
                 f"  * [bold]{component}[/]: [bold]{len(matrices)}[/] matrices per layer"
             )
+
+    def set_requested_metadata_fields(self, requested_fields: set[str]):
+        self.requested_metadata_fields = requested_fields
+        unsupported_metadata_fields = (
+            self.requested_metadata_fields - self.SUPPORTED_METADATA_FIELDS
+        )
+
+        if unsupported_metadata_fields:
+            print(
+                "[yellow]"
+                + "Warning: unsupported metadata fields requested; they will be ignored: "
+                + ", ".join(sorted(unsupported_metadata_fields))
+                + "[/]"
+            )
+            self.requested_metadata_fields -= unsupported_metadata_fields
+
+    def get_context_metadata(self) -> ContextMetadata:
+        """
+        Build context-level metadata to pass to taggers at initialization time.
+        """
+        requested = self.requested_context_metadata_fields
+
+        return ContextMetadata(
+            system_prompt=self.settings.system_prompt
+            if "system_prompt" in requested
+            else None,
+            model_name=self.settings.model if "model_name" in requested else None,
+            generation_params={
+                "max_new_tokens": self.settings.max_response_length,
+                "do_sample": False,
+                "pad_token_id": self.tokenizer.eos_token_id,
+            }
+            if "generation_params" in requested
+            else None,
+        )
+
+    def set_requested_context_metadata_fields(self, requested_fields: set[str]):
+        self.requested_context_metadata_fields = requested_fields
+
+        unsupported_context_fields = (
+            self.requested_context_metadata_fields
+            - self.SUPPORTED_CONTEXT_METADATA_FIELDS
+        )
+
+        if unsupported_context_fields:
+            print(
+                "[yellow]"
+                + "Warning: unsupported context metadata fields requested; they will be ignored: "
+                + ", ".join(sorted(unsupported_context_fields))
+                + "[/]"
+            )
+            self.requested_context_metadata_fields -= unsupported_context_fields
 
     def reload_model(self):
         dtype = self.model.dtype
@@ -287,12 +366,20 @@ class Model:
     def get_responses_batched(
         self, prompts: list[str]
     ) -> tuple[list[str], list[ResponseMetadata]]:
-        responses = []
-        metadata = []
+        responses: list[str] = []
+        metadata: list[ResponseMetadata] = []
+
         for batch in batchify(prompts, self.settings.batch_size):
-            for response in self.get_responses(batch):
-                responses.append(response)
-                # metadata.append(ResponseMetadata(prompt_text=batch[0]))
+            if self.requested_metadata_fields:
+                batch_responses, batch_metadata = self._get_responses_with_metadata(
+                    batch
+                )
+            else:
+                batch_responses = self.get_responses(batch)
+                batch_metadata = [self._build_metadata_stub(prompt) for prompt in batch]
+
+            responses.extend(batch_responses)
+            metadata.extend(batch_metadata)
 
         return responses, metadata
 
@@ -385,3 +472,248 @@ class Model:
             outputs[0, inputs["input_ids"].shape[1] :],
             skip_special_tokens=True,
         )
+
+    def _build_metadata_stub(self, prompt: str) -> ResponseMetadata:
+        if "prompt_text" in self.requested_metadata_fields:
+            return ResponseMetadata(prompt_text=prompt)
+
+        return ResponseMetadata()
+
+    def _get_responses_with_metadata(
+        self, prompts: list[str]
+    ) -> tuple[list[str], list[ResponseMetadata]]:
+        # Determine which optional outputs we need from `generate`.
+        needs_token_scores = bool(
+            self.requested_metadata_fields
+            & {"token_logprobs", "token_logits", "generation_steps"}
+        )
+        needs_hidden_states = bool(
+            self.requested_metadata_fields
+            & {
+                "response_embedding",
+                "prompt_embedding",
+                "last_hidden_states",
+                "residuals_last_token_per_layer",
+            }
+        )
+
+        generate_kwargs: dict[str, Any] = {
+            "max_new_tokens": self.settings.max_response_length,
+            "output_scores": needs_token_scores,
+            "return_dict_in_generate": True,
+            "output_hidden_states": needs_hidden_states,
+        }
+
+        inputs, outputs = self.generate(prompts, **generate_kwargs)
+
+        responses = self.tokenizer.batch_decode(
+            outputs.sequences[:, inputs["input_ids"].shape[1] :],
+            skip_special_tokens=True,
+        )
+
+        metadata = self._collect_response_metadata(
+            prompts=prompts,
+            inputs=inputs,
+            outputs=outputs,
+            needs_scores=needs_token_scores,
+            needs_hidden_states=needs_hidden_states,
+            generate_kwargs=generate_kwargs,
+        )
+
+        return responses, metadata
+
+    def _collect_response_metadata(
+        self,
+        prompts: list[str],
+        inputs: BatchEncoding,
+        outputs: GenerateOutput | LongTensor,
+        needs_scores: bool,
+        needs_hidden_states: bool,
+        generate_kwargs: dict[str, Any],
+    ) -> list[ResponseMetadata]:
+        sequences = outputs.sequences if hasattr(outputs, "sequences") else outputs
+        input_length = inputs["input_ids"].shape[1]
+
+        hidden_state_summaries = None
+        if needs_hidden_states:
+            hidden_state_summaries = self._compute_hidden_state_metadata(
+                sequences=sequences,
+                input_length=input_length,
+            )
+
+        metadata: list[ResponseMetadata] = []
+
+        for prompt_index, prompt in enumerate(prompts):
+            response_ids = sequences[prompt_index, input_length:].tolist()
+            response_tokens = self.tokenizer.convert_ids_to_tokens(response_ids)
+
+            entry = ResponseMetadata()
+
+            if "prompt_text" in self.requested_metadata_fields:
+                entry.prompt_text = prompt
+
+            if "model_name" in self.requested_metadata_fields:
+                entry.model_name = self.settings.model
+
+            if "generation_params" in self.requested_metadata_fields:
+                entry.generation_params = generate_kwargs
+
+            if "finish_reason" in self.requested_metadata_fields:
+                entry.finish_reason = self._infer_finish_reason(
+                    response_ids, generate_kwargs
+                )
+
+            if "input_ids" in self.requested_metadata_fields:
+                entry.input_ids = inputs["input_ids"][prompt_index].tolist()
+
+            if "response_ids" in self.requested_metadata_fields:
+                entry.response_ids = response_ids
+
+            if "response_tokens" in self.requested_metadata_fields:
+                entry.response_tokens = response_tokens
+
+            if needs_scores and hasattr(outputs, "scores"):
+                token_logprobs: list[float] = []
+                token_logits: list[float] = []
+                generation_steps: list[GenerationStep] = []
+
+                for step_index, token_id in enumerate(response_ids):
+                    score_row = outputs.scores[step_index][prompt_index]
+                    logprobs_row = F.log_softmax(score_row, dim=-1)
+                    token_logprob = logprobs_row[token_id].item()
+
+                    if "token_logprobs" in self.requested_metadata_fields:
+                        token_logprobs.append(token_logprob)
+
+                    if "token_logits" in self.requested_metadata_fields:
+                        token_logits.append(score_row[token_id].item())
+
+                    if "generation_steps" in self.requested_metadata_fields:
+                        topk_values, topk_indices = logprobs_row.topk(5)
+                        topk = [
+                            {
+                                self.tokenizer.decode(
+                                    [topk_index.item()], skip_special_tokens=True
+                                ): topk_value.item()
+                            }
+                            for topk_index, topk_value in zip(topk_indices, topk_values)
+                        ]
+
+                        probs_row = logprobs_row.exp()
+                        entropy = -torch.sum(probs_row * logprobs_row).item()
+
+                        generation_steps.append(
+                            GenerationStep(
+                                step_index=step_index,
+                                token_id=token_id,
+                                token=self.tokenizer.decode(
+                                    [token_id], skip_special_tokens=True
+                                ),
+                                logprob=token_logprob,
+                                topk=topk,
+                                entropy=entropy,
+                            )
+                        )
+
+                if "token_logprobs" in self.requested_metadata_fields:
+                    entry.token_logprobs = token_logprobs
+
+                if "token_logits" in self.requested_metadata_fields:
+                    entry.token_logits = token_logits
+
+                if "generation_steps" in self.requested_metadata_fields:
+                    entry.generation_steps = [
+                        GenerationTrace(
+                            steps=generation_steps,
+                            finish_reason=entry.finish_reason,
+                        )
+                    ]
+
+            if needs_hidden_states and hidden_state_summaries is not None:
+                summary = hidden_state_summaries[prompt_index]
+                if "prompt_embedding" in self.requested_metadata_fields:
+                    entry.prompt_embedding = summary["prompt_embedding"]
+                if "response_embedding" in self.requested_metadata_fields:
+                    entry.response_embedding = summary["response_embedding"]
+                if "last_hidden_states" in self.requested_metadata_fields:
+                    entry.last_hidden_states = summary["last_hidden_states"]
+                if "residuals_last_token_per_layer" in self.requested_metadata_fields:
+                    entry.residuals_last_token_per_layer = summary[
+                        "residuals_last_token_per_layer"
+                    ]
+
+            metadata.append(entry)
+
+        return metadata
+
+    def _compute_hidden_state_metadata(
+        self, sequences: LongTensor, input_length: int
+    ) -> list[dict[str, Any]]:
+        with torch.no_grad():
+            # Build attention mask where padding is tokenizer pad token
+            pad_token_id = self.tokenizer.pad_token_id
+            attention_mask = (
+                sequences.ne(pad_token_id) if pad_token_id is not None else None
+            )
+
+            forward_outputs = self.model(
+                input_ids=sequences,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+
+        hidden_states = forward_outputs.hidden_states
+        last_layer = hidden_states[-1]
+
+        summaries: list[dict[str, Any]] = []
+
+        for batch_index in range(sequences.shape[0]):
+            prompt_slice = last_layer[batch_index, :input_length, :]
+            response_slice = last_layer[batch_index, input_length:, :]
+
+            prompt_embedding = (
+                prompt_slice.mean(dim=0).detach().cpu().tolist()
+                if prompt_slice.numel() > 0
+                else None
+            )
+            response_embedding = (
+                response_slice.mean(dim=0).detach().cpu().tolist()
+                if response_slice.numel() > 0
+                else None
+            )
+
+            last_hidden_states = (
+                response_slice.detach().cpu().tolist()
+                if response_slice.numel() > 0
+                else None
+            )
+
+            residuals_last_token_per_layer = [
+                layer[batch_index, -1, :].detach().cpu().tolist()
+                for layer in hidden_states
+            ]
+
+            summaries.append(
+                {
+                    "prompt_embedding": prompt_embedding,
+                    "response_embedding": response_embedding,
+                    "last_hidden_states": last_hidden_states,
+                    "residuals_last_token_per_layer": residuals_last_token_per_layer,
+                }
+            )
+
+        return summaries
+
+    def _infer_finish_reason(
+        self, response_ids: list[int], generate_kwargs: dict[str, Any]
+    ) -> str | None:
+        max_new_tokens = generate_kwargs.get("max_new_tokens")
+        if max_new_tokens is None:
+            return None
+
+        # TODO: this is pretty primitive, we need to finetune this heuristic in the future
+        if len(response_ids) >= max_new_tokens:
+            return "length"
+
+        return "stop"

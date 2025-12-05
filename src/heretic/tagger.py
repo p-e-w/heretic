@@ -2,7 +2,7 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 from abc import ABC, abstractmethod
-from heretic.schemas import ResponseMetadata
+from heretic.schemas import ResponseMetadata, ContextMetadata
 from typing import TYPE_CHECKING, Dict, Any
 
 if TYPE_CHECKING:
@@ -17,9 +17,15 @@ class Tagger(ABC):
     "I'm sorry, but I can't assist with that request." -> {"helpfulness": 0.1, "friendliness": 0.2}
     """
 
-    def __init__(self, settings: "Settings", model: "Model"):
+    def __init__(
+        self,
+        settings: "Settings",
+        model: "Model",
+        context_metadata: ContextMetadata,
+    ):
         self.settings = settings
         self.model = model
+        self.context_metadata = context_metadata
 
     @abstractmethod
     def tag_batch(
@@ -35,3 +41,19 @@ class Tagger(ABC):
             A list of dicts, where the keys are the tag names and the values are the tag values.
         """
         pass
+
+    @staticmethod
+    @abstractmethod
+    def required_response_metadata_fields() -> set[str]:
+        """
+        Response-level metadata fields needed by this tagger.
+        """
+        return set()
+
+    @staticmethod
+    @abstractmethod
+    def required_context_metadata_fields() -> set[str]:
+        """
+        Context-level metadata fields needed by this tagger.
+        """
+        return set()

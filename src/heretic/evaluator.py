@@ -3,8 +3,6 @@
 
 import importlib
 import inspect
-
-from typing import Dict, Any
 import torch.nn.functional as F
 
 from .config import Settings
@@ -39,7 +37,9 @@ class Evaluator:
         print()
         print("Loading tagger plugin...")
         self.tagger_plugin = self._load_tagger_plugin()
-
+        self.model.set_requested_metadata_fields(
+            self.tagger_plugin.required_response_metadata_fields()
+        )
         print()
         print("Loading scorer plugin...")
         self.scorer_plugin = self._load_scorer_plugin()
@@ -82,7 +82,14 @@ class Evaluator:
                 exit()
 
         print(f"* Loaded tagger plugin: [bold]{tagger.__name__}[/bold]")
-        return tagger(settings=self.settings, model=self.model)
+        self.model.set_requested_context_metadata_fields(
+            tagger.required_context_metadata_fields()
+        )
+        return tagger(
+            settings=self.settings,
+            model=self.model,
+            context_metadata=self.model.get_context_metadata(),
+        )
 
     def _load_scorer_plugin(self) -> Scorer:
         name = self.settings.scorer_plugin

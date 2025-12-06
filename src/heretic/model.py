@@ -46,7 +46,11 @@ class Model:
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.tokenizer.padding_side = "left"
+
+        # CRITICAL: Always use left-padding for decoder-only models during generation.
+        #           Right-padding causes empty outputs because the model sees PAD tokens
+        #           after the prompt and thinks the sequence is complete.
+        self.tokenizer.padding_side = "left"
 
         self.model = None
         self.trusted_models = {settings.model: settings.trust_remote_code}

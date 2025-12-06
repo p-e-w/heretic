@@ -208,6 +208,11 @@ def run():
         p=2,
         dim=1,
     )
+    harmless_directions = F.normalize(
+        good_residuals.mean(dim=0),
+        p=2,
+        dim=1,
+    )
 
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
@@ -229,29 +234,31 @@ def run():
         trial_index += 1
         trial.set_user_attr("index", trial_index)
 
-        direction_scope = trial.suggest_categorical(
-            "direction_scope",
-            [
-                "global",
-                "per layer",
-            ],
-        )
+        if settings.direction_scope == "all":
+            direction_scope = trial.suggest_categorical(
+                "direction_scope",
+                [
+                    "global",
+                    "per layer",
+                ],
+            )
+        else:
+            direction_scope = settings.direction_scope
 
-        # Discrimination between "harmful" and "harmless" inputs is usually strongest
-        # in layers slightly past the midpoint of the layer stack. See the original
-        # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
-        #
-        # Note that we always sample this parameter even though we only need it for
-        # the "global" direction scope. The reason is that multivariate TPE doesn't
-        # work with conditional or variable-range parameters.
-        direction_index = trial.suggest_float(
-            "direction_index",
-            0.4 * (len(model.get_layers()) - 1),
-            0.9 * (len(model.get_layers()) - 1),
-        )
+        num_layers = len(model.get_layers())
+        last_layer_index = num_layers - 1
 
         if direction_scope == "per layer":
             direction_index = None
+        else:
+            # Discrimination between "harmful" and "harmless" inputs is usually strongest
+            # in layers slightly past the midpoint of the layer stack. See the original
+            # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
+            direction_index = trial.suggest_float(
+                "direction_index",
+                0.4 * last_layer_index,
+                0.9 * last_layer_index,
+            )
 
         parameters = {}
 
@@ -266,8 +273,8 @@ def run():
             )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
-                0.6 * (len(model.get_layers()) - 1),
-                len(model.get_layers()) - 1,
+                0.6 * last_layer_index,
+                1.0 * last_layer_index,
             )
             # For sampling purposes, min_weight is expressed as a fraction of max_weight,
             # again because multivariate TPE doesn't support variable-range parameters.
@@ -280,7 +287,7 @@ def run():
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",
                 1.0,
-                0.6 * (len(model.get_layers()) - 1),
+                0.6 * num_layers,
             )
 
             parameters[component] = AbliterationParameters(
@@ -303,7 +310,9 @@ def run():
         print("* Reloading model...")
         model.reload_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, direction_index, parameters)
+        model.abliterate(
+            refusal_directions, harmless_directions, direction_index, parameters
+        )
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
 
@@ -336,6 +345,11 @@ def run():
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
             multivariate=True,
+            # Handle categorical dependencies.
+            group=(
+                settings.direction_scope != "per layer"
+                and settings.direction_scope != "global"
+            ),
         ),
         directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
     )
@@ -359,17 +373,25 @@ def run():
         key=lambda trial: trial.user_attrs["refusals"],
     )
 
-    choices = [
-        Choice(
-            title=(
-                f"[Trial {trial.user_attrs['index']:>3}] "
-                f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
-            ),
-            value=trial,
+    choices = []
+    for trial in best_trials:
+        if settings.direction_scope != "all":
+            direction_scope = ""
+        elif trial.user_attrs["direction_index"] is None:
+            direction_scope = "(per layer)"
+        else:
+            direction_scope = "(global)"
+        choices.append(
+            Choice(
+                title=(
+                    f"[Trial {trial.user_attrs['index']:>3}] "
+                    f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+                    f"KL divergence: {trial.user_attrs['kl_divergence']:.2f} "
+                    f"{direction_scope}"
+                ),
+                value=trial,
+            )
         )
-        for trial in best_trials
-    ]
 
     choices.append(
         Choice(
@@ -408,6 +430,7 @@ def run():
         print("* Abliterating...")
         model.abliterate(
             refusal_directions,
+            harmless_directions,
             trial.user_attrs["direction_index"],
             trial.user_attrs["parameters"],
         )

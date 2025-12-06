@@ -26,6 +26,7 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
+from peft import PeftModel
 from pydantic import ValidationError
 from questionary import Choice, Style
 from rich.traceback import install
@@ -46,6 +47,104 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
+
+
+def get_merged_model(model: Model, settings: Settings):
+    """
+    Returns the model with LoRA adapters merged if applicable.
+    For quantized models, prompts the user for how to proceed.
+    Returns None if user chooses to save LoRA adapter only.
+    """
+    if not isinstance(model.model, PeftModel):
+        # No LoRA adapters, return the model as-is
+        return model.model
+
+    # Prompt for all PEFT models to ensure user is aware of merge implications
+    if True:
+        # Quantized models need special handling - we must reload the base model
+        # in full precision to merge the LoRA adapters
+        print()
+        print(
+            "[yellow]Model was loaded with quantization. Merging requires reloading the base model.[/]"
+        )
+        print(
+            "[red](!) WARNING: CPU Merging requires dequantizing the entire model to System RAM.[/]"
+        )
+        print("[red]    This can lead to SYSTEM FREEZES if you run out of memory.[/]")
+        print(
+            "[yellow]    Rule of thumb: You need approx. 3x the parameter count in GB.[/]"
+        )
+        print(
+            "[yellow]    Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
+        )
+        print()
+
+        merge_choice = prompt_select(
+            "How do you want to proceed?",
+            choices=[
+                Choice(
+                    title="Merge full model (reload base model on CPU - requires high RAM)",
+                    value="merge",
+                ),
+                Choice(
+                    title="Save LoRA adapter only (can be merged later with llama.cpp or more RAM)",
+                    value="adapter",
+                ),
+            ],
+            style=Style([("highlighted", "reverse")]),
+        )
+
+        if merge_choice is None or merge_choice == "adapter":
+            print("[yellow]Saving LoRA adapter only...[/]")
+            return None
+
+        # User chose to merge - attempt CPU-based merge
+        from transformers import AutoModelForCausalLM
+
+        # Get the adapter state dict before we do anything
+        adapter_state = {}
+        for name, param in model.model.named_parameters():
+            if "lora_" in name:
+                adapter_state[name] = param.data.clone().cpu()
+
+        # Load base model in full precision on CPU to avoid VRAM issues
+        print("* Loading base model on CPU (this may take a while)...")
+        base_model = AutoModelForCausalLM.from_pretrained(
+            settings.model,
+            torch_dtype=torch.bfloat16,
+            device_map="cpu",
+            trust_remote_code=model.trusted_models.get(settings.model),
+        )
+
+        # Apply LoRA adapters to the CPU model
+        from peft import LoraConfig, get_peft_model
+
+        print("* Applying LoRA adapters...")
+        target_modules = model.get_abliterable_components()
+        peft_config = LoraConfig(
+            r=1,
+            target_modules=target_modules,
+            lora_alpha=1,
+            lora_dropout=0,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        peft_model = get_peft_model(base_model, peft_config)
+
+        # Copy the trained adapter weights
+        for name, param in peft_model.named_parameters():
+            if name in adapter_state:
+                param.data = adapter_state[name].to(param.device)
+
+        # Merge and unload
+        print("* Merging LoRA adapters into base model...")
+        merged_model = peft_model.merge_and_unload()
+        return merged_model
+    else:
+        # Non-quantized model - can merge directly
+        print("* Merging LoRA adapters into base model...")
+        merged_model = model.model.merge_and_unload()
+        return merged_model
 
 
 def run():
@@ -441,7 +540,12 @@ def run():
                             continue
 
                         print("Saving model...")
-                        model.model.save_pretrained(save_directory)
+                        merged_model = get_merged_model(model, settings)
+                        if merged_model is not None:
+                            merged_model.save_pretrained(save_directory)
+                        else:
+                            # Fallback: save LoRA adapter only (for quantized models)
+                            model.model.save_pretrained(save_directory)
                         model.tokenizer.save_pretrained(save_directory)
                         print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -479,12 +583,20 @@ def run():
                         private = visibility == "Private"
 
                         print("Uploading model...")
-
-                        model.model.push_to_hub(
-                            repo_id,
-                            private=private,
-                            token=token,
-                        )
+                        merged_model = get_merged_model(model, settings)
+                        if merged_model is not None:
+                            merged_model.push_to_hub(
+                                repo_id,
+                                private=private,
+                                token=token,
+                            )
+                        else:
+                            # Fallback: upload LoRA adapter only (for quantized models)
+                            model.model.push_to_hub(
+                                repo_id,
+                                private=private,
+                                token=token,
+                            )
                         model.tokenizer.push_to_hub(
                             repo_id,
                             private=private,

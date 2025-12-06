@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from .config import Settings
 from .model import Model
-from .utils import load_prompts, print
+from .utils import load_prompts, print, smooth_transition
 
 
 class Evaluator:
@@ -76,9 +76,23 @@ class Evaluator:
         refusals = self.count_refusals()
         print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
 
+        refusals_score = refusals / self.base_refusals
+        kld_score = kl_divergence / self.settings.kl_divergence_scale
+
+        kld_transition_point = self.settings.kld_transition_point
+        kld_transition_width = self.settings.kld_transition_width
+
+        kld_score_blended = smooth_transition(
+            determinant=kld_score,
+            threshold=kld_transition_point,
+            low_value=kld_transition_point * refusals_score,
+            high_value=kld_score,
+            transition_width=kld_transition_width,
+        )
+
         score = (
-            (kl_divergence / self.settings.kl_divergence_scale),
-            (refusals / self.base_refusals),
+            kld_score_blended,
+            refusals_score,
         )
 
         return score, kl_divergence, refusals

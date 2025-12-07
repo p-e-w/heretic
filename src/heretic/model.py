@@ -70,7 +70,7 @@ class Model:
                 )
 
                 # If we reach this point and the model requires trust_remote_code,
-                # the user must have confirmed it.
+                # either the user accepted, or settings.trust_remote_code is True.
                 if self.trusted_models.get(settings.model) is None:
                     self.trusted_models[settings.model] = True
 

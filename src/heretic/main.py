@@ -65,10 +65,11 @@ def run():
     print()
 
     if (
-        # An odd number of arguments have been passed (argv[0] is the program name),
-        # so that after accounting for "--param VALUE" pairs, there is one left over.
-        len(sys.argv) % 2 == 0
-        # The leftover argument is a parameter value rather than a flag (such as "--help").
+        # There is at least one argument (argv[0] is the program name).
+        len(sys.argv) > 1
+        # No model has been explicitly provided.
+        and "--model" not in sys.argv
+        # The last argument is a parameter value rather than a flag (such as "--help").
         and not sys.argv[-1].startswith("-")
     ):
         # Assume the last argument is the model.

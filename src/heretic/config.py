@@ -213,6 +213,7 @@ class Settings(BaseSettings):
         toml_file="config.toml",
         env_prefix="HERETIC_",
         cli_parse_args=True,
+        cli_implicit_flags=True,
         cli_kebab_case=True,
     )
 

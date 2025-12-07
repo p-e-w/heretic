@@ -27,7 +27,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
-from questionary import Choice, Style
+from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
@@ -392,11 +392,7 @@ def run():
 
     while True:
         print()
-        trial = prompt_select(
-            "Which trial do you want to use?",
-            choices=choices,
-            style=Style([("highlighted", "reverse")]),
-        )
+        trial = prompt_select("Which trial do you want to use?", choices)
 
         if trial is None or trial == "":
             break
@@ -416,13 +412,12 @@ def run():
             print()
             action = prompt_select(
                 "What do you want to do with the decensored model?",
-                choices=[
+                [
                     "Save the model to a local folder",
                     "Upload the model to Hugging Face",
                     "Chat with the model",
                     "Nothing (return to trial selection menu)",
                 ],
-                style=Style([("highlighted", "reverse")]),
             )
 
             if action is None or action == "Nothing (return to trial selection menu)":
@@ -434,9 +429,7 @@ def run():
             try:
                 match action:
                     case "Save the model to a local folder":
-                        save_directory = prompt_path(
-                            "Path to the folder:", only_directories=True
-                        )
+                        save_directory = prompt_path("Path to the folder:")
                         if not save_directory:
                             continue
 
@@ -470,11 +463,10 @@ def run():
 
                         visibility = prompt_select(
                             "Should the repository be public or private?",
-                            choices=[
+                            [
                                 "Public",
                                 "Private",
                             ],
-                            style=Style([("highlighted", "reverse")]),
                         )
                         private = visibility == "Private"
 

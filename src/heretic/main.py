@@ -260,10 +260,23 @@ def run():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.
+            if "conv" in component or "mamba" in component:
+                max_weight_range = (0.8, 2.5)
+                min_weight_fraction_range = (0.0, 0.8)
+            elif "attn" in component:
+                max_weight_range = (0.8, 1.8)
+                min_weight_fraction_range = (0.0, 1.0)
+            elif "shared" in component:
+                max_weight_range = (0.8, 2.0)
+                min_weight_fraction_range = (0.0, 0.9)
+            else:
+                max_weight_range = (0.8, 2.5)
+                min_weight_fraction_range = (0.0, 0.9)
+
             max_weight = trial.suggest_float(
                 f"{component}.max_weight",
-                0.8,
-                1.5,
+                max_weight_range[0],
+                max_weight_range[1],
             )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
@@ -275,8 +288,8 @@ def run():
             # The value is transformed into the actual min_weight value below.
             min_weight = trial.suggest_float(
                 f"{component}.min_weight",
-                0.0,
-                1.0,
+                min_weight_fraction_range[0],
+                min_weight_fraction_range[1],
             )
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",
@@ -357,20 +370,31 @@ def run():
 
     best_trials = sorted(
         study.best_trials,
-        key=lambda trial: trial.user_attrs["refusals"],
+        key=lambda trial: (
+            trial.user_attrs["refusals"],
+            max(trial.user_attrs["kl_divergence"], 0),
+        ),
     )
 
-    choices = [
-        Choice(
-            title=(
-                f"[Trial {trial.user_attrs['index']:>3}] "
-                f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
-            ),
-            value=trial,
+    kl_threshold = 2.0
+    ordered_trials = best_trials
+    excluded_trials = 0
+
+    if not settings.show_all_trials:
+        kl_filtered = [
+            t for t in best_trials if t.user_attrs["kl_divergence"] <= kl_threshold
+        ]
+        excluded_trials = len(best_trials) - len(kl_filtered)
+        ordered_trials = kl_filtered if kl_filtered else best_trials
+
+    choices = []
+    for trial in ordered_trials:
+        title = (
+            f"[Trial {trial.user_attrs['index']:>3}] "
+            f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+            f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
         )
-        for trial in best_trials
-    ]
+        choices.append(Choice(title=title, value=trial))
 
     choices.append(
         Choice(
@@ -382,6 +406,11 @@ def run():
     print()
     print("[bold green]Optimization finished![/]")
     print()
+    if excluded_trials > 0:
+        print(
+            f"[grey50]Filtered out {excluded_trials} Pareto trials with KL divergence > {kl_threshold:.1f}. "
+            f"Set --show-all-trials to include them.[/]"
+        )
     print(
         (
             "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
@@ -435,6 +464,7 @@ def run():
                             continue
 
                         print("Saving model...")
+                        model.sanitize_generation_config()
                         model.model.save_pretrained(save_directory)
                         model.tokenizer.save_pretrained(save_directory)
                         print(f"Model saved to [bold]{save_directory}[/].")
@@ -473,6 +503,7 @@ def run():
 
                         print("Uploading model...")
 
+                        model.sanitize_generation_config()
                         model.model.push_to_hub(
                             repo_id,
                             private=private,

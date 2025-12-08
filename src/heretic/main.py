@@ -27,7 +27,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
-from questionary import Choice, Style
+from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
@@ -65,10 +65,11 @@ def run():
     print()
 
     if (
-        # An odd number of arguments have been passed (argv[0] is the program name),
-        # so that after accounting for "--param VALUE" pairs, there is one left over.
-        len(sys.argv) % 2 == 0
-        # The leftover argument is a parameter value rather than a flag (such as "--help").
+        # There is at least one argument (argv[0] is the program name).
+        len(sys.argv) > 1
+        # No model has been explicitly provided.
+        and "--model" not in sys.argv
+        # The last argument is a parameter value rather than a flag (such as "--help").
         and not sys.argv[-1].startswith("-")
     ):
         # Assume the last argument is the model.
@@ -388,6 +389,9 @@ def run():
                 value="",
             )
         )
+    while True:
+        print()
+        trial = prompt_select("Which trial do you want to use?", choices)
 
         print()
         if trials_to_run > 0:
@@ -408,6 +412,14 @@ def run():
                 "Which trial do you want to use?",
                 choices=choices,
                 style=Style([("highlighted", "reverse")]),
+            action = prompt_select(
+                "What do you want to do with the decensored model?",
+                [
+                    "Save the model to a local folder",
+                    "Upload the model to Hugging Face",
+                    "Chat with the model",
+                    "Nothing (return to trial selection menu)",
+                ],
             )
 
             if trial == "continue":
@@ -428,6 +440,38 @@ def run():
 
             if trial is None or trial == "":
                 return
+            # All actions are wrapped in a try/except block so that if an error occurs,
+            # another action can be tried, instead of the program crashing and losing
+            # the optimized model.
+            try:
+                match action:
+                    case "Save the model to a local folder":
+                        save_directory = prompt_path("Path to the folder:")
+                        if not save_directory:
+                            continue
+
+                        print("Saving model...")
+                        model.model.save_pretrained(save_directory)
+                        model.tokenizer.save_pretrained(save_directory)
+                        print(f"Model saved to [bold]{save_directory}[/].")
+
+                    case "Upload the model to Hugging Face":
+                        # We don't use huggingface_hub.login() because that stores the token on disk,
+                        # and since this program will often be run on rented or shared GPU servers,
+                        # it's better to not persist credentials.
+                        token = huggingface_hub.get_token()
+                        if not token:
+                            token = prompt_password("Hugging Face access token:")
+                        if not token:
+                            continue
+
+                        user = huggingface_hub.whoami(token)
+                        fullname = user.get(
+                            "fullname",
+                            user.get("name", "unknown user"),
+                        )
+                        email = user.get("email", "no email found")
+                        print(f"Logged in as [bold]{fullname} ({email})[/]")
 
             print()
             print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
@@ -493,6 +537,14 @@ def run():
                             )
                             email = user.get("email", "no email found")
                             print(f"Logged in as [bold]{fullname} ({email})[/]")
+                        visibility = prompt_select(
+                            "Should the repository be public or private?",
+                            [
+                                "Public",
+                                "Private",
+                            ],
+                        )
+                        private = visibility == "Private"
 
                             repo_id = prompt_text(
                                 "Name of repository:",

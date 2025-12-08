@@ -7,8 +7,11 @@ dtypes = [
     "auto",
     # If that doesn't work (e.g. on pre-Ampere hardware), fall back to float16.
     "float16",
-    # If that still doesn't work (e.g. due to https://github.com/meta-llama/llama/issues/380),
-    # fall back to float32.
+    # If "auto" resolves to float32, and that fails because it is too large,
+    # and float16 fails due to range issues, try bfloat16.
+    "bfloat16",
+    # If neither of those work, fall back to float32 (which will of course fail
+    # if that was the dtype "auto" resolved to).
     "float32",
 ]
 

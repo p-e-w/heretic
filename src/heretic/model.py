@@ -398,8 +398,10 @@ class Model:
                         # r_transpose_W: (...k)
                         # Result: (...d, k) matching matrix shape
                         # Equivalent to torch.outer for 2D, but works for (E, d, k) too.
-                        update = torch.einsum("i, ...j -> ...ij", r_device, r_transpose_W)
-                        
+                        update = torch.einsum(
+                            "i, ...j -> ...ij", r_device, r_transpose_W
+                        )
+
                         matrix.sub_(weight * update)
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:

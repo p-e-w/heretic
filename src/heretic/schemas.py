@@ -3,27 +3,6 @@ from typing import Any, Dict, List, Literal
 
 
 @dataclass
-class GenerationStep:
-    step_index: int
-    token_id: int
-    token: str
-    logprob: float | None
-    topk: List[Dict[str, float]] | None = None
-    entropy: float | None = None
-
-    # Optional internals
-    last_hidden_state: List[float] | None = None
-    residuals_per_layer: List[List[float]] | None = None
-    attention_summary: Dict[str, Any] | None = None
-
-
-@dataclass
-class GenerationTrace:
-    steps: List[GenerationStep]
-    finish_reason: Literal["len", "eos", "unk", "empty"] | None = None
-
-
-@dataclass
 class ContextMetadata:
     # model and generation params
     system_prompt: str | None = None
@@ -49,12 +28,6 @@ class Response:
     token_logprobs: List[float] | None = None
     token_logits: List[float] | None = None
 
-    # Embeddings
-    response_embedding: List[float] | None = None
-    prompt_embedding: List[float] | None = None
-
     # Hidden states / residuals (optional, heavy)
     last_hidden_states: List[List[float]] | None = None
     residuals_last_token_per_layer: List[List[float]] | None = None
-
-    generation_steps: List[GenerationTrace] | None = None

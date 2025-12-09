@@ -9,7 +9,7 @@ from torch import LongTensor
 from transformers import BatchEncoding, PreTrainedTokenizerBase
 from transformers.generation.utils import GenerateOutput
 
-from .schemas import ContextMetadata, GenerationStep, GenerationTrace, Response
+from .schemas import ContextMetadata, Response
 from .utils import print
 
 
@@ -23,9 +23,6 @@ class MetadataBuilder:
         "response_tokens",
         "token_logprobs",
         "token_logits",
-        "generation_steps",
-        "response_embedding",
-        "prompt_embedding",
         "last_hidden_states",
         "residuals_last_token_per_layer",
     }
@@ -88,15 +85,13 @@ class MetadataBuilder:
     def needs_token_scores(self) -> bool:
         return bool(
             self.requested_response_fields
-            & {"token_logprobs", "token_logits", "generation_steps"}
+            & {"token_logprobs", "token_logits"}
         )
 
     def needs_hidden_states(self) -> bool:
         return bool(
             self.requested_response_fields
             & {
-                "response_embedding",
-                "prompt_embedding",
                 "last_hidden_states",
                 "residuals_last_token_per_layer",
             }
@@ -184,7 +179,6 @@ class MetadataBuilder:
             ):
                 token_logprobs: list[float] = []
                 token_logits: list[float] = []
-                generation_steps: list[GenerationStep] = []
 
                 for step_index, token_id in enumerate(response_ids):
                     score_row = outputs.scores[step_index][prompt_index]
@@ -197,59 +191,20 @@ class MetadataBuilder:
                     if "token_logits" in self.requested_response_fields:
                         token_logits.append(score_row[token_id].item())
 
-                    if "generation_steps" in self.requested_response_fields:
-                        topk_values, topk_indices = logprobs_row.topk(5)
-                        topk = [
-                            {
-                                self.tokenizer.decode(
-                                    [topk_index.item()], skip_special_tokens=True
-                                ): topk_value.item()
-                            }
-                            for topk_index, topk_value in zip(topk_indices, topk_values)
-                        ]
-
-                        probs_row = logprobs_row.exp()
-                        entropy = -torch.sum(probs_row * logprobs_row).item()
-
-                        generation_steps.append(
-                            GenerationStep(
-                                step_index=step_index,
-                                token_id=token_id,
-                                token=self.tokenizer.decode(
-                                    [token_id], skip_special_tokens=True
-                                ),
-                                logprob=token_logprob,
-                                topk=topk,
-                                entropy=entropy,
-                            )
-                        )
-
                 if "token_logprobs" in self.requested_response_fields:
                     entry.token_logprobs = token_logprobs
 
                 if "token_logits" in self.requested_response_fields:
                     entry.token_logits = token_logits
 
-                if "generation_steps" in self.requested_response_fields:
-                    entry.generation_steps = [
-                        GenerationTrace(
-                            steps=generation_steps,
-                            finish_reason=entry.finish_reason,
-                        )
-                    ]
-
             if self.needs_hidden_states() and hidden_state_summaries is not None:
                 summary = hidden_state_summaries[prompt_index]
-                if "prompt_embedding" in self.requested_response_fields:
-                    entry.prompt_embedding = summary["prompt_embedding"]
-                if "response_embedding" in self.requested_response_fields:
-                    entry.response_embedding = summary["response_embedding"]
                 if "last_hidden_states" in self.requested_response_fields:
-                    entry.last_hidden_states = summary["last_hidden_states"]
+                    entry.last_hidden_states = summary.get("last_hidden_states")
                 if "residuals_last_token_per_layer" in self.requested_response_fields:
-                    entry.residuals_last_token_per_layer = summary[
+                    entry.residuals_last_token_per_layer = summary.get(
                         "residuals_last_token_per_layer"
-                    ]
+                    )
 
             metadata.append(entry)
 
@@ -258,6 +213,10 @@ class MetadataBuilder:
     def _compute_hidden_state_metadata(
         self, sequences: LongTensor, input_length: int
     ) -> list[dict[str, Any]]:
+        requested = self.requested_response_fields
+        needs_last_hidden_states = "last_hidden_states" in requested
+        needs_residuals = "residuals_last_token_per_layer" in requested
+
         model = self._model_getter()
 
         # there's probably a more optimal way to do this than just doing
@@ -283,41 +242,23 @@ class MetadataBuilder:
         summaries: list[dict[str, Any]] = []
 
         for batch_index in range(sequences.shape[0]):
-            prompt_slice = last_layer[batch_index, :input_length, :]
-            response_slice = last_layer[batch_index, input_length:, :]
+            summary: dict[str, Any] = {}
 
-            # simple mean pooling; maybe this should be configurable later?
+            if needs_last_hidden_states:
+                response_slice = last_layer[batch_index, input_length:, :]
+                summary["last_hidden_states"] = (
+                    response_slice.detach().cpu().tolist()
+                    if response_slice.numel() > 0
+                    else None
+                )
 
-            prompt_embedding = (
-                prompt_slice.mean(dim=0).detach().cpu().tolist()
-                if prompt_slice.numel() > 0
-                else None
-            )
-            response_embedding = (
-                response_slice.mean(dim=0).detach().cpu().tolist()
-                if response_slice.numel() > 0
-                else None
-            )
+            if needs_residuals:
+                summary["residuals_last_token_per_layer"] = [
+                    layer[batch_index, -1, :].detach().cpu().tolist()
+                    for layer in hidden_states
+                ]
 
-            last_hidden_states = (
-                response_slice.detach().cpu().tolist()
-                if response_slice.numel() > 0
-                else None
-            )
-
-            residuals_last_token_per_layer = [
-                layer[batch_index, -1, :].detach().cpu().tolist()
-                for layer in hidden_states
-            ]
-
-            summaries.append(
-                {
-                    "prompt_embedding": prompt_embedding,
-                    "response_embedding": response_embedding,
-                    "last_hidden_states": last_hidden_states,
-                    "residuals_last_token_per_layer": residuals_last_token_per_layer,
-                }
-            )
+            summaries.append(summary)
 
         return summaries
 

@@ -198,7 +198,7 @@ def run():
     # to avoid issues where multiple different tokens that all start
     # with a space character lead to the common prefix ending with
     # a space, which would result in an uncommon tokenization.
-    model.response_prefix = commonprefix(responses).rstrip(" ")
+    model.response_prefix = commonprefix([r.response_text for r in responses]).rstrip(" ")
 
     # Suppress CoT output.
     if model.response_prefix.startswith("<think>"):

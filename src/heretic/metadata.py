@@ -23,7 +23,7 @@ class MetadataBuilder:
         "response_tokens",
         "token_logprobs",
         "token_logits",
-        "last_hidden_states",
+        "hidden_states",
         "residuals_last_token_per_layer",
     }
 
@@ -92,7 +92,7 @@ class MetadataBuilder:
         return bool(
             self.requested_response_fields
             & {
-                "last_hidden_states",
+                "hidden_states",
                 "residuals_last_token_per_layer",
             }
         )
@@ -199,8 +199,8 @@ class MetadataBuilder:
 
             if self.needs_hidden_states() and hidden_state_summaries is not None:
                 summary = hidden_state_summaries[prompt_index]
-                if "last_hidden_states" in self.requested_response_fields:
-                    entry.last_hidden_states = summary.get("last_hidden_states")
+                if "hidden_states" in self.requested_response_fields:
+                    entry.hidden_states = summary.get("hidden_states")
                 if "residuals_last_token_per_layer" in self.requested_response_fields:
                     entry.residuals_last_token_per_layer = summary.get(
                         "residuals_last_token_per_layer"
@@ -214,7 +214,7 @@ class MetadataBuilder:
         self, sequences: LongTensor, input_length: int
     ) -> list[dict[str, Any]]:
         requested = self.requested_response_fields
-        needs_last_hidden_states = "last_hidden_states" in requested
+        needs_hidden_states = "hidden_states" in requested
         needs_residuals = "residuals_last_token_per_layer" in requested
 
         model = self._model_getter()
@@ -237,20 +237,15 @@ class MetadataBuilder:
             )
 
         hidden_states = forward_outputs.hidden_states
-        last_layer = hidden_states[-1]
-
         summaries: list[dict[str, Any]] = []
 
         for batch_index in range(sequences.shape[0]):
             summary: dict[str, Any] = {}
 
-            if needs_last_hidden_states:
-                response_slice = last_layer[batch_index, input_length:, :]
-                summary["last_hidden_states"] = (
-                    response_slice.detach().cpu().tolist()
-                    if response_slice.numel() > 0
-                    else None
-                )
+            if needs_hidden_states:
+                summary["hidden_states"] = [
+                    layer[batch_index].detach().cpu().tolist() for layer in hidden_states
+                ]
 
             if needs_residuals:
                 summary["residuals_last_token_per_layer"] = [

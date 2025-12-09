@@ -29,5 +29,5 @@ class Response:
     token_logits: List[float] | None = None
 
     # Hidden states / residuals (optional, heavy)
-    last_hidden_states: List[List[float]] | None = None
+    hidden_states: List[List[List[float]]] | None = None
     residuals_last_token_per_layer: List[List[float]] | None = None

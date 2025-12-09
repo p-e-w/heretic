@@ -99,3 +99,9 @@ column = "text"
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
+
+# Tagger plugin to use (keyword refusal by default)
+tagger = "keyword"
+
+# Scorer plugin to use (counts keyword refusals by default)
+scorer = "count_refusals"

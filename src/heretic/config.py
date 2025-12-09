@@ -23,11 +23,11 @@ class DatasetSpecification(BaseModel):
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
-    tagger_plugin: str = Field(default="keyword", description="Tagger plugin to use.")
-    scorer_plugin: str = Field(
+    tagger: str = Field(default="keyword", description="Tagger plugin to use.")
+    scorer: str = Field(
         default="count_refusals", description="Scorer plugin to use."
     )
-    
+
     evaluate_model: str | None = Field(
         default=None,
         description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model.",
@@ -94,11 +94,6 @@ class Settings(BaseSettings):
     n_startup_trials: int = Field(
         default=60,
         description="Number of trials that use random sampling for the purpose of exploration.",
-    )
-
-    refusal_detectors: list[str] = Field(
-        default=["keyword"],
-        description="List of refusal detectors to use. Can be short names ('keyword', 'semantic') or full class paths.",
     )
 
     refusal_markers: list[str] = Field(

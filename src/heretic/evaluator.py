@@ -1,16 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-import importlib
-import inspect
-
 import torch.nn.functional as F
 
 from .config import Settings
 from .model import Model
 from .scorer import Scorer
 from .tagger import Tagger
-from .utils import load_prompts, print
+from .utils import load_prompts, load_plugin, print
 
 
 class Evaluator:
@@ -49,39 +46,12 @@ class Evaluator:
         print(f"* Initial score: [bold]{self.base_score}[/]/{len(self.bad_prompts)}")
 
     def _load_tagger_plugin(self) -> Tagger:
-        name = self.settings.tagger_plugin
-        tagger = None
-
-        if "." in name:
-            # Load from arbitrary python path
-            try:
-                module_name, class_name = name.rsplit(".", 1)
-                module = importlib.import_module(module_name)
-                tagger = getattr(module, class_name)
-            except (ImportError, AttributeError) as e:
-                print(f"[red]Error loading tagger plugin '{name}': {e}[/]")
-        else:
-            try:
-                module = importlib.import_module(
-                    f".tagger_plugins.{name}", package="heretic"
-                )
-                # Find the class defined in the module that inherits from Tagger
-                for _, obj in inspect.getmembers(module):
-                    if (
-                        inspect.isclass(obj)
-                        and issubclass(obj, Tagger)
-                        and obj.__module__ == module.__name__
-                    ):
-                        tagger = obj
-                        break
-
-                if tagger is None:
-                    print(f"[red]Error: No Tagger subclass found in plugin '{name}'[/]")
-                    exit()
-            except ImportError as e:
-                print(f"[red]Error loading plugin '{name}': {e}[/]")
-                exit()
-
+        tagger = load_plugin(
+            name=self.settings.tagger,
+            base_class=Tagger,
+            package="heretic",
+            subpackage="taggers",
+        )
         print(f"* Loaded tagger plugin: [bold]{tagger.__name__}[/bold]")
         self.model.set_requested_context_metadata_fields(
             tagger.required_context_metadata_fields()
@@ -93,39 +63,12 @@ class Evaluator:
         )
 
     def _load_scorer_plugin(self) -> Scorer:
-        name = self.settings.scorer_plugin
-        scorer = None
-
-        if "." in name:
-            # Load from arbitrary python path
-            try:
-                module_name, class_name = name.rsplit(".", 1)
-                module = importlib.import_module(module_name)
-                scorer = getattr(module, class_name)
-            except (ImportError, AttributeError) as e:
-                print(f"[red]Error loading scorer plugin '{name}': {e}[/]")
-        else:
-            try:
-                module = importlib.import_module(
-                    f".scorer_plugins.{name}", package="heretic"
-                )
-                # Find the class defined in the module that inherits from Scorer
-                for _, obj in inspect.getmembers(module):
-                    if (
-                        inspect.isclass(obj)
-                        and issubclass(obj, Scorer)
-                        and obj.__module__ == module.__name__
-                    ):
-                        scorer = obj
-                        break
-
-                if scorer is None:
-                    print(f"[red]Error: No Scorer subclass found in plugin '{name}'[/]")
-                    exit()
-            except ImportError as e:
-                print(f"[red]Error loading plugin '{name}': {e}[/]")
-                exit()
-
+        scorer = load_plugin(
+            name=self.settings.scorer,
+            base_class=Scorer,
+            package="heretic",
+            subpackage="scorers",
+        )
         print(f"* Loaded scorer plugin: [bold]{scorer.__name__}[/bold]")
         return scorer()
 

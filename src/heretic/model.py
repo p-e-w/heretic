@@ -36,6 +36,7 @@ class AbliterationParameters:
 class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.response_prefix = ""
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -48,7 +49,11 @@ class Model:
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.tokenizer.padding_side = "left"
+
+        # CRITICAL: Always use left-padding for decoder-only models during generation.
+        #           Right-padding causes empty outputs because the model sees PAD tokens
+        #           after the prompt and thinks the sequence is complete.
+        self.tokenizer.padding_side = "left"
 
         self.model = None
         self.trusted_models = {settings.model: settings.trust_remote_code}
@@ -68,7 +73,7 @@ class Model:
                 )
 
                 # If we reach this point and the model requires trust_remote_code,
-                # the user must have confirmed it.
+                # either the user accepted, or settings.trust_remote_code is True.
                 if self.trusted_models.get(settings.model) is None:
                     self.trusted_models[settings.model] = True
 
@@ -279,6 +284,11 @@ class Model:
             tokenize=False,
         )
 
+        if self.response_prefix:
+            # Append the common response prefix to the prompts so that evaluation happens
+            # at the point where responses start to differ for different prompts.
+            chat_prompts = [prompt + self.response_prefix for prompt in chat_prompts]
+
         inputs = self.tokenizer(
             chat_prompts,
             return_tensors="pt",
@@ -289,7 +299,7 @@ class Model:
         return inputs, self.model.generate(
             **inputs,
             **kwargs,
-            pad_token_id=self.tokenizer.eos_token_id,
+            pad_token_id=self.tokenizer.pad_token_id,
             do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
         )
 
@@ -300,10 +310,7 @@ class Model:
         )
 
         # Return only the newly generated part.
-        return self.tokenizer.batch_decode(
-            outputs[:, inputs["input_ids"].shape[1] :],
-            skip_special_tokens=True,
-        )
+        return self.tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[1] :])
 
     def get_responses_batched(self, prompts: list[str]) -> list[Response]:
         responses: list[Response] = []

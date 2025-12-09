@@ -7,12 +7,12 @@ import sys
 import time
 import warnings
 from importlib.metadata import version
+from os.path import commonprefix
 from pathlib import Path
 
 import huggingface_hub
 import optuna
 import torch
-import torch.linalg as LA
 import torch.nn.functional as F
 import transformers
 from accelerate.utils import (
@@ -28,10 +28,10 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from pydantic import ValidationError
-from questionary import Choice, Style
-from rich.table import Table
+from questionary import Choice
 from rich.traceback import install
 
+from .analyzer import Analyzer
 from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
@@ -66,10 +66,11 @@ def run():
     print()
 
     if (
-        # An odd number of arguments have been passed (argv[0] is the program name),
-        # so that after accounting for "--param VALUE" pairs, there is one left over.
-        len(sys.argv) % 2 == 0
-        # The leftover argument is a parameter value rather than a flag (such as "--help").
+        # There is at least one argument (argv[0] is the program name).
+        len(sys.argv) > 1
+        # No model has been explicitly provided.
+        and "--model" not in sys.argv
+        # The last argument is a parameter value rather than a flag (such as "--help").
         and not sys.argv[-1].startswith("-")
     ):
         # Assume the last argument is the model.
@@ -187,6 +188,31 @@ def run():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
+    print()
+    print("Checking for common response prefix...")
+    responses = model.get_responses_batched(good_prompts[:100] + bad_prompts[:100])
+
+    # Despite being located in os.path, commonprefix actually performs
+    # a naive string operation without any path-specific logic,
+    # which is exactly what we need here. Trailing spaces are removed
+    # to avoid issues where multiple different tokens that all start
+    # with a space character lead to the common prefix ending with
+    # a space, which would result in an uncommon tokenization.
+    model.response_prefix = commonprefix(responses).rstrip(" ")
+
+    # Suppress CoT output.
+    if model.response_prefix.startswith("<think>"):
+        # Most thinking models.
+        model.response_prefix = "<think></think>"
+    elif model.response_prefix.startswith("<|channel|>analysis<|message|>"):
+        # gpt-oss.
+        model.response_prefix = "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>"
+
+    if model.response_prefix:
+        print(f"* Prefix found: [bold]{model.response_prefix!r}[/]")
+    else:
+        print("* None found")
+
     evaluator = Evaluator(settings, model)
 
     if settings.evaluate_model is not None:
@@ -210,50 +236,16 @@ def run():
         dim=1,
     )
 
-    if settings.print_refusal_geometry:
-        table = Table()
-        table.add_column("Layer", justify="right")
-        table.add_column("S(g,b)", justify="right")
-        table.add_column("S(g,r)", justify="right")
-        table.add_column("S(b,r)", justify="right")
-        table.add_column("|g|", justify="right")
-        table.add_column("|b|", justify="right")
-        table.add_column("|r|", justify="right")
+    analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
-        g = good_residuals.mean(dim=0)
-        b = bad_residuals.mean(dim=0)
-        r = b - g
+    if settings.print_residual_geometry:
+        analyzer.print_residual_geometry()
 
-        g_b_similarities = F.cosine_similarity(g, b, dim=-1)
-        g_r_similarities = F.cosine_similarity(g, r, dim=-1)
-        b_r_similarities = F.cosine_similarity(b, r, dim=-1)
-
-        g_norms = LA.vector_norm(g, dim=-1)
-        b_norms = LA.vector_norm(b, dim=-1)
-        r_norms = LA.vector_norm(r, dim=-1)
-
-        for layer_index in range(len(model.get_layers()) + 1):
-            table.add_row(
-                "embed" if layer_index == 0 else str(layer_index),
-                f"{g_b_similarities[layer_index].item():.4f}",
-                f"{g_r_similarities[layer_index].item():.4f}",
-                f"{b_r_similarities[layer_index].item():.4f}",
-                f"{g_norms[layer_index].item():.2f}",
-                f"{b_norms[layer_index].item():.2f}",
-                f"{r_norms[layer_index].item():.2f}",
-            )
-
-        print()
-        print("[bold]Refusal Geometry[/]")
-        print(table)
-        print("[bold]g[/] = mean residual vector for good prompts")
-        print("[bold]b[/] = mean residual vector for bad prompts")
-        print("[bold]r[/] = refusal direction (i.e., [bold]b - g[/])")
-        print("[bold]S(x,y)[/] = cosine similarity of [bold]x[/] and [bold]y[/]")
-        print("[bold]|x|[/] = L2 norm of [bold]x[/]")
+    if settings.plot_residuals:
+        analyzer.plot_residuals()
 
     # We don't need the residuals after computing refusal directions.
-    del good_residuals, bad_residuals
+    del good_residuals, bad_residuals, analyzer
     empty_cache()
 
     trial_index = 0
@@ -399,7 +391,7 @@ def run():
             title=(
                 f"[Trial {trial.user_attrs['index']:>3}] "
                 f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
+                f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
             ),
             value=trial,
         )
@@ -427,11 +419,7 @@ def run():
 
     while True:
         print()
-        trial = prompt_select(
-            "Which trial do you want to use?",
-            choices=choices,
-            style=Style([("highlighted", "reverse")]),
-        )
+        trial = prompt_select("Which trial do you want to use?", choices)
 
         if trial is None or trial == "":
             break
@@ -451,13 +439,12 @@ def run():
             print()
             action = prompt_select(
                 "What do you want to do with the decensored model?",
-                choices=[
+                [
                     "Save the model to a local folder",
                     "Upload the model to Hugging Face",
                     "Chat with the model",
                     "Nothing (return to trial selection menu)",
                 ],
-                style=Style([("highlighted", "reverse")]),
             )
 
             if action is None or action == "Nothing (return to trial selection menu)":
@@ -469,9 +456,7 @@ def run():
             try:
                 match action:
                     case "Save the model to a local folder":
-                        save_directory = prompt_path(
-                            "Path to the folder:", only_directories=True
-                        )
+                        save_directory = prompt_path("Path to the folder:")
                         if not save_directory:
                             continue
 
@@ -505,11 +490,10 @@ def run():
 
                         visibility = prompt_select(
                             "Should the repository be public or private?",
-                            choices=[
+                            [
                                 "Public",
                                 "Private",
                             ],
-                            style=Style([("highlighted", "reverse")]),
                         )
                         private = visibility == "Private"
 

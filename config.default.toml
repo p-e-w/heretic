@@ -7,8 +7,11 @@ dtypes = [
     "auto",
     # If that doesn't work (e.g. on pre-Ampere hardware), fall back to float16.
     "float16",
-    # If that still doesn't work (e.g. due to https://github.com/meta-llama/llama/issues/380),
-    # fall back to float32.
+    # If "auto" resolves to float32, and that fails because it is too large,
+    # and float16 fails due to range issues, try bfloat16.
+    "bfloat16",
+    # If neither of those work, fall back to float32 (which will of course fail
+    # if that was the dtype "auto" resolved to).
     "float32",
 ]
 
@@ -24,8 +27,20 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
-# Whether to print detailed information about residuals and refusal directions after calculating them.
-print_refusal_geometry = false
+# Whether to print detailed information about residuals and refusal directions.
+print_residual_geometry = false
+
+# Whether to generate plots showing PaCMAP projections of residual vectors.
+plot_residuals = false
+
+# Base path to save plots of residual vectors to.
+residual_plot_path = "plots"
+
+# Title placed above plots of residual vectors.
+residual_plot_title = 'PaCMAP Projection of Residual Vectors for "Harmless" and "Harmful" Prompts'
+
+# Matplotlib style sheet to use for plots of residual vectors.
+residual_plot_style = "dark_background"
 
 # Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models.
 # This is used to ensure balanced co-optimization of KL divergence and refusal count.
@@ -81,12 +96,16 @@ system_prompt = "You are a helpful assistant."
 dataset = "mlabonne/harmless_alpaca"
 split = "train[:400]"
 column = "text"
+residual_plot_label = '"Harmless" prompts'
+residual_plot_color = "royalblue"
 
 # Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
 [bad_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "train[:400]"
 column = "text"
+residual_plot_label = '"Harmful" prompts'
+residual_plot_color = "darkorange"
 
 # Dataset of prompts that tend to not result in refusals (used for evaluating model performance).
 [good_evaluation_prompts]

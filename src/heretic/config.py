@@ -14,10 +14,22 @@ from pydantic_settings import (
 
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
-        description="Hugging Face dataset ID, or path to dataset on disk"
+        description="Hugging Face dataset ID, or path to dataset on disk."
     )
-    split: str = Field(description="Portion of the dataset to use")
-    column: str = Field(description="Column in the dataset that contains the prompts")
+
+    split: str = Field(description="Portion of the dataset to use.")
+
+    column: str = Field(description="Column in the dataset that contains the prompts.")
+
+    residual_plot_label: str | None = Field(
+        default=None,
+        description="Label to use for the dataset in plots of residual vectors.",
+    )
+
+    residual_plot_color: str | None = Field(
+        default=None,
+        description="Matplotlib color to use for the dataset in plots of residual vectors.",
+    )
 
 
 class Settings(BaseSettings):
@@ -37,10 +49,11 @@ class Settings(BaseSettings):
             "auto",
             # If that doesn't work (e.g. on pre-Ampere hardware), fall back to float16.
             "float16",
-            # If float16 fails (e.g. due to range issues) and float32 is too large, try bfloat16.
+            # If "auto" resolves to float32, and that fails because it is too large,
+            # and float16 fails due to range issues, try bfloat16.
             "bfloat16",
-            # If that still doesn't work (e.g. due to https://github.com/meta-llama/llama/issues/380),
-            # fall back to float32.
+            # If neither of those work, fall back to float32 (which will of course fail
+            # if that was the dtype "auto" resolved to).
             "float32",
         ],
         description="List of PyTorch dtypes to try when loading model tensors. If loading with a dtype fails, the next dtype in the list will be tried.",
@@ -71,9 +84,29 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
-    print_refusal_geometry: bool = Field(
+    print_residual_geometry: bool = Field(
         default=False,
-        description="Whether to print detailed information about residuals and refusal directions after calculating them.",
+        description="Whether to print detailed information about residuals and refusal directions.",
+    )
+
+    plot_residuals: bool = Field(
+        default=False,
+        description="Whether to generate plots showing PaCMAP projections of residual vectors.",
+    )
+
+    residual_plot_path: str = Field(
+        default="plots",
+        description="Base path to save plots of residual vectors to.",
+    )
+
+    residual_plot_title: str = Field(
+        default='PaCMAP Projection of Residual Vectors for "Harmless" and "Harmful" Prompts',
+        description="Title placed above plots of residual vectors.",
+    )
+
+    residual_plot_style: str = Field(
+        default="dark_background",
+        description="Matplotlib style sheet to use for plots of residual vectors.",
     )
 
     kl_divergence_scale: float = Field(
@@ -142,6 +175,8 @@ class Settings(BaseSettings):
             dataset="mlabonne/harmless_alpaca",
             split="train[:400]",
             column="text",
+            residual_plot_label='"Harmless" prompts',
+            residual_plot_color="royalblue",
         ),
         description="Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).",
     )
@@ -151,6 +186,8 @@ class Settings(BaseSettings):
             dataset="mlabonne/harmful_behaviors",
             split="train[:400]",
             column="text",
+            residual_plot_label='"Harmful" prompts',
+            residual_plot_color="darkorange",
         ),
         description="Dataset of prompts that tend to result in refusals (used for calculating refusal directions).",
     )
@@ -179,6 +216,7 @@ class Settings(BaseSettings):
         toml_file="config.toml",
         env_prefix="HERETIC_",
         cli_parse_args=True,
+        cli_implicit_flags=True,
         cli_kebab_case=True,
         extra="allow",
     )

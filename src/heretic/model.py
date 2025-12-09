@@ -386,20 +386,21 @@ class Model:
 
                         assert torch.is_tensor(matrix)
 
-                        # Ensure r is on the same device as the matrix
-                        r_device = r.to(matrix.device)
+                        # Ensure r is on the same device and dtype as the matrix
+                        r_device = r.to(device=matrix.device, dtype=matrix.dtype)
 
                         # Calculate the projection scalars: (r^T W)
-                        # r is (d,), matrix is (d, k) -> result is (k,)
+                        # r is (d,), matrix is (d, k) OR (E, d, k) -> result is (k,) OR (E, k)
                         r_transpose_W = torch.matmul(r_device, matrix)
 
-                        # Compute the rank-1 update r (r^T W) using the outer product form
-                        # r_device: (d,)          — projection direction
-                        # r_transpose_W: (k,)     — r^T W result for this matrix
-                        # torch.outer(r_device, r_times_W) constructs the (d, k) matrix with
-                        # entries r[i] * (r^T W)[j], equivalent to the outer product of two
-                        # vectors, avoiding materializing the full (d x d) projector.
-                        matrix.sub_(weight * torch.outer(r_device, r_transpose_W))
+                        # Compute the rank-1 update r (r^T W) using einsum to handle both 2D and 3D (MoE) cases
+                        # r_device: (d,)
+                        # r_transpose_W: (...k)
+                        # Result: (...d, k) matching matrix shape
+                        # Equivalent to torch.outer for 2D, but works for (E, d, k) too.
+                        update = torch.einsum("i, ...j -> ...ij", r_device, r_transpose_W)
+                        
+                        matrix.sub_(weight * update)
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

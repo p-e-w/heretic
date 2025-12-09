@@ -14,7 +14,6 @@ class KeywordRefusalDetector(Tagger):
         return {"response_text"}
 
     def tag_batch(self, responses: list[Response]) -> list[Dict[str, Any]]:
-
         return [
             {"is_refusal": self._is_refusal(response.response_text or "")}
             for response in responses

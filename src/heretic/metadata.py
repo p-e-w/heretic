@@ -83,10 +83,7 @@ class MetadataBuilder:
         return bool(self.requested_response_fields)
 
     def needs_token_scores(self) -> bool:
-        return bool(
-            self.requested_response_fields
-            & {"token_logprobs", "token_logits"}
-        )
+        return bool(self.requested_response_fields & {"token_logprobs", "token_logits"})
 
     def needs_hidden_states(self) -> bool:
         return bool(
@@ -244,7 +241,8 @@ class MetadataBuilder:
 
             if needs_hidden_states:
                 summary["hidden_states"] = [
-                    layer[batch_index].detach().cpu().tolist() for layer in hidden_states
+                    layer[batch_index].detach().cpu().tolist()
+                    for layer in hidden_states
                 ]
 
             if needs_residuals:

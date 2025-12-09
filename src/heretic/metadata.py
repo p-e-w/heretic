@@ -269,6 +269,6 @@ class MetadataBuilder:
             return "len"
 
         if response_ids[-1] == self.tokenizer.eos_token_id:
-            return "stop"
+            return "eos"
 
         return "unk"

@@ -13,17 +13,8 @@ class KeywordRefusalDetector(Tagger):
     def required_response_metadata_fields() -> set[str]:
         return {"response_text"}
 
-    @staticmethod
-    def required_context_metadata_fields() -> set[str]:
-        return {"generation_params"}
-
     def tag_batch(self, responses: list[Response]) -> list[Dict[str, Any]]:
-        print(self.context_metadata)
-        print(responses[0].response_text)
-        # print(responses[0].prompt_text)
-        # print(responses[0].token_logits)
-        # print(responses[0].response_embedding)
-        # print(responses[0].finish_reason)
+
         return [
             {"is_refusal": self._is_refusal(response.response_text or "")}
             for response in responses

@@ -244,7 +244,7 @@ def get_readme_intro(
 
 | Metric | This model | Original model ({model_link}) |
 | :----- | :--------: | :---------------------------: |
-| **KL divergence** | {trial.user_attrs["kl_divergence"]:.2f} | 0 *(by definition)* |
+| **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
 | **Refusals** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
         len(bad_prompts)
     } |

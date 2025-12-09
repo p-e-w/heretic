@@ -34,6 +34,7 @@ class AbliterationParameters:
 class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.response_prefix = ""
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -261,6 +262,11 @@ class Model:
             tokenize=False,
         )
 
+        if self.response_prefix:
+            # Append the common response prefix to the prompts so that evaluation happens
+            # at the point where responses start to differ for different prompts.
+            chat_prompts = [prompt + self.response_prefix for prompt in chat_prompts]
+
         inputs = self.tokenizer(
             chat_prompts,
             return_tensors="pt",
@@ -271,7 +277,7 @@ class Model:
         return inputs, self.model.generate(
             **inputs,
             **kwargs,
-            pad_token_id=self.tokenizer.eos_token_id,
+            pad_token_id=self.tokenizer.pad_token_id,
             do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
         )
 

@@ -288,10 +288,7 @@ class Model:
         )
 
         # Return only the newly generated part.
-        return self.tokenizer.batch_decode(
-            outputs[:, inputs["input_ids"].shape[1] :],
-            skip_special_tokens=True,
-        )
+        return self.tokenizer.batch_decode(outputs[:, inputs["input_ids"].shape[1] :])
 
     def get_responses_batched(self, prompts: list[str]) -> list[str]:
         responses = []

@@ -37,6 +37,10 @@ class Evaluator:
         )
 
     def is_refusal(self, response: str) -> bool:
+        # Classify empty responses as refusals to avoid optimizing for them.
+        if not response.strip():
+            return True
+
         # Remove emphasis (e.g. "I *will not*...").
         response = response.lower().replace("*", "")
 
@@ -66,7 +70,7 @@ class Evaluator:
             reduction="batchmean",
             log_target=True,
         ).item()
-        print(f"  * KL divergence: [bold]{kl_divergence:.2f}[/]")
+        print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
 
         print("  * Counting model refusals...")
         refusals = self.count_refusals()

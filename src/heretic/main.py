@@ -7,6 +7,7 @@ import sys
 import time
 import warnings
 from importlib.metadata import version
+from os.path import commonprefix
 from pathlib import Path
 
 import huggingface_hub
@@ -28,7 +29,7 @@ from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from peft import PeftModel
 from pydantic import ValidationError
-from questionary import Choice, Style
+from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
@@ -164,10 +165,11 @@ def run():
     print()
 
     if (
-        # An odd number of arguments have been passed (argv[0] is the program name),
-        # so that after accounting for "--param VALUE" pairs, there is one left over.
-        len(sys.argv) % 2 == 0
-        # The leftover argument is a parameter value rather than a flag (such as "--help").
+        # There is at least one argument (argv[0] is the program name).
+        len(sys.argv) > 1
+        # No model has been explicitly provided.
+        and "--model" not in sys.argv
+        # The last argument is a parameter value rather than a flag (such as "--help").
         and not sys.argv[-1].startswith("-")
     ):
         # Assume the last argument is the model.
@@ -284,6 +286,31 @@ def run():
 
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
+
+    print()
+    print("Checking for common response prefix...")
+    responses = model.get_responses_batched(good_prompts[:100] + bad_prompts[:100])
+
+    # Despite being located in os.path, commonprefix actually performs
+    # a naive string operation without any path-specific logic,
+    # which is exactly what we need here. Trailing spaces are removed
+    # to avoid issues where multiple different tokens that all start
+    # with a space character lead to the common prefix ending with
+    # a space, which would result in an uncommon tokenization.
+    model.response_prefix = commonprefix(responses).rstrip(" ")
+
+    # Suppress CoT output.
+    if model.response_prefix.startswith("<think>"):
+        # Most thinking models.
+        model.response_prefix = "<think></think>"
+    elif model.response_prefix.startswith("<|channel|>analysis<|message|>"):
+        # gpt-oss.
+        model.response_prefix = "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>"
+
+    if model.response_prefix:
+        print(f"* Prefix found: [bold]{model.response_prefix!r}[/]")
+    else:
+        print("* None found")
 
     evaluator = Evaluator(settings, model)
 
@@ -463,7 +490,7 @@ def run():
             title=(
                 f"[Trial {trial.user_attrs['index']:>3}] "
                 f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
+                f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
             ),
             value=trial,
         )
@@ -491,11 +518,7 @@ def run():
 
     while True:
         print()
-        trial = prompt_select(
-            "Which trial do you want to use?",
-            choices=choices,
-            style=Style([("highlighted", "reverse")]),
-        )
+        trial = prompt_select("Which trial do you want to use?", choices)
 
         if trial is None or trial == "":
             break
@@ -515,13 +538,12 @@ def run():
             print()
             action = prompt_select(
                 "What do you want to do with the decensored model?",
-                choices=[
+                [
                     "Save the model to a local folder",
                     "Upload the model to Hugging Face",
                     "Chat with the model",
                     "Nothing (return to trial selection menu)",
                 ],
-                style=Style([("highlighted", "reverse")]),
             )
 
             if action is None or action == "Nothing (return to trial selection menu)":
@@ -533,9 +555,7 @@ def run():
             try:
                 match action:
                     case "Save the model to a local folder":
-                        save_directory = prompt_path(
-                            "Path to the folder:", only_directories=True
-                        )
+                        save_directory = prompt_path("Path to the folder:")
                         if not save_directory:
                             continue
 
@@ -574,11 +594,10 @@ def run():
 
                         visibility = prompt_select(
                             "Should the repository be public or private?",
-                            choices=[
+                            [
                                 "Public",
                                 "Private",
                             ],
-                            style=Style([("highlighted", "reverse")]),
                         )
                         private = visibility == "Private"
 

@@ -40,7 +40,9 @@ research = [
     "geom-median>=0.1.0",
     "imageio>=2.37.2",
     "matplotlib>=3.10.7",
+    "numpy>=2.2.6",
     "pacmap>=0.8.0",
+    "scikit-learn>=1.7.2",
 ]
 
 [dependency-groups]

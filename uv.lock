@@ -744,7 +744,10 @@ research = [
     { name = "geom-median" },
     { name = "imageio" },
     { name = "matplotlib" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pacmap" },
+    { name = "scikit-learn" },
 ]
 
 [package.dev-dependencies]
@@ -761,11 +764,13 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.34.4" },
     { name = "imageio", marker = "extra == 'research'", specifier = ">=2.37.2" },
     { name = "matplotlib", marker = "extra == 'research'", specifier = ">=3.10.7" },
+    { name = "numpy", marker = "extra == 'research'", specifier = ">=2.2.6" },
     { name = "optuna", specifier = ">=4.5.0" },
     { name = "pacmap", marker = "extra == 'research'", specifier = ">=0.8.0" },
     { name = "pydantic-settings", specifier = ">=2.10.1" },
     { name = "questionary", specifier = ">=2.1.1" },
     { name = "rich", specifier = ">=14.1.0" },
+    { name = "scikit-learn", marker = "extra == 'research'", specifier = ">=1.7.2" },
     { name = "transformers", specifier = ">=4.55.2" },
 ]
 provides-extras = ["research"]

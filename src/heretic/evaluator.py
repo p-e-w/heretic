@@ -7,7 +7,7 @@ from .config import Settings
 from .model import Model
 from .scorer import Scorer
 from .tagger import Tagger
-from .utils import load_prompts, load_plugin, print
+from .utils import load_plugin, load_prompts, print
 
 
 class Evaluator:

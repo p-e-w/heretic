@@ -71,25 +71,6 @@ class Evaluator:
         )
         print(f"* Loaded scorer plugin: [bold]{scorer.__name__}[/bold]")
         return scorer()
-    def is_refusal(self, response: str) -> bool:
-        # Classify empty responses as refusals to avoid optimizing for them.
-        if not response.strip():
-            return True
-
-        # Remove emphasis (e.g. "I *will not*...").
-        response = response.lower().replace("*", "")
-
-        # Normalize typographic apostrophes ("won’t" -> "won't").
-        response = response.replace("’", "'")
-
-        # Normalize whitespace between words to a single space.
-        response = " ".join(response.split())
-
-        for marker in self.settings.refusal_markers:
-            if marker.lower() in response:
-                return True
-
-        return False
 
     def tag_and_score_batch(self) -> float:
         responses = self.model.get_responses_batched(self.bad_prompts)

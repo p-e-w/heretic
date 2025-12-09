@@ -9,17 +9,13 @@ from torch import LongTensor
 from transformers import BatchEncoding, PreTrainedTokenizerBase
 from transformers.generation.utils import GenerateOutput
 
-from .schemas import (
-    ContextMetadata,
-    GenerationStep,
-    GenerationTrace,
-    ResponseMetadata,
-)
+from .schemas import ContextMetadata, GenerationStep, GenerationTrace, Response
 from .utils import print
 
 
 class MetadataBuilder:
     SUPPORTED_RESPONSE_FIELDS = {
+        "response_text",
         "prompt_text",
         "finish_reason",
         "input_ids",
@@ -132,19 +128,14 @@ class MetadataBuilder:
             else None,
         )
 
-    def build_metadata_stub(self, prompt: str) -> ResponseMetadata:
-        if "prompt_text" in self.requested_response_fields:
-            return ResponseMetadata(prompt_text=prompt)
-
-        return ResponseMetadata()
-
     def collect_response_metadata(
         self,
         prompts: list[str],
         inputs: BatchEncoding,
         outputs: GenerateOutput | LongTensor,
         generate_kwargs: dict[str, Any],
-    ) -> list[ResponseMetadata]:
+        responses: list[str],
+    ) -> list[Response]:
         sequences = outputs.sequences if hasattr(outputs, "sequences") else outputs
         input_length = inputs["input_ids"].shape[1]
 
@@ -155,7 +146,7 @@ class MetadataBuilder:
                 input_length=input_length,
             )
 
-        metadata: list[ResponseMetadata] = []
+        metadata: list[Response] = []
 
         for prompt_index, prompt in enumerate(prompts):
             response_ids = sequences[prompt_index, input_length:].tolist()
@@ -166,7 +157,7 @@ class MetadataBuilder:
                 else []
             )
 
-            entry = ResponseMetadata()
+            entry = Response(response_text=responses[prompt_index])
 
             if "prompt_text" in self.requested_response_fields:
                 entry.prompt_text = prompt

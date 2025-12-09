@@ -130,8 +130,8 @@ class Evaluator:
         return scorer()
 
     def tag_and_score_batch(self) -> float:
-        responses, metadata = self.model.get_responses_batched(self.bad_prompts)
-        tags = self.tagger_plugin.tag_batch(responses=responses, metadata=metadata)
+        responses = self.model.get_responses_batched(self.bad_prompts)
+        tags = self.tagger_plugin.tag_batch(responses=responses)
         score = self.scorer_plugin.score_batch(tags)
         return score
 

@@ -4,7 +4,7 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict
 
-from heretic.schemas import ContextMetadata, ResponseMetadata
+from heretic.schemas import ContextMetadata, Response
 
 if TYPE_CHECKING:
     from .config import Settings
@@ -29,15 +29,12 @@ class Tagger(ABC):
         self.context_metadata = context_metadata
 
     @abstractmethod
-    def tag_batch(
-        self, responses: list[str], metadata: list[ResponseMetadata]
-    ) -> list[Dict[str, Any]]:
+    def tag_batch(self, responses: list[Response]) -> list[Dict[str, Any]]:
         """
         tags a batch of responses.
 
         Args:
-            responses: A list of model responses.
-            metadata: A list of response metadata (optional)
+            responses: A list of response objects with metadata.
         Returns:
             A list of dicts, where the keys are the tag names and the values are the tag values.
         """

@@ -27,14 +27,7 @@ class Settings(BaseSettings):
     scorer_plugin: str = Field(
         default="count_refusals", description="Scorer plugin to use."
     )
-    tagger_metadata_fields: list[str] = Field(
-        default=[],
-        description=(
-            "Names of ResponseMetadata fields that should be populated and passed "
-            "to tagger plugins."
-        ),
-    )
-
+    
     evaluate_model: str | None = Field(
         default=None,
         description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model.",

@@ -21,7 +21,7 @@ from transformers.generation.utils import GenerateOutput
 
 from .config import Settings
 from .metadata import MetadataBuilder
-from .schemas import ContextMetadata, ResponseMetadata
+from .schemas import ContextMetadata, Response
 from .utils import batchify, empty_cache, print
 
 
@@ -305,28 +305,14 @@ class Model:
             skip_special_tokens=True,
         )
 
-    def get_responses_batched(
-        self, prompts: list[str]
-    ) -> tuple[list[str], list[ResponseMetadata]]:
-        responses: list[str] = []
-        metadata: list[ResponseMetadata] = []
+    def get_responses_batched(self, prompts: list[str]) -> list[Response]:
+        responses: list[Response] = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            if self.metadata_builder.has_response_fields():
-                batch_responses, batch_metadata = self._get_responses_with_metadata(
-                    batch
-                )
-            else:
-                batch_responses = self.get_responses(batch)
-                batch_metadata = [
-                    self.metadata_builder.build_metadata_stub(prompt)
-                    for prompt in batch
-                ]
-
+            batch_responses = self._get_responses_with_metadata(batch)
             responses.extend(batch_responses)
-            metadata.extend(batch_metadata)
 
-        return responses, metadata
+        return responses
 
     def get_residuals(self, prompts: list[str]) -> Tensor:
         # We only generate one token, and we return the residual vectors
@@ -418,9 +404,7 @@ class Model:
             skip_special_tokens=True,
         )
 
-    def _get_responses_with_metadata(
-        self, prompts: list[str]
-    ) -> tuple[list[str], list[ResponseMetadata]]:
+    def _get_responses_with_metadata(self, prompts: list[str]) -> list[Response]:
         needs_token_scores = self.metadata_builder.needs_token_scores()
         needs_hidden_states = self.metadata_builder.needs_hidden_states()
 
@@ -442,6 +426,7 @@ class Model:
             inputs=inputs,
             outputs=outputs,
             generate_kwargs=generate_kwargs,
+            responses=responses,
         )
 
-        return responses, metadata
+        return metadata

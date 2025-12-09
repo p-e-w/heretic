@@ -32,14 +32,10 @@ class ContextMetadata:
 
 
 @dataclass
-class ResponseMetadata:
+class Response:
     # basic prompt stuff
+    response_text: str | None = None
     prompt_text: str | None = None
-
-    # multi-turn in the future?
-    conversation_id: str | None = None
-    turn_index: int | None = None
-    role: str | None = None
 
     finish_reason: Literal["len", "eos", "unk", "empty"] | None = None
 
@@ -60,8 +56,5 @@ class ResponseMetadata:
     # Hidden states / residuals (optional, heavy)
     last_hidden_states: List[List[float]] | None = None
     residuals_last_token_per_layer: List[List[float]] | None = None
-
-    # Arbitrary plugin-specific extra
-    extra: Dict[str, Any] | None = None
 
     generation_steps: List[GenerationTrace] | None = None

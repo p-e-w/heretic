@@ -24,9 +24,7 @@ class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
     tagger: str = Field(default="keyword", description="Tagger plugin to use.")
-    scorer: str = Field(
-        default="count_refusals", description="Scorer plugin to use."
-    )
+    scorer: str = Field(default="count_refusals", description="Scorer plugin to use.")
 
     evaluate_model: str | None = Field(
         default=None,

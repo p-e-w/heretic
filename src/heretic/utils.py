@@ -28,6 +28,7 @@ from questionary import Choice
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
+
 print = Console(highlight=False).print
 
 
@@ -79,12 +80,11 @@ def load_plugin(
         exit()
 
     if not issubclass(plugin_cls, base_class):
-        print(
-            f"[red]Error: Plugin '{name}' must subclass {base_class.__name__}[/]"
-        )
+        print(f"[red]Error: Plugin '{name}' must subclass {base_class.__name__}[/]")
         exit()
 
     return plugin_cls
+
 
 def is_notebook() -> bool:
     # Check for specific environment variables (Colab, Kaggle)

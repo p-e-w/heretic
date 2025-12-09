@@ -241,16 +241,18 @@ class Model:
                     r_device = r.to(matrix.device, dtype=matrix.dtype)
 
                     # Calculate the projection scalars: (r^T W)
-                    # r is (d,), matrix is (d, k) -> result is (k,)
+                    # For 2D: r is (d,), matrix is (d, k) -> result is (k,)
+                    # For ND: matrix is (..., d, k) -> result is (..., k)
                     r_transpose_W = torch.matmul(r_device, matrix)
 
-                    # Compute the rank-1 update r (r^T W) using the outer product form
-                    # r_device: (d,)          — projection direction
-                    # r_transpose_W: (k,)     — r^T W result for this matrix
-                    # torch.outer(r_device, r_times_W) constructs the (d, k) matrix with
-                    # entries r[i] * (r^T W)[j], equivalent to the outer product of two
-                    # vectors, avoiding materializing the full (d x d) projector.
-                    matrix.sub_(weight * torch.outer(r_device, r_transpose_W))
+                    # Compute the rank-1 update r (r^T W)
+                    if matrix.dim() == 2:
+                        update = torch.outer(r_device, r_transpose_W)
+                    else:
+                        update = torch.einsum("d,...k->...dk", r_device, r_transpose_W)
+
+                    # In-place subtraction is safe as we're not using Autograd.
+                    matrix.sub_(weight * update)
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

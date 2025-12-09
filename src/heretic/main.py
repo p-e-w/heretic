@@ -7,6 +7,7 @@ import sys
 import time
 import warnings
 from importlib.metadata import version
+from os.path import commonprefix
 from pathlib import Path
 
 import huggingface_hub
@@ -187,6 +188,23 @@ def run():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
+    print()
+    print("Checking for common response prefix...")
+    responses = model.get_responses_batched(good_prompts[:100] + bad_prompts[:100])
+
+    # Despite being located in os.path, commonprefix actually performs
+    # a naive string operation without any path-specific logic,
+    # which is exactly what we need here. Trailing spaces are removed
+    # to avoid issues where multiple different tokens that all start
+    # with a space character lead to the common prefix ending with
+    # a space, which would result in an uncommon tokenization.
+    model.response_prefix = commonprefix(responses).rstrip(" ")
+
+    if model.response_prefix:
+        print(f"* Prefix found: [bold]{model.response_prefix!r}[/]")
+    else:
+        print("* None found")
+
     evaluator = Evaluator(settings, model)
 
     if settings.evaluate_model is not None:
@@ -365,7 +383,7 @@ def run():
             title=(
                 f"[Trial {trial.user_attrs['index']:>3}] "
                 f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.2f}"
+                f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
             ),
             value=trial,
         )

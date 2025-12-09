@@ -70,7 +70,7 @@ class Evaluator:
             reduction="batchmean",
             log_target=True,
         ).item()
-        print(f"  * KL divergence: [bold]{kl_divergence:.2f}[/]")
+        print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
 
         print("  * Counting model refusals...")
         refusals = self.count_refusals()

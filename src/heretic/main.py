@@ -29,7 +29,7 @@ from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
 from peft import PeftModel
 from pydantic import ValidationError
-from questionary import Choice, Style
+from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
@@ -92,7 +92,6 @@ def get_merged_model(model: Model, settings: Settings):
                     value="adapter",
                 ),
             ],
-            style=Style([("highlighted", "reverse")]),
         )
 
         if merge_choice is None or merge_choice == "adapter":

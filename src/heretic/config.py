@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+from enum import Enum
 from typing import Dict
 
 from pydantic import BaseModel, Field
@@ -10,6 +11,12 @@ from pydantic_settings import (
     SettingsConfigDict,
     TomlConfigSettingsSource,
 )
+
+
+class QuantizationMethod(str, Enum):
+    NONE = "none"
+    BNB_4BIT = "bnb_4bit"
+    BNB_8BIT = "bnb_8bit"
 
 
 class DatasetSpecification(BaseModel):
@@ -64,6 +71,11 @@ class Settings(BaseSettings):
     trust_remote_code: bool | None = Field(
         default=None,
         description="Whether to trust remote code when loading the model.",
+    )
+
+    quantization: QuantizationMethod = Field(
+        default=QuantizationMethod.NONE,
+        description="Quantization method to use when loading the model. Options: 'none' (no quantization), 'bnb_4bit' (4-bit quantization using bitsandbytes), 'bnb_8bit' (8-bit quantization using bitsandbytes).",
     )
 
     batch_size: int = Field(

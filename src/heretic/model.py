@@ -24,6 +24,7 @@ from transformers.generation import (
     GenerateDecoderOnlyOutput,
     GenerateEncoderDecoderOutput,
 )
+
 from .config import QuantizationMethod, Settings
 from .utils import batchify, empty_cache, print
 

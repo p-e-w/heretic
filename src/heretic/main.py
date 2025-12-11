@@ -28,15 +28,13 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
-
-
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
+from transformers import AutoModelForCausalLM
 
 from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
-
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
@@ -76,9 +74,28 @@ def obtain_merge_strategy(settings: Settings) -> str:
         print(
             "[yellow]    Rule of thumb: You need approx. 3x the parameter count in GB.[/]"
         )
-        print(
-            "[yellow]    Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
-        )
+
+        try:
+            # Estimate memory requirements by loading the model structure on the "meta" device
+            # This doesn't consume actual RAM but allows us to inspect the parameter count/dtype.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                meta_model = AutoModelForCausalLM.from_pretrained(
+                    settings.model,
+                    device_map="meta",
+                    torch_dtype=torch.bfloat16,
+                    trust_remote_code=True,
+                )
+                footprint_bytes = meta_model.get_memory_footprint()
+                footprint_gb = footprint_bytes / (1024**3)
+                print(
+                    f"[yellow]    Estimated RAM required for this model: [bold]~{footprint_gb:.1f} GB[/][/]"
+                )
+        except Exception:
+            # Fallback if meta loading fails
+            print(
+                "[yellow]    Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
+            )
         print()
 
         merge_choice = prompt_select(
@@ -520,8 +537,10 @@ def run():
                         print("Saving model...")
                         if merged_model_cache is None:
                             strategy = obtain_merge_strategy(settings)
-                            if strategy is not None:
-                                merged_model_cache = model.get_merged_model(strategy)
+                            if strategy is None:
+                                print("[yellow]Action cancelled.[/]")
+                                continue
+                            merged_model_cache = model.get_merged_model(strategy)
 
                         if merged_model_cache is not None:
                             merged_model_cache.save_pretrained(save_directory)
@@ -566,8 +585,10 @@ def run():
                         print("Uploading model...")
                         if merged_model_cache is None:
                             strategy = obtain_merge_strategy(settings)
-                            if strategy is not None:
-                                merged_model_cache = model.get_merged_model(strategy)
+                            if strategy is None:
+                                print("[yellow]Action cancelled.[/]")
+                                continue
+                            merged_model_cache = model.get_merged_model(strategy)
 
                         if merged_model_cache is not None:
                             merged_model_cache.push_to_hub(

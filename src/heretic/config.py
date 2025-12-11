@@ -61,6 +61,11 @@ class Settings(BaseSettings):
         description="Device map to pass to Accelerate when loading the model.",
     )
 
+    max_memory: Dict[str, str] | None = Field(
+        default=None,
+        description="Maximum memory to allocate per device (e.g., {'0': '20GB', 'cpu': '64GB'}).",
+    )
+
     trust_remote_code: bool | None = Field(
         default=None,
         description="Whether to trust remote code when loading the model.",

@@ -18,6 +18,9 @@ dtypes = [
 # Device map to pass to Accelerate when loading the model.
 device_map = "auto"
 
+# Memory limits to impose. 0 is usually your first graphics card.
+# max_memory = {0 = "16GB", "cpu" = "64GB"}
+
 # Number of input sequences to process in parallel (0 = auto).
 batch_size = 0  # auto
 

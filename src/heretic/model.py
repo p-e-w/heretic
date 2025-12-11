@@ -117,9 +117,9 @@ class Model:
         max_memory = (
             {
                 int(k) if k.isdigit() else k: v
-                for k, v in settings.max_memory.items()
+                for k, v in self.settings.max_memory.items()
             }
-            if settings.max_memory
+            if self.settings.max_memory
             else None
         )
         self.model = AutoModelForCausalLM.from_pretrained(

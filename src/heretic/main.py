@@ -28,13 +28,15 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
-from peft import PeftModel
+
+
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
+
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
@@ -51,16 +53,11 @@ from .utils import (
 )
 
 
-def get_merged_model(model: Model, settings: Settings):
+def obtain_merge_strategy(settings: Settings) -> str:
     """
-    Returns the model with LoRA adapters merged if applicable.
-    For quantized models, prompts the user for how to proceed.
-    Returns None if user chooses to save LoRA adapter only.
+    Prompts the user for how to proceed with quantized models.
+    Returns "merge", "adapter", or None (if cancelled/invalid).
     """
-    if not isinstance(model.model, PeftModel):
-        # No LoRA adapters, return the model as-is
-        return model.model
-
     # Prompt for all PEFT models to ensure user is aware of merge implications
     if settings.quantization in [
         QuantizationMethod.BNB_4BIT,
@@ -97,58 +94,10 @@ def get_merged_model(model: Model, settings: Settings):
                 ),
             ],
         )
+        return merge_choice
 
-        if merge_choice is None or merge_choice == "adapter":
-            print("[yellow]Saving LoRA adapter only...[/]")
-            return None
-
-        # User chose to merge - attempt CPU-based merge
-        from transformers import AutoModelForCausalLM
-
-        # Get the adapter state dict before we do anything
-        adapter_state = {}
-        for name, param in model.model.named_parameters():
-            if "lora_" in name:
-                adapter_state[name] = param.data.clone().cpu()
-
-        # Load base model in full precision on CPU to avoid VRAM issues
-        print("* Loading base model on CPU (this may take a while)...")
-        base_model = AutoModelForCausalLM.from_pretrained(
-            settings.model,
-            torch_dtype=torch.bfloat16,
-            device_map="cpu",
-            trust_remote_code=model.trusted_models.get(settings.model),
-        )
-
-        # Apply LoRA adapters to the CPU model
-        from peft import LoraConfig, get_peft_model
-
-        print("* Applying LoRA adapters...")
-        target_modules = model.get_abliterable_components()
-        peft_config = LoraConfig(
-            r=1,
-            target_modules=target_modules,
-            lora_alpha=1,
-            lora_dropout=0,
-            bias="none",
-            task_type="CAUSAL_LM",
-        )
-        peft_model = get_peft_model(base_model, peft_config)
-
-        # Copy the trained adapter weights
-        for name, param in peft_model.named_parameters():
-            if name in adapter_state:
-                param.data = adapter_state[name].to(param.device)
-
-        # Merge and unload
-        print("* Merging LoRA adapters into base model...")
-        merged_model = peft_model.merge_and_unload()
-        return merged_model
-    else:
-        # Non-quantized model - can merge directly
-        print("* Merging LoRA adapters into base model...")
-        merged_model = model.model.merge_and_unload()
-        return merged_model
+    # Default for non-quantized models
+    return "merge"
 
 
 def run():
@@ -570,7 +519,9 @@ def run():
 
                         print("Saving model...")
                         if merged_model_cache is None:
-                            merged_model_cache = get_merged_model(model, settings)
+                            strategy = obtain_merge_strategy(settings)
+                            if strategy is not None:
+                                merged_model_cache = model.get_merged_model(strategy)
 
                         if merged_model_cache is not None:
                             merged_model_cache.save_pretrained(save_directory)
@@ -614,7 +565,9 @@ def run():
 
                         print("Uploading model...")
                         if merged_model_cache is None:
-                            merged_model_cache = get_merged_model(model, settings)
+                            strategy = obtain_merge_strategy(settings)
+                            if strategy is not None:
+                                merged_model_cache = model.get_merged_model(strategy)
 
                         if merged_model_cache is not None:
                             merged_model_cache.push_to_hub(

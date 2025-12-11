@@ -20,10 +20,14 @@ from transformers import (
     PreTrainedTokenizerBase,
     TextStreamer,
 )
-from transformers.generation.utils import GenerateOutput
-
+from transformers.generation import (
+    GenerateDecoderOnlyOutput,
+    GenerateEncoderDecoderOutput,
+)
 from .config import QuantizationMethod, Settings
 from .utils import batchify, empty_cache, print
+
+GenerateOutput = GenerateDecoderOnlyOutput | GenerateEncoderDecoderOutput
 
 
 @dataclass
@@ -108,16 +112,10 @@ class Model:
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
                 # (https://github.com/meta-llama/llama/issues/380).
-                # We use a simple forward pass instead of generate() to avoid chat template issues.
-                try:
-                    test_input = self.tokenizer("Test", return_tensors="pt").to(
-                        self.model.device
-                    )
-                    with torch.no_grad():
-                        self.model(**test_input)
-                except RuntimeError as e:
-                    # Only retry on dtype-related errors
-                    raise e
+                # A test run can reveal dtype-related problems such as the infamous
+                # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
+                # (https://github.com/meta-llama/llama/issues/380).
+                self.generate(["Test"], max_new_tokens=1)
             except Exception as error:
                 self.model = None
                 empty_cache()
@@ -135,10 +133,10 @@ class Model:
             raise Exception("Failed to load model with all configured dtypes.")
 
         # Try to use LoRA adapters for abliteration (more memory efficient)
-        # Fall back to direct weight modification if PEFT fails
-        self.use_lora = False
-        try:
-            print("* Initializing LoRA adapters...")
+        if self.settings.quantization in [
+            QuantizationMethod.BNB_4BIT,
+            QuantizationMethod.BNB_8BIT,
+        ]:
             # PEFT expects just the module names (e.g., "o_proj"), not full paths like "attn.o_proj"
             target_modules = [
                 comp.split(".")[-1] for comp in self.get_abliterable_components()
@@ -153,10 +151,6 @@ class Model:
             )
             self.model = get_peft_model(self.model, peft_config)
             self.use_lora = True
-        except Exception as error:
-            print(
-                f"[yellow]LoRA initialization failed ({error}), using direct weight modification[/]"
-            )
 
         # LoRA B matrices are initialized to zero by default in PEFT,
         # so we don't need to do anything manually.
@@ -169,6 +163,74 @@ class Model:
             print(
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
+
+    def get_merged_model(self, strategy: str = "merge"):
+        """
+        Returns the model with LoRA adapters merged if applicable.
+        strategy: "merge" or "adapter". If "adapter", returns None.
+        For quantized models, performs CPU-based merge if strategy is "merge".
+        """
+        if not isinstance(self.model, PeftModel):
+            # No LoRA adapters, return the model as-is
+            return self.model
+
+        if strategy == "adapter":
+            print("[yellow]Saving LoRA adapter only...[/]")
+            return None
+
+        # User chose to merge (or default)
+
+        # Check if we need special handling for quantized models
+        if self.settings.quantization in [
+            QuantizationMethod.BNB_4BIT,
+            QuantizationMethod.BNB_8BIT,
+        ]:
+            # Quantized models need special handling - we must reload the base model
+            # in full precision to merge the LoRA adapters
+
+            # Get the adapter state dict before we do anything
+            adapter_state = {}
+            for name, param in self.model.named_parameters():
+                if "lora_" in name:
+                    adapter_state[name] = param.data.clone().cpu()
+
+            # Load base model in full precision on CPU to avoid VRAM issues
+            print("* Loading base model on CPU (this may take a while)...")
+            base_model = AutoModelForCausalLM.from_pretrained(
+                self.settings.model,
+                torch_dtype=self.model.dtype,
+                device_map="cpu",
+                trust_remote_code=self.trusted_models.get(self.settings.model),
+            )
+
+            # Apply LoRA adapters to the CPU model
+
+            print("* Applying LoRA adapters...")
+            target_modules = self.get_abliterable_components()
+            peft_config = LoraConfig(
+                r=1,
+                target_modules=target_modules,
+                lora_alpha=1,
+                lora_dropout=0,
+                bias="none",
+                task_type="CAUSAL_LM",
+            )
+            peft_model = get_peft_model(base_model, peft_config)
+
+            # Copy the trained adapter weights
+            for name, param in peft_model.named_parameters():
+                if name in adapter_state:
+                    param.data = adapter_state[name].to(param.device)
+
+            # Merge and unload
+            print("* Merging LoRA adapters into base model...")
+            merged_model = peft_model.merge_and_unload()
+            return merged_model
+        else:
+            # Non-quantized model - can merge directly
+            print("* Merging LoRA adapters into base model...")
+            merged_model = self.model.merge_and_unload()
+            return merged_model
 
     def reload_model(self):
         if self.loaded_model_name == self.settings.model:

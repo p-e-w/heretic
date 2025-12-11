@@ -237,18 +237,29 @@ class Model:
                 else:
                     layer_refusal_direction = refusal_direction
 
-                # Projects any right-multiplied vector(s) onto the subspace
-                # spanned by the refusal direction.
-                projector = torch.outer(
-                    layer_refusal_direction,
-                    layer_refusal_direction,
-                ).to(self.model.dtype)
+                # We use the property (r r^T) W = r (r^T W) to avoid computing
+                # the O(d^2) projector matrix and the O(d^2 k) matrix multiplication.
+                # (α is the weight)
+                # W_new = W - α(r (r^T W))
+                r = layer_refusal_direction.to(self.model.dtype)
 
                 for matrix in matrices:
-                    # Ensure projector is on the same device as the matrix for multi-GPU support.
-                    device_projector = projector.to(matrix.device)
+                    # Ensure r is on the same device as the matrix for multi-GPU support.
+                    r_device = r.to(matrix.device, dtype=matrix.dtype)
+
+                    # Calculate the projection scalars: (r^T W)
+                    # For 2D: r is (d,), matrix is (d, k) -> result is (k,)
+                    # For ND: matrix is (..., d, k) -> result is (..., k)
+                    r_transpose_W = torch.matmul(r_device, matrix)
+
+                    # Compute the rank-1 update r (r^T W)
+                    if matrix.dim() == 2:
+                        update = torch.outer(r_device, r_transpose_W)
+                    else:
+                        update = torch.einsum("d,...k->...dk", r_device, r_transpose_W)
+
                     # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * (device_projector @ matrix))
+                    matrix.sub_(weight * update)
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

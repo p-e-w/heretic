@@ -3,11 +3,13 @@
 
 import gc
 import getpass
+import importlib
+import inspect
 import os
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Optional, TypeVar
 
 import questionary
 import torch
@@ -28,6 +30,60 @@ from rich.console import Console
 from .config import DatasetSpecification, Settings
 
 print = Console(highlight=False).print
+
+
+def load_plugin(
+    name: str,
+    base_class: type,
+    *,
+    package: str = "heretic",
+    subpackage: Optional[str] = None,
+):
+    """
+    Load a plugin class either from a fully-qualified path or from a
+    `heretic.<subpackage>` module, validating that it subclasses `base_class`.
+    """
+    plugin_cls = None
+
+    if "." in name:
+        try:
+            module_name, class_name = name.rsplit(".", 1)
+            module = importlib.import_module(module_name)
+            plugin_cls = getattr(module, class_name)
+        except (ImportError, AttributeError) as e:
+            print(f"[red]Error loading plugin '{name}': {e}[/]")
+            exit()
+    else:
+        module_path = f".{subpackage}.{name}" if subpackage else f".{name}"
+        try:
+            module = importlib.import_module(module_path, package=package)
+            for _, obj in inspect.getmembers(module):
+                if (
+                    inspect.isclass(obj)
+                    and issubclass(obj, base_class)
+                    and obj.__module__ == module.__name__
+                ):
+                    plugin_cls = obj
+                    break
+
+            if plugin_cls is None:
+                print(
+                    f"[red]Error: No {base_class.__name__} subclass found in plugin '{name}'[/]"
+                )
+                exit()
+        except ImportError as e:
+            print(f"[red]Error loading plugin '{name}': {e}[/]")
+            exit()
+
+    if plugin_cls is None:
+        print(f"[red]Error loading plugin '{name}'[/]")
+        exit()
+
+    if not issubclass(plugin_cls, base_class):
+        print(f"[red]Error: Plugin '{name}' must subclass {base_class.__name__}[/]")
+        exit()
+
+    return plugin_cls
 
 
 def is_notebook() -> bool:

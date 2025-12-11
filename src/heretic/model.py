@@ -64,6 +64,11 @@ class Model:
         self.tokenizer.padding_side = "left"
 
         self.model = None
+        self.max_memory = (
+            {int(k) if k.isdigit() else k: v for k, v in settings.max_memory.items()}
+            if settings.max_memory
+            else None
+        )
         self.trusted_models = {settings.model: settings.trust_remote_code}
 
         if self.settings.evaluate_model is not None:
@@ -102,6 +107,7 @@ class Model:
                     settings.model,
                     dtype=dtype,
                     device_map=settings.device_map,
+                    max_memory=self.max_memory,
                     trust_remote_code=self.trusted_models.get(settings.model),
                     **extra_kwargs,
                 )
@@ -254,6 +260,7 @@ class Model:
             self.settings.model,
             dtype=dtype,
             device_map=self.settings.device_map,
+            max_memory=self.max_memory,
             trust_remote_code=self.trusted_models.get(self.settings.model),
         )
 

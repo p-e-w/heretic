@@ -22,6 +22,9 @@ device_map = "auto"
 # Options: "none" (no quantization), "bnb_4bit" (4-bit quantization using bitsandbytes), "bnb_8bit" (8-bit quantization using bitsandbytes).
 quantization = "none"
 
+# Memory limits to impose. 0 is usually your first graphics card.
+# max_memory = {0 = "16GB", "cpu" = "64GB"}
+
 # Number of input sequences to process in parallel (0 = auto).
 batch_size = 0  # auto
 

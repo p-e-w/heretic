@@ -1,6 +1,6 @@
 [project]
 name = "heretic-llm"
-version = "1.0.1"
+version = "1.1.0"
 description = "Fully automatic censorship removal for language models"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -55,7 +55,7 @@ Homepage = "https://github.com/p-e-w/heretic"
 Documentation = "https://github.com/p-e-w/heretic"
 Repository = "https://github.com/p-e-w/heretic.git"
 Issues = "https://github.com/p-e-w/heretic/issues"
-Changelog = "https://github.com/p-e-w/heretic/commits/master/"
+Changelog = "https://github.com/p-e-w/heretic/releases"
 
 [project.scripts]
 heretic = "heretic.main:main"

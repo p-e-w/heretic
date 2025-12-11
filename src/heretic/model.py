@@ -63,10 +63,19 @@ class Model:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
 
             try:
+                max_memory = (
+                    {
+                        int(k) if k.isdigit() else k: v
+                        for k, v in settings.max_memory.items()
+                    }
+                    if settings.max_memory
+                    else None
+                )
                 self.model = AutoModelForCausalLM.from_pretrained(
                     settings.model,
                     dtype=dtype,
                     device_map=settings.device_map,
+                    max_memory=max_memory,
                     trust_remote_code=self.trusted_models.get(settings.model),
                 )
 

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+import gc
 import math
 import os
 import sys
@@ -11,7 +12,6 @@ from os.path import commonprefix
 from pathlib import Path
 
 import huggingface_hub
-import gc
 import optuna
 import torch
 import torch.nn.functional as F
@@ -34,7 +34,7 @@ from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import Settings, QuantizationMethod
+from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
@@ -62,7 +62,10 @@ def get_merged_model(model: Model, settings: Settings):
         return model.model
 
     # Prompt for all PEFT models to ensure user is aware of merge implications
-    if settings.quantization in [QuantizationMethod.BNB_4BIT, QuantizationMethod.BNB_8BIT]:
+    if settings.quantization in [
+        QuantizationMethod.BNB_4BIT,
+        QuantizationMethod.BNB_8BIT,
+    ]:
         # Quantized models need special handling - we must reload the base model
         # in full precision to merge the LoRA adapters
         print()
@@ -568,7 +571,7 @@ def run():
                         print("Saving model...")
                         if merged_model_cache is None:
                             merged_model_cache = get_merged_model(model, settings)
-                        
+
                         if merged_model_cache is not None:
                             merged_model_cache.save_pretrained(save_directory)
                         else:
@@ -612,7 +615,7 @@ def run():
                         print("Uploading model...")
                         if merged_model_cache is None:
                             merged_model_cache = get_merged_model(model, settings)
-                        
+
                         if merged_model_cache is not None:
                             merged_model_cache.push_to_hub(
                                 repo_id,

@@ -367,62 +367,90 @@ def run():
         directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
     )
 
-    try:
-        study.optimize(objective_wrapper, n_trials=settings.n_trials)
-    except KeyboardInterrupt:
-        # This additional handler takes care of the small chance that KeyboardInterrupt
-        # is raised just between trials, which wouldn't be caught by the handler
-        # defined in objective_wrapper above.
-        pass
-
-    # If no trials at all have been evaluated, the study must have been stopped
-    # by pressing Ctrl+C while the first trial was running. In this case, we just
-    # re-raise the interrupt to invoke the standard handler defined below.
-    if not study.best_trials:
-        raise KeyboardInterrupt
-
-    best_trials = sorted(
-        study.best_trials,
-        key=lambda trial: trial.user_attrs["refusals"],
-    )
-
-    choices = [
-        Choice(
-            title=(
-                f"[Trial {trial.user_attrs['index']:>3}] "
-                f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
-            ),
-            value=trial,
-        )
-        for trial in best_trials
-    ]
-
-    choices.append(
-        Choice(
-            title="None (exit program)",
-            value="",
-        )
-    )
-
-    print()
-    print("[bold green]Optimization finished![/]")
-    print()
-    print(
-        (
-            "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
-            "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
-            "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
-            "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"
-        )
-    )
+    trials_to_run = settings.n_trials
 
     while True:
-        print()
-        trial = prompt_select("Which trial do you want to use?", choices)
+        if trials_to_run > 0:
+            try:
+                study.optimize(objective_wrapper, n_trials=trials_to_run)
+            except KeyboardInterrupt:
+                # This additional handler takes care of the small chance that KeyboardInterrupt
+                # is raised just between trials, which wouldn't be caught by the handler
+                # defined in objective_wrapper above.
+                pass
 
-        if trial is None or trial == "":
-            break
+        # If no trials at all have been evaluated, the study must have been stopped
+        # by pressing Ctrl+C while the first trial was running. In this case, we just
+        # re-raise the interrupt to invoke the standard handler defined below.
+        if not study.best_trials:
+            raise KeyboardInterrupt
+
+        best_trials = sorted(
+            study.best_trials,
+            key=lambda trial: trial.user_attrs["refusals"],
+        )
+
+        choices = [
+            Choice(
+                title=(
+                    f"[Trial {trial.user_attrs['index']:>3}] "
+                    f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+                    f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
+                ),
+                value=trial,
+            )
+            for trial in best_trials
+        ]
+
+        choices.append(
+            Choice(
+                title="Continue optimization (run more trials)",
+                value="continue",
+            )
+        )
+
+        choices.append(
+            Choice(
+                title="None (exit program)",
+                value="",
+            )
+        )
+
+        print()
+        if trials_to_run > 0:
+            print("[bold green]Optimization finished![/]")
+            print()
+        print(
+            (
+                "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
+                "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
+                "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
+                "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"
+            )
+        )
+
+        while True:
+            print()
+            trial = prompt_select("Which trial do you want to use?", choices)
+
+            if trial == "continue":
+                while True:
+                    try:
+                        n_more_trials = int(
+                            prompt_text("How many more trials do you want to run?")
+                        )
+                        if n_more_trials > 0:
+                            break
+                        print("[red]Please enter a number greater than 0.[/]")
+                    except ValueError:
+                        print("[red]Invalid input. Please enter a number.[/]")
+
+                settings.n_trials += n_more_trials
+                trials_to_run = n_more_trials
+                break
+
+            if trial is None or trial == "":
+                return
 
         print()
         print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")

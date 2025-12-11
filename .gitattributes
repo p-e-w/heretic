@@ -1,5 +1,2 @@
 * text=auto eol=lf
-*.py text eol=lf
-*.toml text eol=lf
-*.md text eol=lf
-*.lock binary
+* text eol=lf

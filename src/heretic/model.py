@@ -17,6 +17,7 @@ from transformers import (
     AutoTokenizer,
     BatchEncoding,
     BitsAndBytesConfig,
+    PreTrainedModel,
     PreTrainedTokenizerBase,
     TextStreamer,
 )
@@ -43,6 +44,7 @@ class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.response_prefix = ""
+        self.needs_reload = False
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -92,17 +94,16 @@ class Model:
 
                 # Build kwargs, only include quantization_config if it's not None
                 # (some models like gpt-oss have issues with explicit None)
-                load_kwargs = {
-                    "dtype": dtype,
-                    "device_map": settings.device_map,
-                    "trust_remote_code": self.trusted_models.get(settings.model),
-                }
+                extra_kwargs = {}
                 if quantization_config is not None:
-                    load_kwargs["quantization_config"] = quantization_config
+                    extra_kwargs["quantization_config"] = quantization_config
 
                 self.model = AutoModelForCausalLM.from_pretrained(
                     settings.model,
-                    **load_kwargs,
+                    dtype=dtype,
+                    device_map=settings.device_map,
+                    trust_remote_code=self.trusted_models.get(settings.model),
+                    **extra_kwargs,
                 )
 
                 # If we reach this point and the model requires trust_remote_code,
@@ -113,9 +114,7 @@ class Model:
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
                 # (https://github.com/meta-llama/llama/issues/380).
-                # A test run can reveal dtype-related problems such as the infamous
-                # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
-                # (https://github.com/meta-llama/llama/issues/380).
+
                 self.generate(["Test"], max_new_tokens=1)
             except Exception as error:
                 self.model = None
@@ -133,25 +132,7 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        # Try to use LoRA adapters for abliteration (more memory efficient)
-        if self.settings.quantization in [
-            QuantizationMethod.BNB_4BIT,
-            QuantizationMethod.BNB_8BIT,
-        ]:
-            # PEFT expects just the module names (e.g., "o_proj"), not full paths like "attn.o_proj"
-            target_modules = [
-                comp.split(".")[-1] for comp in self.get_abliterable_components()
-            ]
-            peft_config = LoraConfig(
-                r=1,  # Rank 1 is sufficient for directional ablation
-                target_modules=target_modules,
-                lora_alpha=1,
-                lora_dropout=0,
-                bias="none",
-                task_type="CAUSAL_LM",
-            )
-            self.model = get_peft_model(self.model, peft_config)
-            self.use_lora = True
+        self._apply_lora()
 
         # LoRA B matrices are initialized to zero by default in PEFT,
         # so we don't need to do anything manually.
@@ -165,19 +146,37 @@ class Model:
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
 
-    def get_merged_model(self, strategy: str = "merge"):
+    def _apply_lora(self):
+        # Always use LoRA adapters for abliteration (faster reload, no weight modification)
+        # We use the leaf names (e.g. "o_proj") as target modules.
+        # This may cause LoRA adapters to be attached to unrelated modules (e.g. "conv.o_proj"),
+        # but this is harmless as we only abliterate the modules we target in `abliterate()`,
+        # leaving the others at their default (identity) state.
+        target_modules = [
+            comp.split(".")[-1] for comp in self.get_abliterable_components()
+        ]
+        peft_config = LoraConfig(
+            r=1,  # Rank 1 is sufficient for directional ablation
+            target_modules=target_modules,
+            lora_alpha=1,
+            lora_dropout=0,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        self.model = get_peft_model(self.model, peft_config)
+        self.use_lora = True
+        print(
+            f"[green]LoRA adapters initialized (targets: {', '.join(target_modules)})[/]"
+        )
+
+    def get_merged_model(self) -> PreTrainedModel:
         """
         Returns the model with LoRA adapters merged if applicable.
-        strategy: "merge" or "adapter". If "adapter", returns None.
-        For quantized models, performs CPU-based merge if strategy is "merge".
+        For quantized models, performs CPU-based merge.
         """
         if not isinstance(self.model, PeftModel):
             # No LoRA adapters, return the model as-is
             return self.model
-
-        if strategy == "adapter":
-            print("[yellow]Saving LoRA adapter only...[/]")
-            return None
 
         # User chose to merge (or default)
 
@@ -231,27 +230,19 @@ class Model:
             # Non-quantized model - can merge directly
             print("* Merging LoRA adapters into base model...")
             merged_model = self.model.merge_and_unload()
+            self.needs_reload = True
             return merged_model
 
     def reload_model(self):
-        if self.loaded_model_name == self.settings.model:
-            if self.use_lora:
-                # Reset LoRA adapters to zero
-                for name, module in self.model.named_modules():
-                    if "lora_B" in name and hasattr(module, "weight"):
-                        torch.nn.init.zeros_(module.weight)
-            # For non-LoRA mode, we need to reload the model to reset weights
-            else:
-                dtype = self.model.dtype
-                self.model = None
-                empty_cache()
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.settings.model,
-                    dtype=dtype,
-                    device_map=self.settings.device_map,
-                    trust_remote_code=self.trusted_models.get(self.settings.model),
-                )
-            return
+        if self.loaded_model_name == self.settings.model and not self.needs_reload:
+            # Encapsulated in a try block because self.use_lora might not be set yet
+            with suppress(AttributeError):
+                if self.use_lora:
+                    # Reset LoRA adapters to zero
+                    for name, module in self.model.named_modules():
+                        if "lora_B" in name and hasattr(module, "weight"):
+                            torch.nn.init.zeros_(module.weight)
+                    return
 
         dtype = self.model.dtype
 
@@ -266,10 +257,10 @@ class Model:
             trust_remote_code=self.trusted_models.get(self.settings.model),
         )
 
-        if self.trusted_models.get(self.settings.model) is None:
-            self.trusted_models[self.settings.model] = True
+        self._apply_lora()
 
         self.loaded_model_name = self.settings.model
+        self.needs_reload = False
 
     def get_layers(self) -> ModuleList:
         model = self.model
@@ -394,78 +385,39 @@ class Model:
                     layer_refusal_direction = refusal_direction
 
                 for module in modules:
-                    if self.use_lora and hasattr(module, "lora_A"):
-                        # LoRA abliteration: delta W = -lambda * v * (v^T W)
-                        # lora_B = -lambda * v
-                        # lora_A = v^T W
+                    # LoRA abliteration: delta W = -lambda * v * (v^T W)
+                    # lora_B = -lambda * v
+                    # lora_A = v^T W
 
-                        # Use the FP32 refusal direction directly (no downcast/upcast)
-                        # and move to the correct device
-                        v = layer_refusal_direction.to(module.weight.device)
+                    # Use the FP32 refusal direction directly (no downcast/upcast)
+                    # and move to the correct device
+                    v = layer_refusal_direction.to(module.weight.device)
 
-                        # Get W (dequantize if necessary)
-                        if hasattr(module.weight, "quant_state"):
-                            W = bnb.functional.dequantize_4bit(
-                                module.weight.data, module.weight.quant_state
-                            ).to(torch.float32)
-                        else:
-                            W = module.weight.to(torch.float32)
-
-                        # Calculate lora_A = v^T W
-                        # v is (d_out,), W is (d_out, d_in)
-                        # v @ W -> (d_in,)
-                        lora_A = (v @ W).view(1, -1)
-
-                        # Calculate lora_B = -weight * v
-                        # v is (d_out,)
-                        lora_B = (-weight * v).view(-1, 1)
-
-                        # Assign to adapters
-                        # We assume the default adapter name "default"
-                        module.lora_A["default"].weight.data = lora_A.to(
-                            module.lora_A["default"].weight.dtype
-                        )
-                        module.lora_B["default"].weight.data = lora_B.to(
-                            module.lora_B["default"].weight.dtype
-                        )
+                    # Get W (dequantize if necessary)
+                    if hasattr(module.weight, "quant_state"):
+                        W = bnb.functional.dequantize_4bit(
+                            module.weight.data, module.weight.quant_state
+                        ).to(torch.float32)
                     else:
-                        # Direct weight modification (for non-LoRA mode or modules without LoRA adapters)
-                        # This handles cases like GPT-OSS where down_proj is an nn.Parameter
+                        W = module.weight.to(torch.float32)
 
-                        # Projects any right-multiplied vector(s) onto the subspace
-                        # spanned by the refusal direction.
-                        # We use the property (r r^T) W = r (r^T W) to avoid computing
-                        # the O(d^2) projector matrix and the O(d^2 k) matrix multiplication.
-                        # (α is the weight)
-                        # W_new = W - α(r (r^T W))
-                        r = layer_refusal_direction.to(self.model.dtype)
+                    # Calculate lora_A = v^T W
+                    # v is (d_out,), W is (d_out, d_in)
+                    # v @ W -> (d_in,)
+                    lora_A = (v @ W).view(1, -1)
 
-                        matrix = module.weight if hasattr(module, "weight") else module
+                    # Calculate lora_B = -weight * v
+                    # v is (d_out,)
+                    lora_B = (-weight * v).view(-1, 1)
 
-                        # Handle Triton tensors (e.g., from MXFP4 quantization) by extracting
-                        # the underlying PyTorch tensor via the .data attribute.
-                        if hasattr(matrix, "data") and torch.is_tensor(matrix.data):
-                            matrix = matrix.data
-
-                        assert torch.is_tensor(matrix)
-
-                        # Ensure r is on the same device and dtype as the matrix
-                        r_device = r.to(device=matrix.device, dtype=matrix.dtype)
-
-                        # Calculate the projection scalars: (r^T W)
-                        # r is (d,), matrix is (d, k) OR (E, d, k) -> result is (k,) OR (E, k)
-                        r_transpose_W = torch.matmul(r_device, matrix)
-
-                        # Compute the rank-1 update r (r^T W) using einsum to handle both 2D and 3D (MoE) cases
-                        # r_device: (d,)
-                        # r_transpose_W: (...k)
-                        # Result: (...d, k) matching matrix shape
-                        # Equivalent to torch.outer for 2D, but works for (E, d, k) too.
-                        update = torch.einsum(
-                            "i, ...j -> ...ij", r_device, r_transpose_W
-                        )
-
-                        matrix.sub_(weight * update)
+                    # Assign to adapters
+                    # We assume the default adapter name "default"
+                    module.lora_A["default"].weight.data = lora_A.to(
+                        module.lora_A["default"].weight.dtype
+                    )
+                    module.lora_B["default"].weight.data = lora_B.to(
+                        module.lora_B["default"].weight.dtype
+                    )
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

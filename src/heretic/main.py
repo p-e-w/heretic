@@ -89,10 +89,11 @@ def obtain_merge_strategy(settings: Settings) -> str:
                 footprint_bytes = meta_model.get_memory_footprint()
                 footprint_gb = footprint_bytes / (1024**3)
                 print(
-                    f"[yellow]    Estimated RAM required for this model: [bold]~{footprint_gb:.1f} GB[/][/]"
+                    f"[yellow]    Estimated net RAM required for model weights (excluding overhead): [bold]~{footprint_gb:.1f} GB[/][/]"
                 )
         except Exception:
-            # Fallback if meta loading fails
+            # Fallback if meta loading fails (e.g. owing to custom model code
+            # or `bitsandbytes` quantization config issues on the meta device)
             print(
                 "[yellow]    Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
             )
@@ -503,8 +504,6 @@ def run():
             trial.user_attrs["parameters"],
         )
 
-        merged_model_cache = None
-
         while True:
             print()
             action = prompt_select(
@@ -518,10 +517,6 @@ def run():
             )
 
             if action is None or action == "Nothing (return to trial selection menu)":
-                if merged_model_cache is not None:
-                    del merged_model_cache
-                    gc.collect()
-                    empty_cache()
                 break
 
             # All actions are wrapped in a try/except block so that if an error occurs,
@@ -535,18 +530,20 @@ def run():
                             continue
 
                         print("Saving model...")
-                        if merged_model_cache is None:
-                            strategy = obtain_merge_strategy(settings)
-                            if strategy is None:
-                                print("[yellow]Action cancelled.[/]")
-                                continue
-                            merged_model_cache = model.get_merged_model(strategy)
+                        strategy = obtain_merge_strategy(settings)
+                        if strategy is None:
+                            print("[yellow]Action cancelled.[/]")
+                            continue
 
-                        if merged_model_cache is not None:
-                            merged_model_cache.save_pretrained(save_directory)
-                        else:
-                            # Fallback: save LoRA adapter only (for quantized models)
+                        if strategy == "adapter":
                             model.model.save_pretrained(save_directory)
+                        else:
+                            merged_model = model.get_merged_model()
+                            merged_model.save_pretrained(save_directory)
+                            del merged_model
+                            gc.collect()
+                            empty_cache()
+
                         model.tokenizer.save_pretrained(save_directory)
                         print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -583,26 +580,28 @@ def run():
                         private = visibility == "Private"
 
                         print("Uploading model...")
-                        if merged_model_cache is None:
-                            strategy = obtain_merge_strategy(settings)
-                            if strategy is None:
-                                print("[yellow]Action cancelled.[/]")
-                                continue
-                            merged_model_cache = model.get_merged_model(strategy)
+                        strategy = obtain_merge_strategy(settings)
+                        if strategy is None:
+                            print("[yellow]Action cancelled.[/]")
+                            continue
 
-                        if merged_model_cache is not None:
-                            merged_model_cache.push_to_hub(
-                                repo_id,
-                                private=private,
-                                token=token,
-                            )
-                        else:
-                            # Fallback: upload LoRA adapter only (for quantized models)
+                        if strategy == "adapter":
                             model.model.push_to_hub(
                                 repo_id,
                                 private=private,
                                 token=token,
                             )
+                        else:
+                            merged_model = model.get_merged_model()
+                            merged_model.push_to_hub(
+                                repo_id,
+                                private=private,
+                                token=token,
+                            )
+                            del merged_model
+                            gc.collect()
+                            empty_cache()
+
                         model.tokenizer.push_to_hub(
                             repo_id,
                             private=private,

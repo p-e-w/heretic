@@ -11,6 +11,7 @@ from os.path import commonprefix
 from pathlib import Path
 
 import huggingface_hub
+import gc
 import optuna
 import torch
 import torch.nn.functional as F
@@ -33,7 +34,7 @@ from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import Settings
+from .config import Settings, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
@@ -61,7 +62,7 @@ def get_merged_model(model: Model, settings: Settings):
         return model.model
 
     # Prompt for all PEFT models to ensure user is aware of merge implications
-    if True:
+    if settings.quantization in [QuantizationMethod.BNB_4BIT, QuantizationMethod.BNB_8BIT]:
         # Quantized models need special handling - we must reload the base model
         # in full precision to merge the LoRA adapters
         print()
@@ -533,6 +534,8 @@ def run():
             trial.user_attrs["parameters"],
         )
 
+        merged_model_cache = None
+
         while True:
             print()
             action = prompt_select(
@@ -546,6 +549,10 @@ def run():
             )
 
             if action is None or action == "Nothing (return to trial selection menu)":
+                if merged_model_cache is not None:
+                    del merged_model_cache
+                    gc.collect()
+                    empty_cache()
                 break
 
             # All actions are wrapped in a try/except block so that if an error occurs,
@@ -559,9 +566,11 @@ def run():
                             continue
 
                         print("Saving model...")
-                        merged_model = get_merged_model(model, settings)
-                        if merged_model is not None:
-                            merged_model.save_pretrained(save_directory)
+                        if merged_model_cache is None:
+                            merged_model_cache = get_merged_model(model, settings)
+                        
+                        if merged_model_cache is not None:
+                            merged_model_cache.save_pretrained(save_directory)
                         else:
                             # Fallback: save LoRA adapter only (for quantized models)
                             model.model.save_pretrained(save_directory)
@@ -601,9 +610,11 @@ def run():
                         private = visibility == "Private"
 
                         print("Uploading model...")
-                        merged_model = get_merged_model(model, settings)
-                        if merged_model is not None:
-                            merged_model.push_to_hub(
+                        if merged_model_cache is None:
+                            merged_model_cache = get_merged_model(model, settings)
+                        
+                        if merged_model_cache is not None:
+                            merged_model_cache.push_to_hub(
                                 repo_id,
                                 private=private,
                                 token=token,

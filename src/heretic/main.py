@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-import gc
 import math
 import os
 import sys
@@ -76,8 +75,11 @@ def obtain_merge_strategy(settings: Settings) -> str:
         )
 
         try:
-            # Estimate memory requirements by loading the model structure on the "meta" device
+            # Estimate memory requirements by loading the model structure on the "meta" device.
             # This doesn't consume actual RAM but allows us to inspect the parameter count/dtype.
+            #
+            # Suppress warnings during meta device loading (e.g., "Some weights were not initialized").
+            # These are expected and harmless since we're only inspecting model structure, not running inference.
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 meta_model = AutoModelForCausalLM.from_pretrained(
@@ -288,7 +290,7 @@ def run():
         print()
         print(f"Loading model [bold]{settings.evaluate_model}[/]...")
         settings.model = settings.evaluate_model
-        model.reload_model()
+        model.reset_model_for_trial()
         print("* Evaluating...")
         evaluator.get_score()
         return
@@ -397,7 +399,7 @@ def run():
         for name, value in get_trial_parameters(trial).items():
             print(f"  * {name} = [bold]{value}[/]")
         print("* Reloading model...")
-        model.reload_model()
+        model.reset_model_for_trial()
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
@@ -496,7 +498,7 @@ def run():
         print()
         print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
         print("* Reloading model...")
-        model.reload_model()
+        model.reset_model_for_trial()
         print("* Abliterating...")
         model.abliterate(
             refusal_directions,
@@ -541,7 +543,7 @@ def run():
                             merged_model = model.get_merged_model()
                             merged_model.save_pretrained(save_directory)
                             del merged_model
-                            gc.collect()
+                            # empty_cache() handles garbage collection internally
                             empty_cache()
 
                         model.tokenizer.save_pretrained(save_directory)
@@ -579,19 +581,20 @@ def run():
                         )
                         private = visibility == "Private"
 
-                        print("Uploading model...")
                         strategy = obtain_merge_strategy(settings)
                         if strategy is None:
                             print("[yellow]Action cancelled.[/]")
                             continue
 
                         if strategy == "adapter":
+                            print("Uploading LoRA adapter...")
                             model.model.push_to_hub(
                                 repo_id,
                                 private=private,
                                 token=token,
                             )
                         else:
+                            print("Uploading merged model...")
                             merged_model = model.get_merged_model()
                             merged_model.push_to_hub(
                                 repo_id,
@@ -599,7 +602,7 @@ def run():
                                 token=token,
                             )
                             del merged_model
-                            gc.collect()
+                            # empty_cache() handles garbage collection internally
                             empty_cache()
 
                         model.tokenizer.push_to_hub(

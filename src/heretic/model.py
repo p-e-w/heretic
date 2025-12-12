@@ -78,24 +78,7 @@ class Model:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
 
             try:
-                quantization_config = None
-                if settings.quantization == QuantizationMethod.BNB_4BIT:
-                    # BitsAndBytesConfig expects a torch.dtype, not a string.
-                    if dtype == "auto":
-                        compute_dtype = torch.bfloat16
-                    else:
-                        compute_dtype = getattr(torch, dtype)
-
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_4bit=True,
-                        bnb_4bit_compute_dtype=compute_dtype,
-                        bnb_4bit_quant_type="nf4",
-                        bnb_4bit_use_double_quant=True,
-                    )
-                elif settings.quantization == QuantizationMethod.BNB_8BIT:
-                    quantization_config = BitsAndBytesConfig(
-                        load_in_8bit=True,
-                    )
+                quantization_config = self._get_quantization_config(dtype)
 
                 # Build kwargs, only include quantization_config if it's not None
                 # (some models like gpt-oss have issues with explicit None)
@@ -120,7 +103,6 @@ class Model:
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
                 # (https://github.com/meta-llama/llama/issues/380).
-
                 self.generate(["Test"], max_new_tokens=1)
             except Exception as error:
                 self.model = None
@@ -158,6 +140,7 @@ class Model:
         # This may cause LoRA adapters to be attached to unrelated modules (e.g. "conv.o_proj"),
         # but this is harmless as we only abliterate the modules we target in `abliterate()`,
         # leaving the others at their default (identity) state.
+        # NOTE: This will need to be updated when hybrid layer support (#43) is merged.
         target_modules = [
             comp.split(".")[-1] for comp in self.get_abliterable_components()
         ]
@@ -175,6 +158,37 @@ class Model:
             f"[green]LoRA adapters initialized (targets: {', '.join(target_modules)})[/]"
         )
 
+    def _get_quantization_config(self, dtype: str):
+        """
+        Creates quantization config based on settings.
+
+        Args:
+            dtype: The dtype string (e.g., "auto", "bfloat16")
+
+        Returns:
+            BitsAndBytesConfig or None
+        """
+        if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+            # BitsAndBytesConfig expects a torch.dtype, not a string.
+            if dtype == "auto":
+                compute_dtype = torch.bfloat16
+            else:
+                compute_dtype = getattr(torch, dtype)
+
+            return BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=compute_dtype,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            )
+        elif self.settings.quantization == QuantizationMethod.BNB_8BIT:
+            # 8-bit quantization uses optimized compute dtypes automatically
+            # (unlike 4-bit which requires explicit bfloat16 for computations)
+            return BitsAndBytesConfig(
+                load_in_8bit=True,
+            )
+        return None
+
     def get_merged_model(self) -> PreTrainedModel:
         """
         Returns the model with LoRA adapters merged if applicable.
@@ -183,8 +197,6 @@ class Model:
         if not isinstance(self.model, PeftModel):
             # No LoRA adapters, return the model as-is
             return self.model
-
-        # User chose to merge (or default)
 
         # Check if we need special handling for quantized models
         if self.settings.quantization in [
@@ -236,10 +248,21 @@ class Model:
             # Non-quantized model - can merge directly
             print("* Merging LoRA adapters into base model...")
             merged_model = self.model.merge_and_unload()
+            # merge_and_unload() modifies self.model in-place, destroying LoRA adapters.
+            # Mark for full reload if user switches trials later.
             self.needs_reload = True
             return merged_model
 
-    def reload_model(self):
+    def reset_model_for_trial(self):
+        """
+        Resets the model to a clean state for the next trial.
+
+        Behavior:
+        - Fast path: If the same model is loaded and doesn't need full reload,
+          resets LoRA adapter weights to zero (identity transformation).
+        - Slow path: If switching models or after merge_and_unload(),
+          performs full model reload with quantization config.
+        """
         if self.loaded_model_name == self.settings.model and not self.needs_reload:
             # Encapsulated in a try block because self.use_lora might not be set yet
             with suppress(AttributeError):
@@ -256,12 +279,20 @@ class Model:
         self.model = None
         empty_cache()
 
+        quantization_config = self._get_quantization_config(str(dtype).split(".")[-1])
+
+        # Build kwargs, only include quantization_config if it's not None
+        extra_kwargs = {}
+        if quantization_config is not None:
+            extra_kwargs["quantization_config"] = quantization_config
+
         self.model = AutoModelForCausalLM.from_pretrained(
             self.settings.model,
             dtype=dtype,
             device_map=self.settings.device_map,
             max_memory=self.max_memory,
             trust_remote_code=self.trusted_models.get(self.settings.model),
+            **extra_kwargs,
         )
 
         self._apply_lora()

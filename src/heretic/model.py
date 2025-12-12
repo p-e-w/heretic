@@ -153,7 +153,6 @@ class Model:
             task_type="CAUSAL_LM",
         )
         self.model = get_peft_model(self.model, peft_config)
-        self.use_lora = True
         print(
             f"[green]LoRA adapters initialized (targets: {', '.join(target_modules)})[/]"
         )
@@ -191,12 +190,9 @@ class Model:
 
     def get_merged_model(self) -> PreTrainedModel:
         """
-        Returns the model with LoRA adapters merged if applicable.
+        Returns the model with LoRA adapters merged.
         For quantized models, performs CPU-based merge.
         """
-        if not isinstance(self.model, PeftModel):
-            # No LoRA adapters, return the model as-is
-            return self.model
 
         # Check if we need special handling for quantized models
         if self.settings.quantization in [
@@ -264,14 +260,11 @@ class Model:
           performs full model reload with quantization config.
         """
         if self.loaded_model_name == self.settings.model and not self.needs_reload:
-            # Encapsulated in a try block because self.use_lora might not be set yet
-            with suppress(AttributeError):
-                if self.use_lora:
-                    # Reset LoRA adapters to zero
-                    for name, module in self.model.named_modules():
-                        if "lora_B" in name and hasattr(module, "weight"):
-                            torch.nn.init.zeros_(module.weight)
-                    return
+            # Reset LoRA adapters to zero (identity transformation)
+            for name, module in self.model.named_modules():
+                if "lora_B" in name and hasattr(module, "weight"):
+                    torch.nn.init.zeros_(module.weight)
+            return
 
         dtype = self.model.dtype
 

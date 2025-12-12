@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-import gc
 import math
 import os
 import sys
@@ -544,9 +543,6 @@ def run():
                             merged_model = model.get_merged_model()
                             merged_model.save_pretrained(save_directory)
                             del merged_model
-                            # Force immediate garbage collection for large models to prevent RAM spikes
-                            # (Python's GC threshold is tuned for many small objects, not single 100+ GB tensors)
-                            gc.collect()
                             empty_cache()
 
                         model.tokenizer.save_pretrained(save_directory)
@@ -605,9 +601,6 @@ def run():
                                 token=token,
                             )
                             del merged_model
-                            # Force immediate garbage collection for large models to prevent RAM spikes
-                            # (Python's GC threshold is tuned for many small objects, not single 100+ GB tensors)
-                            gc.collect()
                             empty_cache()
 
                         model.tokenizer.push_to_hub(

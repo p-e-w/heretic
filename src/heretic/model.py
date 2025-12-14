@@ -366,7 +366,6 @@ class Model:
 
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
-        skipped_components: set[str] = set()
         for layer_index in range(len(self.get_layers())):
             for component, modules in self.get_layer_modules(layer_index).items():
                 params = parameters[component]
@@ -392,12 +391,6 @@ class Model:
                     layer_refusal_direction = refusal_direction
 
                 for module in modules:
-                    # Skip modules without LoRA adapters (e.g., raw tensors in GPT-OSS)
-                    # PEFT only attaches LoRA to nn.Module instances, not raw tensors
-                    if not hasattr(module, "lora_A"):
-                        skipped_components.add(component)
-                        continue
-
                     # LoRA abliteration: delta W = -lambda * v * (v^T W)
                     # lora_B = -lambda * v
                     # lora_A = v^T W
@@ -440,13 +433,6 @@ class Model:
                     module.lora_B["default"].weight.data = lora_B.to(
                         module.lora_B["default"].weight.dtype
                     )
-
-        # Warn user if some components were skipped (e.g., GPT-OSS raw tensors)
-        if skipped_components:
-            print(
-                f"[yellow]Warning: Skipped {', '.join(sorted(skipped_components))} "
-                f"(no LoRA adapters - architecture uses raw tensors)[/]"
-            )
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

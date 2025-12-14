@@ -31,9 +31,10 @@ from optuna.trial import TrialState
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
+from transformers import AutoModelForCausalLM
 
 from .analyzer import Analyzer
-from .config import Settings
+from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
@@ -48,6 +49,73 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
+
+
+def obtain_merge_strategy(settings: Settings) -> str | None:
+    """
+    Prompts the user for how to proceed with quantized models.
+    Returns "merge", "adapter", or None (if cancelled/invalid).
+    """
+    # Prompt for all PEFT models to ensure user is aware of merge implications
+    if settings.quantization == QuantizationMethod.BNB_4BIT:
+        # Quantized models need special handling - we must reload the base model
+        # in full precision to merge the LoRA adapters
+        print()
+        print(
+            "[yellow]Model was loaded with quantization. Merging requires reloading the base model.[/]"
+        )
+        print(
+            "[red](!) WARNING: CPU Merging requires dequantizing the entire model to System RAM.[/]"
+        )
+        print("[red]    This can lead to SYSTEM FREEZES if you run out of memory.[/]")
+        print(
+            "[yellow]    Rule of thumb: You need approx. 3x the parameter count in GB.[/]"
+        )
+
+        try:
+            # Estimate memory requirements by loading the model structure on the "meta" device.
+            # This doesn't consume actual RAM but allows us to inspect the parameter count/dtype.
+            #
+            # Suppress warnings during meta device loading (e.g., "Some weights were not initialized").
+            # These are expected and harmless since we're only inspecting model structure, not running inference.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                meta_model = AutoModelForCausalLM.from_pretrained(
+                    settings.model,
+                    device_map="meta",
+                    torch_dtype=torch.bfloat16,
+                    trust_remote_code=True,
+                )
+                footprint_bytes = meta_model.get_memory_footprint()
+                footprint_gb = footprint_bytes / (1024**3)
+                print(
+                    f"[yellow]    Estimated net RAM required for model weights (excluding overhead): [bold]~{footprint_gb:.1f} GB[/][/]"
+                )
+        except Exception:
+            # Fallback if meta loading fails (e.g. owing to custom model code
+            # or `bitsandbytes` quantization config issues on the meta device)
+            print(
+                "[yellow]    Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
+            )
+        print()
+
+        merge_choice = prompt_select(
+            "How do you want to proceed?",
+            choices=[
+                Choice(
+                    title="Merge full model (reload base model on CPU - requires high RAM)",
+                    value="merge",
+                ),
+                Choice(
+                    title="Save LoRA adapter only (can be merged later with llama.cpp or more RAM)",
+                    value="adapter",
+                ),
+            ],
+        )
+        return merge_choice
+
+    # Default for non-quantized models
+    return "merge"
 
 
 def run():
@@ -220,7 +288,7 @@ def run():
         print()
         print(f"Loading model [bold]{settings.evaluate_model}[/]...")
         settings.model = settings.evaluate_model
-        model.reload_model()
+        model.reset_model()
         print("* Evaluating...")
         evaluator.get_score()
         return
@@ -330,8 +398,8 @@ def run():
         print("* Parameters:")
         for name, value in get_trial_parameters(trial).items():
             print(f"  * {name} = [bold]{value}[/]")
-        print("* Reloading model...")
-        model.reload_model()
+        print("* Resetting model...")
+        model.reset_model()
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
@@ -446,8 +514,8 @@ def run():
         print("* Parameters:")
         for name, value in get_trial_parameters(trial).items():
             print(f"  * {name} = [bold]{value}[/]")
-        print("* Reloading model...")
-        model.reload_model()
+        print("* Resetting model...")
+        model.reset_model()
         print("* Abliterating...")
         model.abliterate(
             refusal_directions,
@@ -481,7 +549,19 @@ def run():
                             continue
 
                         print("Saving model...")
-                        model.model.save_pretrained(save_directory)
+                        strategy = obtain_merge_strategy(settings)
+                        if strategy is None:
+                            print("[yellow]Action cancelled.[/]")
+                            continue
+
+                        if strategy == "adapter":
+                            model.model.save_pretrained(save_directory)
+                        else:
+                            merged_model = model.get_merged_model()
+                            merged_model.save_pretrained(save_directory)
+                            del merged_model
+                            empty_cache()
+
                         model.tokenizer.save_pretrained(save_directory)
                         print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -517,13 +597,29 @@ def run():
                         )
                         private = visibility == "Private"
 
-                        print("Uploading model...")
+                        strategy = obtain_merge_strategy(settings)
+                        if strategy is None:
+                            print("[yellow]Action cancelled.[/]")
+                            continue
 
-                        model.model.push_to_hub(
-                            repo_id,
-                            private=private,
-                            token=token,
-                        )
+                        if strategy == "adapter":
+                            print("Uploading LoRA adapter...")
+                            model.model.push_to_hub(
+                                repo_id,
+                                private=private,
+                                token=token,
+                            )
+                        else:
+                            print("Uploading merged model...")
+                            merged_model = model.get_merged_model()
+                            merged_model.push_to_hub(
+                                repo_id,
+                                private=private,
+                                token=token,
+                            )
+                            del merged_model
+                            empty_cache()
+
                         model.tokenizer.push_to_hub(
                             repo_id,
                             private=private,

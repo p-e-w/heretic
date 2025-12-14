@@ -395,7 +395,7 @@ def run():
         print("* Parameters:")
         for name, value in get_trial_parameters(trial).items():
             print(f"  * {name} = [bold]{value}[/]")
-        print("* Reloading model...")
+        print("* Resetting model...")
         model.reset_model()
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
@@ -494,7 +494,7 @@ def run():
 
         print()
         print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
-        print("* Reloading model...")
+        print("* Resetting model...")
         model.reset_model()
         print("* Abliterating...")
         model.abliterate(

@@ -400,7 +400,8 @@ class Model:
                     # lora_A = v^T W
 
                     # Use the FP32 refusal direction directly (no downcast/upcast)
-                    # and move to the correct device
+                    # and move to the correct device.
+                    # NOTE: Assumes module has .weight (true for Linear layers we target)
                     v = layer_refusal_direction.to(module.weight.device)
 
                     # Get W (dequantize if necessary)

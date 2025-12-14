@@ -130,6 +130,14 @@ class Settings(BaseSettings):
         ),
     )
 
+    kl_divergence_target: float = Field(
+        default=0.01,
+        description=(
+            "The KL divergence to target. Below this value, an objective based on the refusal count is used."
+            'This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".'
+        ),
+    )
+
     n_trials: int = Field(
         default=200,
         description="Number of abliteration trials to run during optimization.",

@@ -53,6 +53,10 @@ residual_plot_style = "dark_background"
 # This is used to ensure balanced co-optimization of KL divergence and refusal count.
 kl_divergence_scale = 1.0
 
+# The KL divergence to target. Below this value, an objective based on the refusal count is used.
+# This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".
+kl_divergence_target = 0.01
+
 # Number of abliteration trials to run during optimization.
 n_trials = 200
 

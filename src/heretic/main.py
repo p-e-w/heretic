@@ -27,6 +27,7 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
+from optuna.trial import TrialState
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
@@ -332,6 +333,8 @@ def run():
             ],
         )
 
+        last_layer_index = len(model.get_layers()) - 1
+
         # Discrimination between "harmful" and "harmless" inputs is usually strongest
         # in layers slightly past the midpoint of the layer stack. See the original
         # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
@@ -341,8 +344,8 @@ def run():
         # work with conditional or variable-range parameters.
         direction_index = trial.suggest_float(
             "direction_index",
-            0.4 * (len(model.get_layers()) - 1),
-            0.9 * (len(model.get_layers()) - 1),
+            0.4 * last_layer_index,
+            0.9 * last_layer_index,
         )
 
         if direction_scope == "per layer":
@@ -361,8 +364,8 @@ def run():
             )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
-                0.6 * (len(model.get_layers()) - 1),
-                len(model.get_layers()) - 1,
+                0.6 * last_layer_index,
+                1.0 * last_layer_index,
             )
             # For sampling purposes, min_weight is expressed as a fraction of max_weight,
             # again because multivariate TPE doesn't support variable-range parameters.
@@ -375,7 +378,7 @@ def run():
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",
                 1.0,
-                0.6 * (len(model.get_layers()) - 1),
+                0.6 * last_layer_index,
             )
 
             parameters[component] = AbliterationParameters(
@@ -446,13 +449,27 @@ def run():
     # If no trials at all have been evaluated, the study must have been stopped
     # by pressing Ctrl+C while the first trial was running. In this case, we just
     # re-raise the interrupt to invoke the standard handler defined below.
-    if not study.best_trials:
+    completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
+    if not completed_trials:
         raise KeyboardInterrupt
 
-    best_trials = sorted(
-        study.best_trials,
-        key=lambda trial: trial.user_attrs["refusals"],
+    # Get the Pareto front of trials. We can't use study.best_trials directly
+    # as get_score() doesn't return the pure KL divergence and refusal count.
+    # Note: Unlike study.best_trials, this does not handle objective constraints.
+    sorted_trials = sorted(
+        completed_trials,
+        key=lambda trial: (
+            trial.user_attrs["refusals"],
+            trial.user_attrs["kl_divergence"],
+        ),
     )
+    min_divergence = math.inf
+    best_trials = []
+    for trial in sorted_trials:
+        kl_divergence = trial.user_attrs["kl_divergence"]
+        if kl_divergence < min_divergence:
+            min_divergence = kl_divergence
+            best_trials.append(trial)
 
     choices = [
         Choice(
@@ -494,6 +511,9 @@ def run():
 
         print()
         print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
+        print("* Parameters:")
+        for name, value in get_trial_parameters(trial).items():
+            print(f"  * {name} = [bold]{value}[/]")
         print("* Resetting model...")
         model.reset_model()
         print("* Abliterating...")

@@ -300,12 +300,16 @@ class Model:
         modules = {}
 
         def try_add(component: str, module: Any):
-            if component not in modules:
-                modules[component] = []
-
             # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
             if isinstance(module, torch.nn.Module):
+                if component not in modules:
+                    modules[component] = []
                 modules[component].append(module)
+            else:
+                # Assert for unexpected types (catches architecture changes)
+                assert not isinstance(module, torch.Tensor), (
+                    f"Unexpected Tensor in {component} - expected nn.Module"
+                )
 
         # Exceptions aren't suppressed here, because there is currently
         # no alternative location for the attention out-projection.

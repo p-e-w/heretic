@@ -113,8 +113,6 @@ class Model:
             print("[green]Ok[/]")
             if settings.quantization == QuantizationMethod.BNB_4BIT:
                 print("[bold green]Model loaded in 4-bit precision.[/]")
-            elif settings.quantization == QuantizationMethod.BNB_8BIT:
-                print("[bold green]Model loaded in 8-bit precision.[/]")
             break
 
         if self.model is None:
@@ -124,8 +122,6 @@ class Model:
 
         # LoRA B matrices are initialized to zero by default in PEFT,
         # so we don't need to do anything manually.
-
-        self.loaded_model_name = settings.model
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print("* Abliterable components:")
@@ -157,7 +153,7 @@ class Model:
             f"[green]LoRA adapters initialized (targets: {', '.join(target_modules)})[/]"
         )
 
-    def _get_quantization_config(self, dtype: str):
+    def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
         """
         Creates quantization config based on settings.
 
@@ -180,12 +176,6 @@ class Model:
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_use_double_quant=True,
             )
-        elif self.settings.quantization == QuantizationMethod.BNB_8BIT:
-            # 8-bit quantization uses optimized compute dtypes automatically
-            # (unlike 4-bit which requires explicit bfloat16 for computations)
-            return BitsAndBytesConfig(
-                load_in_8bit=True,
-            )
         return None
 
     def get_merged_model(self) -> PreTrainedModel:
@@ -195,10 +185,7 @@ class Model:
         """
 
         # Check if we need special handling for quantized models
-        if self.settings.quantization in [
-            QuantizationMethod.BNB_4BIT,
-            QuantizationMethod.BNB_8BIT,
-        ]:
+        if self.settings.quantization == QuantizationMethod.BNB_4BIT:
             # Quantized models need special handling - we must reload the base model
             # in full precision to merge the LoRA adapters
 
@@ -249,9 +236,9 @@ class Model:
             self.needs_reload = True
             return merged_model
 
-    def reset_model_for_trial(self):
+    def reset_model(self):
         """
-        Resets the model to a clean state for the next trial.
+        Resets the model to a clean state for the next trial or evaluation.
 
         Behavior:
         - Fast path: If the same model is loaded and doesn't need full reload,
@@ -259,7 +246,8 @@ class Model:
         - Slow path: If switching models or after merge_and_unload(),
           performs full model reload with quantization config.
         """
-        if self.loaded_model_name == self.settings.model and not self.needs_reload:
+        current_model = getattr(self.model.config, "name_or_path", None)
+        if current_model == self.settings.model and not self.needs_reload:
             # Reset LoRA adapters to zero (identity transformation)
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
@@ -290,13 +278,12 @@ class Model:
 
         self._apply_lora()
 
-        self.loaded_model_name = self.settings.model
         self.needs_reload = False
 
     def get_layers(self) -> ModuleList:
         model = self.model
 
-        # Unwrap PeftModel
+        # Unwrap PeftModel (always true after _apply_lora)
         if isinstance(model, PeftModel):
             model = model.base_model.model
 
@@ -307,9 +294,7 @@ class Model:
         # Text-only models.
         return model.model.layers
 
-    def get_layer_modules(
-        self, layer_index: int
-    ) -> dict[str, list[torch.nn.Module | Tensor]]:
+    def get_layer_modules(self, layer_index: int) -> dict[str, list[torch.nn.Module]]:
         layer = self.get_layers()[layer_index]
 
         modules = {}
@@ -318,12 +303,8 @@ class Model:
             if component not in modules:
                 modules[component] = []
 
-            # Validate that the module is either a torch.nn.Module, a Tensor,
-            # or has a .data attribute that is a tensor (like Triton tensors in GPT-OSS)
-            if isinstance(module, (torch.nn.Module, torch.Tensor)):
-                modules[component].append(module)
-            elif hasattr(module, "data") and torch.is_tensor(module.data):
-                # Handle Triton tensors (e.g., from MXFP4 quantization in GPT-OSS)
+            # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
+            if isinstance(module, torch.nn.Module):
                 modules[component].append(module)
 
         # Exceptions aren't suppressed here, because there is currently
@@ -344,13 +325,6 @@ class Model:
             for expert in layer.block_sparse_moe.experts:
                 try_add("mlp.down_proj", expert.w2)
 
-        # gpt-oss MoE.
-        with suppress(Exception):
-            # The implementation of gpt-oss in Transformers differs from many other MoE models
-            # in that it stores the down-projections for all experts in a single 3D tensor,
-            # but thanks to PyTorch's broadcasting magic, it all just works anyway.
-            try_add("mlp.down_proj", layer.mlp.experts.down_proj)
-
         # Granite MoE Hybrid - attention layers with shared_mlp.
         with suppress(Exception):
             try_add("mlp.down_proj", layer.shared_mlp.output_linear)
@@ -360,8 +334,9 @@ class Model:
             for expert in layer.moe.experts:
                 try_add("mlp.down_proj", expert.output_linear)
 
-        # We need at least one MLP down-projection.
-        assert modules["mlp.down_proj"]
+        # We need at least one module across all components for abliteration to work.
+        total_modules = sum(len(mods) for mods in modules.values())
+        assert total_modules > 0, "No abliterable modules found in layer"
 
         return modules
 

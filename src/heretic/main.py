@@ -50,16 +50,13 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings) -> str:
+def obtain_merge_strategy(settings: Settings) -> str | None:
     """
     Prompts the user for how to proceed with quantized models.
     Returns "merge", "adapter", or None (if cancelled/invalid).
     """
     # Prompt for all PEFT models to ensure user is aware of merge implications
-    if settings.quantization in [
-        QuantizationMethod.BNB_4BIT,
-        QuantizationMethod.BNB_8BIT,
-    ]:
+    if settings.quantization == QuantizationMethod.BNB_4BIT:
         # Quantized models need special handling - we must reload the base model
         # in full precision to merge the LoRA adapters
         print()
@@ -290,7 +287,7 @@ def run():
         print()
         print(f"Loading model [bold]{settings.evaluate_model}[/]...")
         settings.model = settings.evaluate_model
-        model.reset_model_for_trial()
+        model.reset_model()
         print("* Evaluating...")
         evaluator.get_score()
         return
@@ -399,7 +396,7 @@ def run():
         for name, value in get_trial_parameters(trial).items():
             print(f"  * {name} = [bold]{value}[/]")
         print("* Reloading model...")
-        model.reset_model_for_trial()
+        model.reset_model()
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
@@ -498,7 +495,7 @@ def run():
         print()
         print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
         print("* Reloading model...")
-        model.reset_model_for_trial()
+        model.reset_model()
         print("* Abliterating...")
         model.abliterate(
             refusal_directions,

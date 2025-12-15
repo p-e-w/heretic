@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Literal
 class ContextMetadata:
     # model and generation params
     generation_params: Dict[str, Any] | None = None
-    
+
     # Internal vectors
     good_residuals: List[List[List[float]]] | None = None
     bad_residuals: List[List[List[float]]] | None = None

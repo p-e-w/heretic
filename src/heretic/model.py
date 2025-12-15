@@ -27,8 +27,7 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, Settings
-from .metadata import MetadataBuilder
-from .schemas import ContextMetadata, Response
+from .schemas import Response
 from .utils import batchify, empty_cache, print
 
 GenerateOutput = GenerateDecoderOnlyOutput | GenerateEncoderDecoderOutput
@@ -131,8 +130,127 @@ class Model:
             print(
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
+    def _apply_lora(self):
+        # Always use LoRA adapters for abliteration (faster reload, no weight modification)
+        # We use the leaf names (e.g. "o_proj") as target modules.
+        # This may cause LoRA adapters to be attached to unrelated modules (e.g. "conv.o_proj"),
+        # but this is harmless as we only abliterate the modules we target in `abliterate()`,
+        # leaving the others at their default (identity) state.
+        # NOTE: This will need to be updated when hybrid layer support (#43) is merged.
+        target_modules = [
+            comp.split(".")[-1] for comp in self.get_abliterable_components()
+        ]
+        peft_config = LoraConfig(
+            r=1,  # Rank 1 is sufficient for directional ablation
+            target_modules=target_modules,
+            lora_alpha=1,
+            lora_dropout=0,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        self.model = get_peft_model(self.model, peft_config)
+        print(
+            f"[green]LoRA adapters initialized (targets: {', '.join(target_modules)})[/]"
+        )
 
-    def reload_model(self):
+    def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
+        """
+        Creates quantization config based on settings.
+        Args:
+            dtype: The dtype string (e.g., "auto", "bfloat16")
+        Returns:
+            BitsAndBytesConfig or None
+        """
+        if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+            # BitsAndBytesConfig expects a torch.dtype, not a string.
+            if dtype == "auto":
+                compute_dtype = torch.bfloat16
+            else:
+                compute_dtype = getattr(torch, dtype)
+
+            return BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=compute_dtype,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            )
+        return None
+
+    def get_merged_model(self) -> PreTrainedModel:
+        """
+        Returns the model with LoRA adapters merged.
+        For quantized models, performs CPU-based merge.
+        """
+
+        # Check if we need special handling for quantized models
+        if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+            # Quantized models need special handling - we must reload the base model
+            # in full precision to merge the LoRA adapters
+
+            # Get the adapter state dict before we do anything
+            adapter_state = {}
+            for name, param in self.model.named_parameters():
+                if "lora_" in name:
+                    adapter_state[name] = param.data.clone().cpu()
+
+            # Load base model in full precision on CPU to avoid VRAM issues
+            print("* Loading base model on CPU (this may take a while)...")
+            base_model = AutoModelForCausalLM.from_pretrained(
+                self.settings.model,
+                torch_dtype=self.model.dtype,
+                device_map="cpu",
+                trust_remote_code=self.trusted_models.get(self.settings.model),
+            )
+
+            # Apply LoRA adapters to the CPU model
+
+            print("* Applying LoRA adapters...")
+            target_modules = self.get_abliterable_components()
+            peft_config = LoraConfig(
+                r=1,
+                target_modules=target_modules,
+                lora_alpha=1,
+                lora_dropout=0,
+                bias="none",
+                task_type="CAUSAL_LM",
+            )
+            peft_model = get_peft_model(base_model, peft_config)
+
+            # Copy the trained adapter weights
+            for name, param in peft_model.named_parameters():
+                if name in adapter_state:
+                    param.data = adapter_state[name].to(param.device)
+
+            # Merge and unload
+            print("* Merging LoRA adapters into base model...")
+            merged_model = peft_model.merge_and_unload()
+            return merged_model
+        else:
+            # Non-quantized model - can merge directly
+            print("* Merging LoRA adapters into base model...")
+            merged_model = self.model.merge_and_unload()
+            # merge_and_unload() modifies self.model in-place, destroying LoRA adapters.
+            # Mark for full reload if user switches trials later.
+            self.needs_reload = True
+            return merged_model
+
+    def reset_model(self):
+        """
+        Resets the model to a clean state for the next trial or evaluation.
+        Behavior:
+        - Fast path: If the same model is loaded and doesn't need full reload,
+          resets LoRA adapter weights to zero (identity transformation).
+        - Slow path: If switching models or after merge_and_unload(),
+          performs full model reload with quantization config.
+        """
+        current_model = getattr(self.model.config, "name_or_path", None)
+        if current_model == self.settings.model and not self.needs_reload:
+            # Reset LoRA adapters to zero (identity transformation)
+            for name, module in self.model.named_modules():
+                if "lora_B" in name and hasattr(module, "weight"):
+                    torch.nn.init.zeros_(module.weight)
+            return
+
         dtype = self.model.dtype
 
         # Purge existing model object from memory to make space.

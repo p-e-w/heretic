@@ -6,23 +6,32 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
+import bitsandbytes as bnb
 import torch
 import torch.nn.functional as F
+from peft import LoraConfig, PeftModel, get_peft_model
 from torch import LongTensor, Tensor
 from torch.nn import ModuleList
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BatchEncoding,
+    BitsAndBytesConfig,
+    PreTrainedModel,
     PreTrainedTokenizerBase,
     TextStreamer,
 )
-from transformers.generation.utils import GenerateOutput
+from transformers.generation import (
+    GenerateDecoderOnlyOutput,
+    GenerateEncoderDecoderOutput,
+)
 
-from .config import Settings
+from .config import QuantizationMethod, Settings
 from .metadata import MetadataBuilder
 from .schemas import ContextMetadata, Response
 from .utils import batchify, empty_cache, print
+
+GenerateOutput = GenerateDecoderOnlyOutput | GenerateEncoderDecoderOutput
 
 
 @dataclass
@@ -37,6 +46,7 @@ class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.response_prefix = ""
+        self.needs_reload = False
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -56,6 +66,11 @@ class Model:
         self.tokenizer.padding_side = "left"
 
         self.model = None
+        self.max_memory = (
+            {int(k) if k.isdigit() else k: v for k, v in settings.max_memory.items()}
+            if settings.max_memory
+            else None
+        )
         self.trusted_models = {settings.model: settings.trust_remote_code}
 
         if self.settings.evaluate_model is not None:
@@ -65,11 +80,21 @@ class Model:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
 
             try:
+                quantization_config = self._get_quantization_config(dtype)
+
+                # Build kwargs, only include quantization_config if it's not None
+                # (some models like gpt-oss have issues with explicit None)
+                extra_kwargs = {}
+                if quantization_config is not None:
+                    extra_kwargs["quantization_config"] = quantization_config
+
                 self.model = AutoModelForCausalLM.from_pretrained(
                     settings.model,
                     dtype=dtype,
                     device_map=settings.device_map,
+                    max_memory=self.max_memory,
                     trust_remote_code=self.trusted_models.get(settings.model),
+                    **extra_kwargs,
                 )
 
                 # If we reach this point and the model requires trust_remote_code,
@@ -88,37 +113,24 @@ class Model:
                 continue
 
             print("[green]Ok[/]")
+            if settings.quantization == QuantizationMethod.BNB_4BIT:
+                print("[bold green]Model loaded in 4-bit precision.[/]")
             break
 
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
+        self._apply_lora()
+
+        # LoRA B matrices are initialized to zero by default in PEFT,
+        # so we don't need to do anything manually.
+
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print("* Abliterable components:")
-        for component, matrices in self.get_layer_matrices(0).items():
+        for component, modules in self.get_layer_modules(0).items():
             print(
-                f"  * [bold]{component}[/]: [bold]{len(matrices)}[/] matrices per layer"
+                f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
-
-        self.metadata_builder = MetadataBuilder(
-            settings=self.settings,
-            tokenizer=self.tokenizer,
-            model_getter=lambda: self.model,
-        )
-
-    def set_requested_metadata_fields(self, requested_fields: set[str]):
-        return self.metadata_builder.set_requested_response_fields(requested_fields)
-
-    def set_requested_context_metadata_fields(self, requested_fields: set[str]):
-        return self.metadata_builder.set_requested_context_metadata_fields(
-            requested_fields
-        )
-
-    def get_context_metadata(self) -> ContextMetadata:
-        """
-        Build context-level metadata to pass to taggers at initialization time.
-        """
-        return self.metadata_builder.build_context_metadata()
 
     def reload_model(self):
         dtype = self.model.dtype
@@ -127,83 +139,92 @@ class Model:
         self.model = None
         empty_cache()
 
+        quantization_config = self._get_quantization_config(str(dtype).split(".")[-1])
+
+        # Build kwargs, only include quantization_config if it's not None
+        extra_kwargs = {}
+        if quantization_config is not None:
+            extra_kwargs["quantization_config"] = quantization_config
+
         self.model = AutoModelForCausalLM.from_pretrained(
             self.settings.model,
             dtype=dtype,
             device_map=self.settings.device_map,
+            max_memory=self.max_memory,
             trust_remote_code=self.trusted_models.get(self.settings.model),
+            **extra_kwargs,
         )
 
-        if self.trusted_models.get(self.settings.model) is None:
-            self.trusted_models[self.settings.model] = True
+        self._apply_lora()
+
+        self.needs_reload = False
 
     def get_layers(self) -> ModuleList:
+        model = self.model
+
+        # Unwrap PeftModel (always true after _apply_lora)
+        if isinstance(model, PeftModel):
+            model = model.base_model.model
+
         # Most multimodal models.
         with suppress(Exception):
-            return self.model.model.language_model.layers
+            return model.model.language_model.layers
 
         # Text-only models.
-        return self.model.model.layers
+        return model.model.layers
 
-    def get_layer_matrices(self, layer_index: int) -> dict[str, list[Tensor]]:
+    def get_layer_modules(self, layer_index: int) -> dict[str, list[torch.nn.Module]]:
         layer = self.get_layers()[layer_index]
 
-        matrices = {}
+        modules = {}
 
-        def try_add(component: str, matrix: Any):
-            # Handle Triton tensors (e.g., from MXFP4 quantization) by extracting
-            # the underlying PyTorch tensor via the .data attribute.
-            if hasattr(matrix, "data") and torch.is_tensor(matrix.data):
-                matrix = matrix.data
-
-            assert torch.is_tensor(matrix)
-
-            if component not in matrices:
-                matrices[component] = []
-
-            matrices[component].append(matrix)
+        def try_add(component: str, module: Any):
+            # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
+            if isinstance(module, torch.nn.Module):
+                if component not in modules:
+                    modules[component] = []
+                modules[component].append(module)
+            else:
+                # Assert for unexpected types (catches architecture changes)
+                assert not isinstance(module, torch.Tensor), (
+                    f"Unexpected Tensor in {component} - expected nn.Module"
+                )
 
         # Exceptions aren't suppressed here, because there is currently
         # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj.weight)
+        try_add("attn.o_proj", layer.self_attn.o_proj)
 
         # Most dense models.
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.mlp.down_proj.weight)
+            try_add("mlp.down_proj", layer.mlp.down_proj)
 
         # Some MoE models (e.g. Qwen3).
         with suppress(Exception):
             for expert in layer.mlp.experts:
-                try_add("mlp.down_proj", expert.down_proj.weight)
+                try_add("mlp.down_proj", expert.down_proj)
 
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
             for expert in layer.block_sparse_moe.experts:
-                try_add("mlp.down_proj", expert.w2.weight)
-
-        # gpt-oss MoE.
-        with suppress(Exception):
-            # The implementation of gpt-oss in Transformers differs from many other MoE models
-            # in that it stores the down-projections for all experts in a single 3D tensor,
-            # but thanks to PyTorch's broadcasting magic, it all just works anyway.
-            try_add("mlp.down_proj", layer.mlp.experts.down_proj)
+                try_add("mlp.down_proj", expert.w2)
 
         # Granite MoE Hybrid - attention layers with shared_mlp.
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.shared_mlp.output_linear.weight)
+            try_add("mlp.down_proj", layer.shared_mlp.output_linear)
 
         # Granite MoE Hybrid - MoE layers with experts.
         with suppress(Exception):
             for expert in layer.moe.experts:
-                try_add("mlp.down_proj", expert.output_linear.weight)
+                try_add("mlp.down_proj", expert.output_linear)
 
-        # We need at least one MLP down-projection.
-        assert matrices["mlp.down_proj"]
+        # We need at least one module across all components for abliteration to work.
+        total_modules = sum(len(mods) for mods in modules.values())
+        assert total_modules > 0, "No abliterable modules found in layer"
 
-        return matrices
+        return modules
 
     def get_abliterable_components(self) -> list[str]:
-        return list(self.get_layer_matrices(0).keys())
+        return list(self.get_layer_modules(0).keys())
 
     def abliterate(
         self,
@@ -229,7 +250,7 @@ class Model:
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
         for layer_index in range(len(self.get_layers())):
-            for component, matrices in self.get_layer_matrices(layer_index).items():
+            for component, modules in self.get_layer_modules(layer_index).items():
                 params = parameters[component]
 
                 distance = abs(layer_index - params.max_weight_position)
@@ -252,18 +273,50 @@ class Model:
                 else:
                     layer_refusal_direction = refusal_direction
 
-                # Projects any right-multiplied vector(s) onto the subspace
-                # spanned by the refusal direction.
-                projector = torch.outer(
-                    layer_refusal_direction,
-                    layer_refusal_direction,
-                ).to(self.model.dtype)
+                for module in modules:
+                    # LoRA abliteration: delta W = -lambda * v * (v^T W)
+                    # lora_B = -lambda * v
+                    # lora_A = v^T W
 
-                for matrix in matrices:
-                    # Ensure projector is on the same device as the matrix for multi-GPU support.
-                    device_projector = projector.to(matrix.device)
-                    # In-place subtraction is safe as we're not using Autograd.
-                    matrix.sub_(weight * (device_projector @ matrix))
+                    # Use the FP32 refusal direction directly (no downcast/upcast)
+                    # and move to the correct device.
+                    # NOTE: Assumes module has .weight (true for Linear layers we target)
+                    v = layer_refusal_direction.to(module.weight.device)
+
+                    # Get W (dequantize if necessary)
+                    # For LoRA-wrapped modules, the quantized weights are in base_layer
+                    base_weight = (
+                        module.base_layer.weight
+                        if hasattr(module, "base_layer")
+                        else module.weight
+                    )
+                    quant_state = getattr(base_weight, "quant_state", None)
+
+                    if quant_state is not None:
+                        # 4-bit quantization
+                        W = bnb.functional.dequantize_4bit(
+                            base_weight.data, quant_state
+                        ).to(torch.float32)
+                    else:
+                        W = base_weight.to(torch.float32)
+
+                    # Calculate lora_A = v^T W
+                    # v is (d_out,), W is (d_out, d_in)
+                    # v @ W -> (d_in,)
+                    lora_A = (v @ W).view(1, -1)
+
+                    # Calculate lora_B = -weight * v
+                    # v is (d_out,)
+                    lora_B = (-weight * v).view(-1, 1)
+
+                    # Assign to adapters
+                    # We assume the default adapter name "default"
+                    module.lora_A["default"].weight.data = lora_A.to(
+                        module.lora_A["default"].weight.dtype
+                    )
+                    module.lora_B["default"].weight.data = lora_B.to(
+                        module.lora_B["default"].weight.dtype
+                    )
 
     def get_chat(self, prompt: str) -> list[dict[str, str]]:
         return [

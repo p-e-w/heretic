@@ -27,12 +27,14 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
+from optuna.trial import TrialState
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
+from transformers import AutoModelForCausalLM
 
 from .analyzer import Analyzer
-from .config import Settings
+from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .utils import (
@@ -47,6 +49,73 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
+
+
+def obtain_merge_strategy(settings: Settings) -> str | None:
+    """
+    Prompts the user for how to proceed with quantized models.
+    Returns "merge", "adapter", or None (if cancelled/invalid).
+    """
+    # Prompt for all PEFT models to ensure user is aware of merge implications
+    if settings.quantization == QuantizationMethod.BNB_4BIT:
+        # Quantized models need special handling - we must reload the base model
+        # in full precision to merge the LoRA adapters
+        print()
+        print(
+            "[yellow]Model was loaded with quantization. Merging requires reloading the base model.[/]"
+        )
+        print(
+            "[red](!) WARNING: CPU Merging requires dequantizing the entire model to System RAM.[/]"
+        )
+        print("[red]    This can lead to SYSTEM FREEZES if you run out of memory.[/]")
+        print(
+            "[yellow]    Rule of thumb: You need approx. 3x the parameter count in GB.[/]"
+        )
+
+        try:
+            # Estimate memory requirements by loading the model structure on the "meta" device.
+            # This doesn't consume actual RAM but allows us to inspect the parameter count/dtype.
+            #
+            # Suppress warnings during meta device loading (e.g., "Some weights were not initialized").
+            # These are expected and harmless since we're only inspecting model structure, not running inference.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                meta_model = AutoModelForCausalLM.from_pretrained(
+                    settings.model,
+                    device_map="meta",
+                    torch_dtype=torch.bfloat16,
+                    trust_remote_code=True,
+                )
+                footprint_bytes = meta_model.get_memory_footprint()
+                footprint_gb = footprint_bytes / (1024**3)
+                print(
+                    f"[yellow]    Estimated net RAM required for model weights (excluding overhead): [bold]~{footprint_gb:.1f} GB[/][/]"
+                )
+        except Exception:
+            # Fallback if meta loading fails (e.g. owing to custom model code
+            # or `bitsandbytes` quantization config issues on the meta device)
+            print(
+                "[yellow]    Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
+            )
+        print()
+
+        merge_choice = prompt_select(
+            "How do you want to proceed?",
+            choices=[
+                Choice(
+                    title="Merge full model (reload base model on CPU - requires high RAM)",
+                    value="merge",
+                ),
+                Choice(
+                    title="Save LoRA adapter only (can be merged later with llama.cpp or more RAM)",
+                    value="adapter",
+                ),
+            ],
+        )
+        return merge_choice
+
+    # Default for non-quantized models
+    return "merge"
 
 
 def run():
@@ -221,7 +290,7 @@ def run():
         print()
         print(f"Loading model [bold]{settings.evaluate_model}[/]...")
         settings.model = settings.evaluate_model
-        model.reload_model()
+        model.reset_model()
         print("* Evaluating...")
         evaluator.get_score()
         return
@@ -266,6 +335,8 @@ def run():
             ],
         )
 
+        last_layer_index = len(model.get_layers()) - 1
+
         # Discrimination between "harmful" and "harmless" inputs is usually strongest
         # in layers slightly past the midpoint of the layer stack. See the original
         # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
@@ -275,8 +346,8 @@ def run():
         # work with conditional or variable-range parameters.
         direction_index = trial.suggest_float(
             "direction_index",
-            0.4 * (len(model.get_layers()) - 1),
-            0.9 * (len(model.get_layers()) - 1),
+            0.4 * last_layer_index,
+            0.9 * last_layer_index,
         )
 
         if direction_scope == "per layer":
@@ -295,8 +366,8 @@ def run():
             )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
-                0.6 * (len(model.get_layers()) - 1),
-                len(model.get_layers()) - 1,
+                0.6 * last_layer_index,
+                1.0 * last_layer_index,
             )
             # For sampling purposes, min_weight is expressed as a fraction of max_weight,
             # again because multivariate TPE doesn't support variable-range parameters.
@@ -309,7 +380,7 @@ def run():
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",
                 1.0,
-                0.6 * (len(model.get_layers()) - 1),
+                0.6 * last_layer_index,
             )
 
             parameters[component] = AbliterationParameters(
@@ -329,8 +400,8 @@ def run():
         print("* Parameters:")
         for name, value in get_trial_parameters(trial).items():
             print(f"  * {name} = [bold]{value}[/]")
-        print("* Reloading model...")
-        model.reload_model()
+        print("* Resetting model...")
+        model.reset_model()
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
@@ -380,13 +451,27 @@ def run():
     # If no trials at all have been evaluated, the study must have been stopped
     # by pressing Ctrl+C while the first trial was running. In this case, we just
     # re-raise the interrupt to invoke the standard handler defined below.
-    if not study.best_trials:
+    completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
+    if not completed_trials:
         raise KeyboardInterrupt
 
-    best_trials = sorted(
-        study.best_trials,
-        key=lambda trial: trial.user_attrs["refusals"],
+    # Get the Pareto front of trials. We can't use study.best_trials directly
+    # as get_score() doesn't return the pure KL divergence and refusal count.
+    # Note: Unlike study.best_trials, this does not handle objective constraints.
+    sorted_trials = sorted(
+        completed_trials,
+        key=lambda trial: (
+            trial.user_attrs["refusals"],
+            trial.user_attrs["kl_divergence"],
+        ),
     )
+    min_divergence = math.inf
+    best_trials = []
+    for trial in sorted_trials:
+        kl_divergence = trial.user_attrs["kl_divergence"]
+        if kl_divergence < min_divergence:
+            min_divergence = kl_divergence
+            best_trials.append(trial)
 
     choices = [
         Choice(
@@ -428,8 +513,11 @@ def run():
 
         print()
         print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
-        print("* Reloading model...")
-        model.reload_model()
+        print("* Parameters:")
+        for name, value in get_trial_parameters(trial).items():
+            print(f"  * {name} = [bold]{value}[/]")
+        print("* Resetting model...")
+        model.reset_model()
         print("* Abliterating...")
         model.abliterate(
             refusal_directions,
@@ -463,7 +551,19 @@ def run():
                             continue
 
                         print("Saving model...")
-                        model.model.save_pretrained(save_directory)
+                        strategy = obtain_merge_strategy(settings)
+                        if strategy is None:
+                            print("[yellow]Action cancelled.[/]")
+                            continue
+
+                        if strategy == "adapter":
+                            model.model.save_pretrained(save_directory)
+                        else:
+                            merged_model = model.get_merged_model()
+                            merged_model.save_pretrained(save_directory)
+                            del merged_model
+                            empty_cache()
+
                         model.tokenizer.save_pretrained(save_directory)
                         print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -499,13 +599,29 @@ def run():
                         )
                         private = visibility == "Private"
 
-                        print("Uploading model...")
+                        strategy = obtain_merge_strategy(settings)
+                        if strategy is None:
+                            print("[yellow]Action cancelled.[/]")
+                            continue
 
-                        model.model.push_to_hub(
-                            repo_id,
-                            private=private,
-                            token=token,
-                        )
+                        if strategy == "adapter":
+                            print("Uploading LoRA adapter...")
+                            model.model.push_to_hub(
+                                repo_id,
+                                private=private,
+                                token=token,
+                            )
+                        else:
+                            print("Uploading merged model...")
+                            merged_model = model.get_merged_model()
+                            merged_model.push_to_hub(
+                                repo_id,
+                                private=private,
+                                token=token,
+                            )
+                            del merged_model
+                            empty_cache()
+
                         model.tokenizer.push_to_hub(
                             repo_id,
                             private=private,

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+from enum import Enum
 from typing import Dict
 
 from pydantic import BaseModel, Field
@@ -10,6 +11,11 @@ from pydantic_settings import (
     SettingsConfigDict,
     TomlConfigSettingsSource,
 )
+
+
+class QuantizationMethod(str, Enum):
+    NONE = "none"
+    BNB_4BIT = "bnb_4bit"
 
 
 class DatasetSpecification(BaseModel):
@@ -64,9 +70,19 @@ class Settings(BaseSettings):
         description="Device map to pass to Accelerate when loading the model.",
     )
 
+    max_memory: Dict[str, str] | None = Field(
+        default=None,
+        description="Maximum memory to allocate per device (e.g., {'0': '20GB', 'cpu': '64GB'}).",
+    )
+
     trust_remote_code: bool | None = Field(
         default=None,
         description="Whether to trust remote code when loading the model.",
+    )
+
+    quantization: QuantizationMethod = Field(
+        default=QuantizationMethod.NONE,
+        description="Quantization method to use when loading the model. Options: 'none' (no quantization), 'bnb_4bit' (4-bit quantization using bitsandbytes).",
     )
 
     batch_size: int = Field(
@@ -114,6 +130,14 @@ class Settings(BaseSettings):
         description=(
             'Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models. '
             "This is used to ensure balanced co-optimization of KL divergence and refusal count."
+        ),
+    )
+
+    kl_divergence_target: float = Field(
+        default=0.01,
+        description=(
+            "The KL divergence to target. Below this value, an objective based on the refusal count is used."
+            'This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".'
         ),
     )
 

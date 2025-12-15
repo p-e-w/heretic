@@ -248,7 +248,6 @@ class Settings(BaseSettings):
         cli_parse_args=True,
         cli_implicit_flags=True,
         cli_kebab_case=True,
-        extra="allow",
     )
 
     @classmethod

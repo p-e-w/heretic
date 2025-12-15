@@ -63,10 +63,10 @@ def load_plugin(
                     module = importlib.import_module(module_name)
                     plugin_cls = getattr(module, class_name)
                 except (ImportError, AttributeError) as e2:
-                     # If it still fails, raise the original error or a new one
-                     raise ImportError(f"Could not load plugin '{name}': {e2}") from e2
+                    # If it still fails, raise the original error or a new one
+                    raise ImportError(f"Could not load plugin '{name}': {e2}") from e2
             else:
-                 raise ImportError(f"Could not load plugin '{name}': {e}") from e
+                raise ImportError(f"Could not load plugin '{name}': {e}") from e
     else:
         module_path = f".{subpackage}.{name}" if subpackage else f".{name}"
         try:

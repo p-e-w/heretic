@@ -133,13 +133,14 @@ class Model:
             print(
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
-        
+
         # Initialize metadata builder
         self.metadata_builder = MetadataBuilder(
             settings=settings,
             tokenizer=self.tokenizer,
             model_getter=lambda: self.model,
         )
+
     def _apply_lora(self):
         # Always use LoRA adapters for abliteration (faster reload, no weight modification)
         # We use the leaf names (e.g. "o_proj") as target modules.

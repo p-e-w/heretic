@@ -41,8 +41,14 @@ class DatasetSpecification(BaseModel):
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
-    tagger: str = Field(default="heretic.taggers.keyword.KeywordRefusalDetector", description="Tagger plugin to use.")
-    scorer: str = Field(default="heretic.scorers.count_refusals.CountRefusals", description="Scorer plugin to use.")
+    tagger: str = Field(
+        default="heretic.taggers.keyword.KeywordRefusalDetector",
+        description="Tagger plugin to use.",
+    )
+    scorer: str = Field(
+        default="heretic.scorers.count_refusals.CountRefusals",
+        description="Scorer plugin to use.",
+    )
 
     evaluate_model: str | None = Field(
         default=None,

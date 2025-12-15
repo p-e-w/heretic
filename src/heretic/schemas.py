@@ -8,7 +8,7 @@ class ContextMetadata:
     system_prompt: str | None = None
     model_name: str | None = None
     generation_params: Dict[str, Any] | None = None
-    
+
     # Internal vectors
     good_residuals: List[List[List[float]]] | None = None
     bad_residuals: List[List[List[float]]] | None = None

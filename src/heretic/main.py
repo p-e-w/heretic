@@ -161,7 +161,10 @@ def run():
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
-        print(f"GPU type: [bold]{torch.cuda.get_device_name()}[/]")
+        count = torch.cuda.device_count()
+        print(f"Detected [bold]{count}[/] GPU(s):")
+        for i in range(count):
+            print(f"  * GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/]")
     elif is_xpu_available():
         print(f"XPU type: [bold]{torch.xpu.get_device_name()}[/]")
     elif is_mlu_available():

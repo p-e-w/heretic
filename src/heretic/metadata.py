@@ -28,8 +28,6 @@ class MetadataBuilder:
     }
 
     SUPPORTED_CONTEXT_METADATA_FIELDS = {
-        "system_prompt",
-        "model_name",
         "generation_params",
         "good_residuals",
         "bad_residuals",
@@ -119,10 +117,6 @@ class MetadataBuilder:
             bad_residuals = model.bad_residuals.detach().cpu().tolist()
 
         return ContextMetadata(
-            system_prompt=self.settings.system_prompt
-            if "system_prompt" in requested
-            else None,
-            model_name=self.settings.model if "model_name" in requested else None,
             generation_params={
                 "max_new_tokens": self.settings.max_response_length,
                 "do_sample": False,

@@ -323,6 +323,18 @@ def run():
     if settings.plot_residuals:
         analyzer.plot_residuals()
 
+    # If the tagger plugin hasn't requested the residuals, we can delete them
+    # to save memory.
+    if (
+        "good_residuals"
+        not in evaluator.tagger_plugin.required_context_metadata_fields()
+        and "bad_residuals"
+        not in evaluator.tagger_plugin.required_context_metadata_fields()
+    ):
+        model.good_residuals = None
+        model.bad_residuals = None
+        del good_residuals, bad_residuals
+
     del analyzer
     empty_cache()
 

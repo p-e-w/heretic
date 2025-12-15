@@ -31,6 +31,8 @@ class MetadataBuilder:
         "system_prompt",
         "model_name",
         "generation_params",
+        "good_residuals",
+        "bad_residuals",
     }
 
     def __init__(
@@ -106,6 +108,16 @@ class MetadataBuilder:
 
     def build_context_metadata(self) -> ContextMetadata:
         requested = self.requested_context_fields
+        model = self._model_getter()
+
+        good_residuals = None
+        if "good_residuals" in requested and model.good_residuals is not None:
+            good_residuals = model.good_residuals.detach().cpu().tolist()
+
+        bad_residuals = None
+        if "bad_residuals" in requested and model.bad_residuals is not None:
+            bad_residuals = model.bad_residuals.detach().cpu().tolist()
+
         return ContextMetadata(
             system_prompt=self.settings.system_prompt
             if "system_prompt" in requested
@@ -118,6 +130,8 @@ class MetadataBuilder:
             }
             if "generation_params" in requested
             else None,
+            good_residuals=good_residuals,
+            bad_residuals=bad_residuals,
         )
 
     def collect_response_metadata(

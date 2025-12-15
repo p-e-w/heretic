@@ -74,6 +74,14 @@ class Evaluator:
         score = self.scorer_plugin.score_batch(tags)
         return score
 
+    def update_tagger_context_metadata(self):
+        """
+        Updates the context metadata in the tagger plugin.
+        This is useful if context metadata (like refusal directions) becomes available
+        after the evaluator has been initialized.
+        """
+        self.tagger_plugin.context_metadata = self.model.get_context_metadata()
+
     def get_score(self) -> tuple[tuple[float, float], float, int]:
         print("  * Obtaining first-token probability distributions...")
         logprobs = self.model.get_logprobs_batched(self.good_prompts)

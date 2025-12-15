@@ -305,6 +305,10 @@ def run():
     good_residuals = model.get_residuals_batched(good_prompts)
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
+
+    model.good_residuals = good_residuals
+    model.bad_residuals = bad_residuals
+
     refusal_directions = F.normalize(
         bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
         p=2,
@@ -319,9 +323,11 @@ def run():
     if settings.plot_residuals:
         analyzer.plot_residuals()
 
-    # We don't need the residuals after computing refusal directions.
-    del good_residuals, bad_residuals, analyzer
+    del analyzer
     empty_cache()
+
+    # Update tagger with refusal directions (if it requested them)
+    evaluator.update_tagger_context_metadata()
 
     trial_index = 0
     start_time = time.perf_counter()

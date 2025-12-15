@@ -47,6 +47,8 @@ class Model:
         self.settings = settings
         self.response_prefix = ""
         self.needs_reload = False
+        self.good_residuals: Tensor | None = None
+        self.bad_residuals: Tensor | None = None
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")

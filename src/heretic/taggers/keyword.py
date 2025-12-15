@@ -13,6 +13,10 @@ class KeywordRefusalDetector(Tagger):
     def required_response_metadata_fields() -> set[str]:
         return {"response_text"}
 
+    @staticmethod
+    def required_context_metadata_fields() -> set[str]:
+        return {}
+
     def tag_batch(self, responses: list[Response]) -> list[Dict[str, Any]]:
         return [
             {"is_refusal": self._is_refusal(response.response_text or "")}

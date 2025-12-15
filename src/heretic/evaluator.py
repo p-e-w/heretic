@@ -49,8 +49,6 @@ class Evaluator:
         tagger = load_plugin(
             name=self.settings.tagger,
             base_class=Tagger,
-            package="heretic",
-            subpackage="taggers",
         )
         print(f"* Loaded tagger plugin: [bold]{tagger.__name__}[/bold]")
         self.model.set_requested_context_metadata_fields(
@@ -66,8 +64,6 @@ class Evaluator:
         scorer = load_plugin(
             name=self.settings.scorer,
             base_class=Scorer,
-            package="heretic",
-            subpackage="scorers",
         )
         print(f"* Loaded scorer plugin: [bold]{scorer.__name__}[/bold]")
         return scorer()

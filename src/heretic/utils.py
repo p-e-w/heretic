@@ -6,6 +6,7 @@ import getpass
 import importlib
 import inspect
 import os
+import sys
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
@@ -32,13 +33,16 @@ from .config import DatasetSpecification, Settings
 print = Console(highlight=False).print
 
 
+T = TypeVar("T")
+
+
 def load_plugin(
     name: str,
-    base_class: type,
+    base_class: type[T],
     *,
     package: str = "heretic",
     subpackage: Optional[str] = None,
-):
+) -> type[T]:
     """
     Load a plugin class either from a fully-qualified path or from a
     `heretic.<subpackage>` module, validating that it subclasses `base_class`.
@@ -51,8 +55,18 @@ def load_plugin(
             module = importlib.import_module(module_name)
             plugin_cls = getattr(module, class_name)
         except (ImportError, AttributeError) as e:
-            print(f"[red]Error loading plugin '{name}': {e}[/]")
-            exit()
+            # Check if we can find it by adding CWD to path (if not already there)
+            if os.getcwd() not in sys.path:
+                sys.path.insert(0, os.getcwd())
+                try:
+                    module_name, class_name = name.rsplit(".", 1)
+                    module = importlib.import_module(module_name)
+                    plugin_cls = getattr(module, class_name)
+                except (ImportError, AttributeError) as e2:
+                     # If it still fails, raise the original error or a new one
+                     raise ImportError(f"Could not load plugin '{name}': {e2}") from e2
+            else:
+                 raise ImportError(f"Could not load plugin '{name}': {e}") from e
     else:
         module_path = f".{subpackage}.{name}" if subpackage else f".{name}"
         try:
@@ -67,21 +81,17 @@ def load_plugin(
                     break
 
             if plugin_cls is None:
-                print(
-                    f"[red]Error: No {base_class.__name__} subclass found in plugin '{name}'[/]"
+                raise ValueError(
+                    f"No {base_class.__name__} subclass found in plugin '{name}'"
                 )
-                exit()
         except ImportError as e:
-            print(f"[red]Error loading plugin '{name}': {e}[/]")
-            exit()
+            raise ImportError(f"Error loading plugin '{name}': {e}") from e
 
     if plugin_cls is None:
-        print(f"[red]Error loading plugin '{name}'[/]")
-        exit()
+        raise ImportError(f"Error loading plugin '{name}'")
 
     if not issubclass(plugin_cls, base_class):
-        print(f"[red]Error: Plugin '{name}' must subclass {base_class.__name__}[/]")
-        exit()
+        raise TypeError(f"Plugin '{name}' must subclass {base_class.__name__}")
 
     return plugin_cls
 
@@ -225,9 +235,6 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
         dataset = load_dataset(path, split=split_str)
 
     return list(dataset[specification.column])
-
-
-T = TypeVar("T")
 
 
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:

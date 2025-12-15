@@ -27,7 +27,8 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, Settings
-from .schemas import Response
+from .metadata import MetadataBuilder
+from .schemas import ContextMetadata, Response
 from .utils import batchify, empty_cache, print
 
 GenerateOutput = GenerateDecoderOnlyOutput | GenerateEncoderDecoderOutput
@@ -130,6 +131,13 @@ class Model:
             print(
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
+        
+        # Initialize metadata builder
+        self.metadata_builder = MetadataBuilder(
+            settings=settings,
+            tokenizer=self.tokenizer,
+            model_getter=lambda: self.model,
+        )
     def _apply_lora(self):
         # Always use LoRA adapters for abliteration (faster reload, no weight modification)
         # We use the leaf names (e.g. "o_proj") as target modules.
@@ -608,3 +616,19 @@ class Model:
         )
 
         return metadata
+
+    def set_requested_metadata_fields(self, requested_fields: set[str]) -> set[str]:
+        """Set the requested response metadata fields."""
+        return self.metadata_builder.set_requested_response_fields(requested_fields)
+
+    def set_requested_context_metadata_fields(
+        self, requested_fields: set[str]
+    ) -> set[str]:
+        """Set the requested context metadata fields."""
+        return self.metadata_builder.set_requested_context_metadata_fields(
+            requested_fields
+        )
+
+    def get_context_metadata(self) -> ContextMetadata:
+        """Get the context metadata based on requested fields."""
+        return self.metadata_builder.build_context_metadata()

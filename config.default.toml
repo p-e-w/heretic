@@ -1,10 +1,10 @@
 # Copy this file to config.toml and edit the configuration to your liking.
 
 # Tagger plugin to use (keyword refusal by default)
-tagger = "keyword"
+tagger = "heretic.taggers.keyword.KeywordRefusalDetector"
 
 # Scorer plugin to use (counts keyword refusals by default)
-scorer = "count_refusals"
+scorer = "heretic.scorers.count_refusals.CountRefusals"
 
 # List of PyTorch dtypes to try when loading model tensors.
 # If loading with a dtype fails, the next dtype in the list will be tried.

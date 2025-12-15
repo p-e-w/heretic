@@ -1,5 +1,11 @@
 # Copy this file to config.toml and edit the configuration to your liking.
 
+# Tagger plugin to use (keyword refusal by default)
+tagger = "keyword"
+
+# Scorer plugin to use (counts keyword refusals by default)
+scorer = "count_refusals"
+
 # List of PyTorch dtypes to try when loading model tensors.
 # If loading with a dtype fails, the next dtype in the list will be tried.
 dtypes = [
@@ -129,9 +135,3 @@ column = "text"
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
-
-# Tagger plugin to use (keyword refusal by default)
-tagger = "keyword"
-
-# Scorer plugin to use (counts keyword refusals by default)
-scorer = "count_refusals"

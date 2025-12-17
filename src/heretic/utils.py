@@ -54,6 +54,7 @@ def load_plugin(
     * Fully-qualified module path, e.g. `heretic.taggers.keyword.KeywordRefusalDetector`
       or `external.package.module.PluginClass`: import directly.
     """
+
     def infer_subpackage() -> str | None:
         if subpackage is not None:
             return subpackage

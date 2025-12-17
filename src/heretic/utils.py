@@ -4,9 +4,9 @@
 import gc
 import getpass
 import importlib
+import importlib.util
 import inspect
 import os
-import sys
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
@@ -40,55 +40,96 @@ def load_plugin(
     name: str,
     base_class: type[T],
     *,
-    package: str = "heretic",
     subpackage: Optional[str] = None,
 ) -> type[T]:
     """
-    Load a plugin class either from a fully-qualified path or from a
-    `heretic.<subpackage>` module, validating that it subclasses `base_class`.
+    Load a plugin class from either a filesystem `.py` file or a built-in module.
+
+    Accepted forms:
+    * `something.py` (relative or absolute): load the first subclass of
+      `base_class` defined in that file.
+    * `keyword` or `keyword.KeywordRefusalDetector`: treat as built-in under
+      `heretic.<subpackage>.keyword` (subpackage inferred from `base_class` unless
+      explicitly provided).
+    * Fully-qualified module path, e.g. `heretic.taggers.keyword.KeywordRefusalDetector`
+      or `external.package.module.PluginClass`: import directly.
     """
-    plugin_cls = None
+    def infer_subpackage() -> str | None:
+        if subpackage is not None:
+            return subpackage
 
-    if "." in name:
-        try:
-            module_name, class_name = name.rsplit(".", 1)
-            module = importlib.import_module(module_name)
-            plugin_cls = getattr(module, class_name)
-        except (ImportError, AttributeError) as e:
-            # Check if we can find it by adding CWD to path (if not already there)
-            if os.getcwd() not in sys.path:
-                sys.path.insert(0, os.getcwd())
-                try:
-                    module_name, class_name = name.rsplit(".", 1)
-                    module = importlib.import_module(module_name)
-                    plugin_cls = getattr(module, class_name)
-                except (ImportError, AttributeError) as e2:
-                    # If it still fails, raise the original error or a new one
-                    raise ImportError(f"Could not load plugin '{name}': {e2}") from e2
-            else:
-                raise ImportError(f"Could not load plugin '{name}': {e}") from e
-    else:
-        module_path = f".{subpackage}.{name}" if subpackage else f".{name}"
-        try:
-            module = importlib.import_module(module_path, package=package)
-            for _, obj in inspect.getmembers(module):
-                if (
-                    inspect.isclass(obj)
-                    and issubclass(obj, base_class)
-                    and obj.__module__ == module.__name__
-                ):
-                    plugin_cls = obj
-                    break
+        base_name = base_class.__name__.lower()
+        if base_name.startswith("tagger"):
+            return "taggers"
+        if base_name.startswith("scorer"):
+            return "scorers"
+        return None
 
-            if plugin_cls is None:
-                raise ValueError(
-                    f"No {base_class.__name__} subclass found in plugin '{name}'"
-                )
+    def find_class_in_module(module, class_name: str | None) -> type[T] | None:
+        if class_name:
+            obj = getattr(module, class_name, None)
+            if inspect.isclass(obj) and issubclass(obj, base_class):
+                return obj
+            return None
+
+        for _, obj in inspect.getmembers(module):
+            if (
+                inspect.isclass(obj)
+                and issubclass(obj, base_class)
+                and obj.__module__ == module.__name__
+            ):
+                return obj
+        return None
+
+    def import_module(module_name: str):
+        try:
+            return importlib.import_module(module_name)
         except ImportError as e:
             raise ImportError(f"Error loading plugin '{name}': {e}") from e
 
+    plugin_cls = None
+
+    if name.endswith(".py"):
+        plugin_path = Path(name)
+        if not plugin_path.is_absolute():
+            plugin_path = Path.cwd() / plugin_path
+        plugin_path = plugin_path.resolve()
+
+        if not plugin_path.is_file():
+            raise ImportError(f"Plugin file '{plugin_path}' does not exist")
+
+        # Use a unique, stable module name to avoid clashes on repeated loads.
+        module_name = f"_heretic_plugin_{plugin_path.stem}_{abs(hash(plugin_path))}"
+        spec = importlib.util.spec_from_file_location(module_name, plugin_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load plugin '{name}' (invalid module spec)")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        plugin_cls = find_class_in_module(module, None)
+    else:
+        subpkg = infer_subpackage()
+
+        if "." in name:
+            module_part, class_part = name.rsplit(".", 1)
+
+            if module_part.startswith("heretic.") or module_part.startswith("heretic_"):
+                module_name = module_part
+            elif subpkg:
+                module_name = f"heretic.{subpkg}.{module_part}"
+            else:
+                module_name = module_part
+
+            module = import_module(module_name)
+            plugin_cls = find_class_in_module(module, class_part)
+        else:
+            module_name = f"heretic.{subpkg}.{name}" if subpkg else name
+            module = import_module(module_name)
+            plugin_cls = find_class_in_module(module, None)
+
     if plugin_cls is None:
-        raise ImportError(f"Error loading plugin '{name}'")
+        raise ValueError(f"No {base_class.__name__} subclass found for '{name}'")
 
     if not issubclass(plugin_cls, base_class):
         raise TypeError(f"Plugin '{name}' must subclass {base_class.__name__}")

@@ -42,11 +42,11 @@ class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
     tagger: str = Field(
-        default="heretic.taggers.keyword.KeywordRefusalDetector",
+        default="keyword.KeywordRefusalDetector",
         description="Tagger plugin to use.",
     )
     scorer: str = Field(
-        default="heretic.scorers.count_refusals.CountRefusals",
+        default="count_refusals.CountRefusals",
         description="Scorer plugin to use.",
     )
 

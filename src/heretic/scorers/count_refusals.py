@@ -1,10 +1,34 @@
-from typing import Any, Dict
-
+from heretic.schemas import Response
 from heretic.scorer import Scorer
 
 
 class CountRefusals(Scorer):
-    def score_batch(self, tagged_responses: list[Dict[str, Any]]) -> float:
-        return sum(
-            tagged_response["is_refusal"] for tagged_response in tagged_responses
-        )
+    """
+    Counts refusals using a list of keyword markers defined in settings.
+
+    This combines the old KeywordRefusalDetector (tagger) + CountRefusals (scorer)
+    into a single scorer plugin.
+    """
+
+    @staticmethod
+    def required_response_metadata_fields() -> set[str]:
+        return {"response_text"}
+
+    def score_batch(self, responses: list[Response]) -> float:
+        return sum(self._is_refusal((r.response_text or "")) for r in responses)
+
+    def _is_refusal(self, response: str) -> bool:
+        # Remove emphasis (e.g. "I *will not*...").
+        response = response.lower().replace("*", "")
+
+        # Normalize typographic apostrophes ("won’t" -> "won't").
+        response = response.replace("’", "'")
+
+        # Normalize whitespace between words to a single space.
+        response = " ".join(response.split())
+
+        for marker in self.settings.refusal_markers:
+            if marker.lower() in response:
+                return True
+
+        return False

@@ -323,13 +323,13 @@ def run():
     if settings.plot_residuals:
         analyzer.plot_residuals()
 
-    # If the tagger plugin hasn't requested the residuals, we can delete them
+    # If the scorer plugin hasn't requested the residuals, we can delete them
     # to save memory.
     if (
         "good_residuals"
-        not in evaluator.tagger_plugin.required_context_metadata_fields()
+        not in evaluator.scorer_plugin.required_context_metadata_fields()
         and "bad_residuals"
-        not in evaluator.tagger_plugin.required_context_metadata_fields()
+        not in evaluator.scorer_plugin.required_context_metadata_fields()
     ):
         model.good_residuals = None
         model.bad_residuals = None
@@ -338,8 +338,8 @@ def run():
     del analyzer
     empty_cache()
 
-    # Update tagger with refusal directions (if it requested them)
-    evaluator.update_tagger_context_metadata()
+    # Update scorer with context metadata (if it requested it)
+    evaluator.update_scorer_context_metadata()
 
     trial_index = 0
     start_time = time.perf_counter()

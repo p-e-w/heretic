@@ -1,10 +1,5 @@
 # Copy this file to config.toml and edit the configuration to your liking.
 
-# Tagger plugin to use (keyword refusal by default).
-# You can also point to a file path outside the repo, e.g.:
-# tagger = "/absolute/path/to/my_tagger.py:MyTagger"
-tagger = "keyword.KeywordRefusalDetector"
-
 # Scorer plugin to use (counts keyword refusals by default).
 # You can also point to a file path outside the repo, e.g.:
 # scorer = "/absolute/path/to/my_scorer.py:MyScorer"

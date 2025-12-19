@@ -41,10 +41,6 @@ class DatasetSpecification(BaseModel):
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
-    tagger: str = Field(
-        default="keyword.KeywordRefusalDetector",
-        description="Tagger plugin to use.",
-    )
     scorer: str = Field(
         default="count_refusals.CountRefusals",
         description="Scorer plugin to use.",

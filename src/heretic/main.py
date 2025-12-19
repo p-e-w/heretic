@@ -438,24 +438,22 @@ def run():
         directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
     )
 
-    trials_to_run = settings.n_trials
+    try:
+        study.optimize(objective_wrapper, n_trials=settings.n_trials)
+    except KeyboardInterrupt:
+        # This additional handler takes care of the small chance that KeyboardInterrupt
+        # is raised just between trials, which wouldn't be caught by the handler
+        # defined in objective_wrapper above.
+        pass
 
     while True:
-        if trials_to_run > 0:
-            try:
-                study.optimize(objective_wrapper, n_trials=trials_to_run)
-            except KeyboardInterrupt:
-                # This additional handler takes care of the small chance that KeyboardInterrupt
-                # is raised just between trials, which wouldn't be caught by the handler
-                # defined in objective_wrapper above.
-                pass
+        print()
+        print("[bold green]Optimization finished![/]")
+        print()
 
         # If no trials at all have been evaluated, the study must have been stopped
         # by pressing Ctrl+C while the first trial was running. In this case, we just
         # re-raise the interrupt to invoke the standard handler defined below.
-        if not study.best_trials:
-            raise KeyboardInterrupt
-
         completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
         if not completed_trials:
             raise KeyboardInterrupt
@@ -504,10 +502,6 @@ def run():
             )
         )
 
-        print()
-        if trials_to_run > 0:
-            print("[bold green]Optimization finished![/]")
-            print()
         print(
             (
                 "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
@@ -534,7 +528,10 @@ def run():
                         print("[red]Invalid input. Please enter a number.[/]")
 
                 settings.n_trials += n_more_trials
-                trials_to_run = n_more_trials
+                try:
+                    study.optimize(objective_wrapper, n_trials=n_more_trials)
+                except KeyboardInterrupt:
+                    pass
                 break
 
             if trial is None or trial == "":

@@ -291,6 +291,12 @@ def run():
     elif model.response_prefix.startswith("<|channel|>analysis<|message|>"):
         # gpt-oss.
         model.response_prefix = "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>"
+    elif model.response_prefix.startswith("<thought>"):
+        # Unknown, suggested by user.
+        model.response_prefix = "<thought></thought>"
+    elif model.response_prefix.startswith("[THINK]"):
+        # Unknown, suggested by user.
+        model.response_prefix = "[THINK][/THINK]"
 
     if model.response_prefix:
         print(f"* Prefix found: [bold]{model.response_prefix!r}[/]")

@@ -447,12 +447,6 @@ def run():
         pass
 
     while True:
-        # If no trials at all have been evaluated, the study must have been stopped
-        # by pressing Ctrl+C while the first trial was running. In this case, we just
-        # re-raise the interrupt to invoke the standard handler defined below.
-        if not study.best_trials:
-            raise KeyboardInterrupt
-
         completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
         if not completed_trials:
             raise KeyboardInterrupt

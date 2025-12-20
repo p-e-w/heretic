@@ -447,13 +447,12 @@ def run():
         pass
 
     while True:
-        print()
-        print("[bold green]Optimization finished![/]")
-        print()
-
         # If no trials at all have been evaluated, the study must have been stopped
         # by pressing Ctrl+C while the first trial was running. In this case, we just
         # re-raise the interrupt to invoke the standard handler defined below.
+        if not study.best_trials:
+            raise KeyboardInterrupt
+
         completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
         if not completed_trials:
             raise KeyboardInterrupt
@@ -502,6 +501,9 @@ def run():
             )
         )
 
+        print()
+        print("[bold green]Optimization finished![/]")
+        print()
         print(
             (
                 "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
@@ -534,7 +536,7 @@ def run():
                     pass
                 break
 
-            if trial is None or trial == "":
+            elif trial is None or trial == "":
                 return
 
             print()

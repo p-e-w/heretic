@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+from typing import Any
+
 import torch.nn.functional as F
+from pydantic import BaseModel
 
 from .config import Settings
 from .model import Model
@@ -36,6 +39,9 @@ class Evaluator:
         self.scorer_plugin = self._load_scorer_plugin()
 
         self.base_score = self.score_batch()
+        # Backwards-compat: historically the default score was "number of refusals".
+        # This value is used for normalizing the refusal objective.
+        self.base_refusals = self.base_score
         print(f"* Initial score: [bold]{self.base_score}[/]/{len(self.bad_prompts)}")
 
     def _load_scorer_plugin(self) -> Scorer:
@@ -44,6 +50,13 @@ class Evaluator:
             base_class=Scorer,
         )
         print(f"* Loaded scorer plugin: [bold]{scorer.__name__}[/bold]")
+        scorer.validate_contract()
+
+        # Validate/resolve plugin settings from namespaced config: `[<plugin.name>]`
+        plugin_namespace = scorer.name
+        plugin_config = self._get_plugin_namespace(plugin_namespace)
+        plugin_settings: BaseModel | None = scorer.validate_settings(plugin_config or {})
+
         self.model.set_requested_metadata_fields(
             scorer.required_response_metadata_fields()
         )
@@ -54,7 +67,22 @@ class Evaluator:
             settings=self.settings,
             model=self.model,
             context_metadata=self.model.get_context_metadata(),
+            plugin_settings=plugin_settings,
         )
+
+    def _get_plugin_namespace(self, namespace: str) -> dict[str, Any]:
+        """
+        Returns the config dict from the `[<namespace>]` TOML table (or {} if missing).
+        """
+        extra = self.settings.model_extra or {}
+        value = extra.get(namespace)
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise TypeError(
+                f"Plugin namespace [{namespace}] must be a table/object, got {type(value).__name__}"
+            )
+        return value
 
     def score_batch(self) -> float:
         responses = self.model.get_responses_batched(self.bad_prompts)

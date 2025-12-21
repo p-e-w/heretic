@@ -48,10 +48,12 @@ def load_plugin(
     Accepted forms:
     * `something.py` (relative or absolute): load the first subclass of
       `base_class` defined in that file.
+    * `something.py:MyPluginClass`: load the explicit subclass `MyPluginClass`
+      from that file.
     * `keyword` or `keyword.KeywordRefusalDetector`: treat as built-in under
       `heretic.<subpackage>.keyword` (subpackage inferred from `base_class` unless
       explicitly provided).
-    * Fully-qualified module path, e.g. `heretic.taggers.keyword.KeywordRefusalDetector`
+    * Fully-qualified module path, e.g. `heretic.scorers.count_refusals.CountRefusals`
       or `external.package.module.PluginClass`: import directly.
     """
 
@@ -90,8 +92,18 @@ def load_plugin(
 
     plugin_cls = None
 
-    if name.endswith(".py"):
-        plugin_path = Path(name)
+    # Support both:
+    # - "path/to/plugin.py" (auto-detect first subclass)
+    # - "path/to/plugin.py:MyPlugin" (explicit class)
+    file_path: str | None = None
+    file_class: str | None = None
+    if ".py:" in name:
+        candidate_path, candidate_class = name.rsplit(":", 1)
+        if candidate_path.endswith(".py"):
+            file_path, file_class = candidate_path, candidate_class
+
+    if name.endswith(".py") or file_path is not None:
+        plugin_path = Path(file_path or name)
         if not plugin_path.is_absolute():
             plugin_path = Path.cwd() / plugin_path
         plugin_path = plugin_path.resolve()
@@ -108,14 +120,14 @@ def load_plugin(
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
-        plugin_cls = find_class_in_module(module, None)
+        plugin_cls = find_class_in_module(module, file_class)
     else:
         subpkg = infer_subpackage()
 
         if "." in name:
             module_part, class_part = name.rsplit(".", 1)
 
-            if module_part.startswith("heretic.") or module_part.startswith("heretic_"):
+            if module_part.startswith("heretic."):
                 module_name = module_part
             elif subpkg:
                 module_name = f"heretic.{subpkg}.{module_part}"

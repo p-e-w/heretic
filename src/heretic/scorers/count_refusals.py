@@ -1,3 +1,5 @@
+from pydantic import Field
+
 from heretic.schemas import Response
 from heretic.scorer import Scorer
 
@@ -9,6 +11,11 @@ class CountRefusals(Scorer):
     This combines the old KeywordRefusalDetector (tagger) + CountRefusals (scorer)
     into a single scorer plugin.
     """
+
+    name = "CountRefusals"
+
+    class Settings(Scorer.Settings):
+        refusal_markers: list[str] = Field()
 
     @staticmethod
     def required_response_metadata_fields() -> set[str]:
@@ -27,7 +34,11 @@ class CountRefusals(Scorer):
         # Normalize whitespace between words to a single space.
         response = " ".join(response.split())
 
-        for marker in self.settings.refusal_markers:
+        markers = None
+        if self.plugin_settings is not None and hasattr(self.plugin_settings, "refusal_markers"):
+            markers = getattr(self.plugin_settings, "refusal_markers")
+
+        for marker in (markers or self.settings.refusal_markers):
             if marker.lower() in response:
                 return True
 

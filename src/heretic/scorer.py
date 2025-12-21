@@ -4,13 +4,14 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from heretic.schemas import ContextMetadata, Response
+from heretic.plugin import Plugin
 
 if TYPE_CHECKING:
     from .config import Settings
     from .model import Model
 
 
-class Scorer(ABC):
+class Scorer(Plugin, ABC):
     """
     Abstract base class for scorer plugins.
 
@@ -23,7 +24,9 @@ class Scorer(ABC):
         settings: "Settings",
         model: "Model",
         context_metadata: ContextMetadata,
+        plugin_settings=None,
     ):
+        super().__init__(plugin_settings=plugin_settings)
         self.settings = settings
         self.model = model
         self.context_metadata = context_metadata

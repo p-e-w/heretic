@@ -48,6 +48,7 @@ research = [
 [dependency-groups]
 dev = [
     "ruff>=0.14.5",
+    "ty>=0.0.5",
 ]
 
 [project.urls]

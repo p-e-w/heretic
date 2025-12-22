@@ -146,7 +146,9 @@ def run():
         sys.argv.insert(-1, "--model")
 
     try:
-        settings = Settings()
+        # The required argument "model" must be provided by the user,
+        # either on the command line or in the configuration file.
+        settings = Settings()  # ty:ignore[missing-argument]
     except ValidationError as error:
         print(f"[red]Configuration contains [bold]{error.error_count()}[/] errors:[/]")
 
@@ -171,22 +173,22 @@ def run():
         for i in range(count):
             print(f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]")
     elif is_mlu_available():
-        count = torch.mlu.device_count()
+        count = torch.mlu.device_count()  # ty:ignore[unresolved-attribute]
         print(f"Detected [bold]{count}[/] MLU device(s):")
         for i in range(count):
-            print(f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]")
+            print(f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
     elif is_sdaa_available():
-        count = torch.sdaa.device_count()
+        count = torch.sdaa.device_count()  # ty:ignore[unresolved-attribute]
         print(f"Detected [bold]{count}[/] SDAA device(s):")
         for i in range(count):
-            print(f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]")
+            print(f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
     elif is_musa_available():
-        count = torch.musa.device_count()
+        count = torch.musa.device_count()  # ty:ignore[unresolved-attribute]
         print(f"Detected [bold]{count}[/] MUSA device(s):")
         for i in range(count):
-            print(f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]")
+            print(f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
     elif is_npu_available():
-        print(f"NPU detected (CANN version: [bold]{torch.version.cann}[/])")
+        print(f"NPU detected (CANN version: [bold]{torch.version.cann}[/])")  # ty:ignore[unresolved-attribute]
     elif torch.backends.mps.is_available():
         print("Detected [bold]1[/] MPS device (Apple Metal)")
     else:

@@ -1,5 +1,10 @@
 # Copy this file to config.toml and edit the configuration to your liking.
 
+# Scorer plugin to use (counts keyword refusals by default).
+# You can also point to a file path outside the repo, e.g.:
+# scorer = "/absolute/path/to/my_scorer.py:MyScorer"
+scorer = "count_refusals.CountRefusals"
+
 # List of PyTorch dtypes to try when loading model tensors.
 # If loading with a dtype fails, the next dtype in the list will be tried.
 dtypes = [

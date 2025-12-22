@@ -3,11 +3,14 @@
 
 import gc
 import getpass
+import importlib
+import importlib.util
+import inspect
 import os
 from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Optional, TypeVar
 
 import questionary
 import torch
@@ -28,6 +31,123 @@ from rich.console import Console
 from .config import DatasetSpecification, Settings
 
 print = Console(highlight=False).print
+
+
+T = TypeVar("T")
+
+
+def load_plugin(
+    name: str,
+    base_class: type[T],
+    *,
+    subpackage: Optional[str] = None,
+) -> type[T]:
+    """
+    Load a plugin class from either a filesystem `.py` file or a built-in module.
+
+    Accepted forms:
+    * `something.py` (relative or absolute): load the first subclass of
+      `base_class` defined in that file.
+    * `something.py:MyPluginClass`: load the explicit subclass `MyPluginClass`
+      from that file.
+    * `keyword` or `keyword.KeywordRefusalDetector`: treat as built-in under
+      `heretic.<subpackage>.keyword` (subpackage inferred from `base_class` unless
+      explicitly provided).
+    * Fully-qualified module path, e.g. `heretic.scorers.count_refusals.CountRefusals`
+      or `external.package.module.PluginClass`: import directly.
+    """
+
+    def infer_subpackage() -> str | None:
+        if subpackage is not None:
+            return subpackage
+
+        base_name = base_class.__name__.lower()
+        if base_name.startswith("tagger"):
+            return "taggers"
+        if base_name.startswith("scorer"):
+            return "scorers"
+        return None
+
+    def find_class_in_module(module, class_name: str | None) -> type[T] | None:
+        if class_name:
+            obj = getattr(module, class_name, None)
+            if inspect.isclass(obj) and issubclass(obj, base_class):
+                return obj
+            return None
+
+        for _, obj in inspect.getmembers(module):
+            if (
+                inspect.isclass(obj)
+                and issubclass(obj, base_class)
+                and obj.__module__ == module.__name__
+            ):
+                return obj
+        return None
+
+    def import_module(module_name: str):
+        try:
+            return importlib.import_module(module_name)
+        except ImportError as e:
+            raise ImportError(f"Error loading plugin '{name}': {e}") from e
+
+    plugin_cls = None
+
+    # Support both:
+    # - "path/to/plugin.py" (auto-detect first subclass)
+    # - "path/to/plugin.py:MyPlugin" (explicit class)
+    file_path: str | None = None
+    file_class: str | None = None
+    if ".py:" in name:
+        candidate_path, candidate_class = name.rsplit(":", 1)
+        if candidate_path.endswith(".py"):
+            file_path, file_class = candidate_path, candidate_class
+
+    if name.endswith(".py") or file_path is not None:
+        plugin_path = Path(file_path or name)
+        if not plugin_path.is_absolute():
+            plugin_path = Path.cwd() / plugin_path
+        plugin_path = plugin_path.resolve()
+
+        if not plugin_path.is_file():
+            raise ImportError(f"Plugin file '{plugin_path}' does not exist")
+
+        # Use a unique, stable module name to avoid clashes on repeated loads.
+        module_name = f"_heretic_plugin_{plugin_path.stem}_{abs(hash(plugin_path))}"
+        spec = importlib.util.spec_from_file_location(module_name, plugin_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load plugin '{name}' (invalid module spec)")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        plugin_cls = find_class_in_module(module, file_class)
+    else:
+        subpkg = infer_subpackage()
+
+        if "." in name:
+            module_part, class_part = name.rsplit(".", 1)
+
+            if module_part.startswith("heretic."):
+                module_name = module_part
+            elif subpkg:
+                module_name = f"heretic.{subpkg}.{module_part}"
+            else:
+                module_name = module_part
+
+            module = import_module(module_name)
+            plugin_cls = find_class_in_module(module, class_part)
+        else:
+            module_name = f"heretic.{subpkg}.{name}" if subpkg else name
+            module = import_module(module_name)
+            plugin_cls = find_class_in_module(module, None)
+
+    if plugin_cls is None:
+        raise ValueError(f"No {base_class.__name__} subclass found for '{name}'")
+
+    if not issubclass(plugin_cls, base_class):
+        raise TypeError(f"Plugin '{name}' must subclass {base_class.__name__}")
+
+    return plugin_cls
 
 
 def is_notebook() -> bool:
@@ -172,9 +292,6 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
         dataset = load_dataset(path, split=split_str)
 
     return list(dataset[specification.column])
-
-
-T = TypeVar("T")
 
 
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:

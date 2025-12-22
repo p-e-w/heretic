@@ -27,6 +27,8 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, Settings
+from .metadata import MetadataBuilder
+from .schemas import ContextMetadata, Response
 from .utils import batchify, empty_cache, print
 
 
@@ -46,6 +48,8 @@ class Model:
         self.settings = settings
         self.response_prefix = ""
         self.needs_reload = False
+        self.good_residuals: Tensor | None = None
+        self.bad_residuals: Tensor | None = None
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -131,6 +135,13 @@ class Model:
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
 
+        # Initialize metadata builder
+        self.metadata_builder = MetadataBuilder(
+            settings=settings,
+            tokenizer=self.tokenizer,
+            model_getter=lambda: self.model,
+        )
+
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PreTrainedModel)
@@ -165,10 +176,8 @@ class Model:
     def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
         """
         Creates quantization config based on settings.
-
         Args:
             dtype: The dtype string (e.g., "auto", "bfloat16")
-
         Returns:
             BitsAndBytesConfig or None
         """
@@ -246,7 +255,6 @@ class Model:
     def reset_model(self):
         """
         Resets the model to a clean state for the next trial or evaluation.
-
         Behavior:
         - Fast path: If the same model is loaded and doesn't need full reload,
           resets LoRA adapter weights to zero (identity transformation).
@@ -519,12 +527,12 @@ class Model:
             outputs[:, cast(Tensor, inputs["input_ids"]).shape[1] :]
         )
 
-    def get_responses_batched(self, prompts: list[str]) -> list[str]:
-        responses = []
+    def get_responses_batched(self, prompts: list[str]) -> list[Response]:
+        responses: list[Response] = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            for response in self.get_responses(batch):
-                responses.append(response)
+            batch_responses = self._get_responses_with_metadata(batch)
+            responses.extend(batch_responses)
 
         return responses
 
@@ -637,3 +645,46 @@ class Model:
             outputs[0, inputs["input_ids"].shape[1] :],
             skip_special_tokens=True,
         )
+
+    def _get_responses_with_metadata(self, prompts: list[str]) -> list[Response]:
+        needs_token_scores = self.metadata_builder.needs_token_scores()
+        needs_hidden_states = self.metadata_builder.needs_hidden_states()
+
+        generate_kwargs = self.metadata_builder.build_generate_kwargs(
+            needs_token_scores=needs_token_scores,
+            needs_hidden_states=needs_hidden_states,
+            max_new_tokens=self.settings.max_response_length,
+        )
+
+        inputs, outputs = self.generate(prompts, **generate_kwargs)
+
+        responses = self.tokenizer.batch_decode(
+            outputs.sequences[:, inputs["input_ids"].shape[1] :],
+            skip_special_tokens=True,
+        )
+
+        metadata = self.metadata_builder.collect_response_metadata(
+            prompts=prompts,
+            inputs=inputs,
+            outputs=outputs,
+            generate_kwargs=generate_kwargs,
+            responses=responses,
+        )
+
+        return metadata
+
+    def set_requested_metadata_fields(self, requested_fields: set[str]) -> set[str]:
+        """Set the requested response metadata fields."""
+        return self.metadata_builder.set_requested_response_fields(requested_fields)
+
+    def set_requested_context_metadata_fields(
+        self, requested_fields: set[str]
+    ) -> set[str]:
+        """Set the requested context metadata fields."""
+        return self.metadata_builder.set_requested_context_metadata_fields(
+            requested_fields
+        )
+
+    def get_context_metadata(self) -> ContextMetadata:
+        """Get the context metadata based on requested fields."""
+        return self.metadata_builder.build_context_metadata()

@@ -41,6 +41,11 @@ class DatasetSpecification(BaseModel):
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
+    scorer: str = Field(
+        default="count_refusals.CountRefusals",
+        description="Scorer plugin to use.",
+    )
+
     evaluate_model: str | None = Field(
         default=None,
         description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model.",
@@ -239,6 +244,9 @@ class Settings(BaseSettings):
         cli_parse_args=True,
         cli_implicit_flags=True,
         cli_kebab_case=True,
+        # Allow plugin namespaces like `[CountRefusals]` at the top level.
+        # We validate/whitelist these later after the selected plugin is loaded.
+        extra="allow",
     )
 
     @classmethod

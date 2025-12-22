@@ -284,7 +284,9 @@ def run():
     # to avoid issues where multiple different tokens that all start
     # with a space character lead to the common prefix ending with
     # a space, which would result in an uncommon tokenization.
-    model.response_prefix = commonprefix(responses).rstrip(" ")
+    model.response_prefix = commonprefix([r.response_text for r in responses]).rstrip(
+        " "
+    )
 
     # Suppress CoT output.
     if model.response_prefix.startswith("<think>"):
@@ -305,7 +307,11 @@ def run():
     else:
         print("* None found")
 
-    evaluator = Evaluator(settings, model)
+    try:
+        evaluator = Evaluator(settings, model)
+    except (ImportError, ValueError, TypeError) as e:
+        print(f"[red]Error initializing evaluator: {e}[/]")
+        return
 
     if settings.evaluate_model is not None:
         print()
@@ -322,6 +328,10 @@ def run():
     good_residuals = model.get_residuals_batched(good_prompts)
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
+
+    model.good_residuals = good_residuals
+    model.bad_residuals = bad_residuals
+
     refusal_directions = F.normalize(
         bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
         p=2,
@@ -336,9 +346,23 @@ def run():
     if settings.plot_residuals:
         analyzer.plot_residuals()
 
-    # We don't need the residuals after computing refusal directions.
-    del good_residuals, bad_residuals, analyzer
+    # If the scorer plugin hasn't requested the residuals, we can delete them
+    # to save memory.
+    if (
+        "good_residuals"
+        not in evaluator.scorer_plugin.required_context_metadata_fields()
+        and "bad_residuals"
+        not in evaluator.scorer_plugin.required_context_metadata_fields()
+    ):
+        model.good_residuals = None
+        model.bad_residuals = None
+        del good_residuals, bad_residuals
+
+    del analyzer
     empty_cache()
+
+    # Update scorer with context metadata (if it requested it)
+    evaluator.update_scorer_context_metadata()
 
     trial_index = 0
     start_time = time.perf_counter()

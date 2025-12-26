@@ -17,3 +17,6 @@ wheels/
 
 # Configuration files
 /config.toml
+
+# Logs
+/log/*.jsonl

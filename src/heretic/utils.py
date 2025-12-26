@@ -4,7 +4,7 @@
 import gc
 import getpass
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypeVar
@@ -241,7 +241,7 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     )
 
     for component, parameters in trial.user_attrs["parameters"].items():
-        for name, value in asdict(parameters).items():
+        for name, value in parameters.items():
             params[f"{component}.{name}"] = f"{value:.2f}"
 
     return params

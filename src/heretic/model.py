@@ -46,6 +46,7 @@ class Model:
         self.settings = settings
         self.response_prefix = ""
         self.needs_reload = False
+        self.lora_rank: int = None
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -145,10 +146,17 @@ class Model:
             comp.split(".")[-1] for comp in self.get_abliterable_components()
         ]
 
+        if not self.settings.abliteration_preserve_magnitude:
+            # Rank 1 is sufficient for directional ablation
+            self.lora_rank = 1
+        else:
+            # Magnitude preservation introduces nonlinear effects.
+            self.lora_rank = 2
+
         peft_config = LoraConfig(
-            r=1,  # Rank 1 is sufficient for directional ablation
+            r=self.lora_rank,
             target_modules=target_modules,
-            lora_alpha=1,
+            lora_alpha=self.lora_rank,
             lora_dropout=0,
             bias="none",
             task_type="CAUSAL_LM",
@@ -216,9 +224,9 @@ class Model:
             print("* Applying LoRA adapters...")
             target_modules = self.get_abliterable_components()
             peft_config = LoraConfig(
-                r=1,
+                r=self.lora_rank,
                 target_modules=target_modules,
-                lora_alpha=1,
+                lora_alpha=self.lora_rank,
                 lora_dropout=0,
                 bias="none",
                 task_type="CAUSAL_LM",
@@ -357,6 +365,7 @@ class Model:
     def abliterate(
         self,
         refusal_directions: Tensor,
+        harmless_directions: Tensor,
         direction_index: float | None,
         parameters: dict[str, AbliterationParameters],
     ):
@@ -402,6 +411,15 @@ class Model:
                 else:
                     layer_refusal_direction = refusal_direction
 
+                if self.settings.abliteration_orthogonal_project:
+                    # Remove only the harmful part of the refusal direction.
+                    harmless_direction = harmless_directions[layer_index + 1]
+                    projection_scalar = layer_refusal_direction @ harmless_direction
+                    layer_refusal_direction -= projection_scalar * harmless_direction
+                    layer_refusal_direction = F.normalize(
+                        layer_refusal_direction, p=2, dim=0
+                    )
+
                 for module in modules:
                     # FIXME: This cast is potentially invalid, because the program logic
                     #        does not guarantee that the module is of type Linear, and in fact
@@ -429,7 +447,14 @@ class Model:
                     quant_state = getattr(base_weight, "quant_state", None)
 
                     if quant_state is None:
-                        W = base_weight.to(torch.float32)
+                        if self.settings.abliteration_preserve_magnitude:
+                            if base_weight.dtype == torch.float32:
+                                # We need a copy for in-place modification.
+                                W = base_weight.clone()
+                            else:
+                                W = base_weight.to(torch.float32)
+                        else:
+                            W = base_weight.to(torch.float32)
                     else:
                         # 4-bit quantization.
                         # This cast is always valid. Type inference fails here because the
@@ -442,14 +467,48 @@ class Model:
                             ).to(torch.float32),
                         )
 
+                    # Flatten weight matrix to (out_features, in_features).
+                    W = W.view(W.shape[0], -1)
+
+                    if self.settings.abliteration_preserve_magnitude:
+                        # Normalize weight matrix and store norm separately.
+                        W_org = W.clone()
+                        W_norm = torch.norm(W, dim=1, keepdim=True)
+                        W.div_(W_norm)
+
                     # Calculate lora_A = v^T W
                     # v is (d_out,), W is (d_out, d_in)
                     # v @ W -> (d_in,)
-                    lora_A = (v @ W).view(1, -1)
+                    lora_A: Tensor = (v @ W).view(1, -1)
 
                     # Calculate lora_B = -weight * v
                     # v is (d_out,)
-                    lora_B = (-weight * v).view(-1, 1)
+                    lora_B: Tensor = (-weight * v).view(-1, 1)
+
+                    if self.settings.abliteration_preserve_magnitude:
+                        # Scale the original matrix by 1 - weight to create a blend.
+                        W.mul_(1 - weight)
+                        # Apply the LoRA directly.
+                        W.add_(lora_B @ lora_A)
+                        # Re-normalize the adjusted weight matrix.
+                        W_norm_new = torch.norm(W, dim=1, keepdim=True)
+                        W.div_(W_norm_new)
+                        # Restore the original norm of the weight matrix.
+                        W.mul_(W_norm)
+                        # Subtract the original matrix to turn W into a delta.
+                        W.sub_(W_org)
+                        # Use an SVD to get an approximation of the matrix.
+                        r = self.lora_rank
+                        U, S, Vh = torch.svd_lowrank(W, q=3 * r, niter=6)
+                        # Truncate it to the part we want to store in the LoRA.
+                        # Note: svd_lowrank actually returns V, not Vh, so transpose it.
+                        U = U[:, :r]
+                        S = S[:r]
+                        Vh = Vh[:, :r].T
+                        # Transfer it into the LoRA components.
+                        sqrt_S = torch.sqrt(S)
+                        lora_B = U @ torch.diag(sqrt_S)
+                        lora_A = torch.diag(sqrt_S) @ Vh
 
                     # Assign to adapters. The adapter name is "default", because that's
                     # what PEFT uses when no name is explicitly specified, as above.
@@ -554,6 +613,13 @@ class Model:
             [layer_hidden_states[:, -1, :] for layer_hidden_states in hidden_states],
             dim=1,
         )
+
+        if 0 < self.settings.winsorization_level < 100:
+            # Winsorize the residuals.
+            quantile = (self.settings.winsorization_level / 100 + 1) / 2
+            abs_residuals = torch.abs(residuals).to(torch.float32)
+            thresholds = torch.quantile(abs_residuals, quantile, dim=2, keepdim=True)
+            residuals.clamp_(min=-thresholds, max=thresholds)
 
         # Upcast the data type to avoid precision (bfloat16) or range (float16)
         # problems during calculations involving residual vectors.

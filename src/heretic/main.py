@@ -327,6 +327,11 @@ def run():
         p=2,
         dim=1,
     )
+    harmless_directions = F.normalize(
+        good_residuals.mean(dim=0),
+        p=2,
+        dim=1,
+    )
 
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
@@ -380,10 +385,19 @@ def run():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.
+            if not settings.abliteration_preserve_magnitude:
+                max_weight_range = {"low": 0.8, "high": 1.5}
+            else:
+                # Because preserving the magnitude reduces the risk from large adjustments,
+                # much larger weight values become viable, but the meaning becomes unclear.
+                # Instead of setting a large maximum value here, we use it as the weight in
+                # a convex combination: it simultaneously increases the weight of the
+                # adjustment and *decreases* the weight of the original matrix.
+                max_weight_range = {"low": 0.45, "high": 0.95}
             max_weight = trial.suggest_float(
                 f"{component}.max_weight",
-                0.8,
-                1.5,
+                max_weight_range["low"],
+                max_weight_range["high"],
             )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
@@ -424,7 +438,9 @@ def run():
         print("* Resetting model...")
         model.reset_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, direction_index, parameters)
+        model.abliterate(
+            refusal_directions, harmless_directions, direction_index, parameters
+        )
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
 
@@ -569,6 +585,7 @@ def run():
             print("* Abliterating...")
             model.abliterate(
                 refusal_directions,
+                harmless_directions,
                 trial.user_attrs["direction_index"],
                 trial.user_attrs["parameters"],
             )

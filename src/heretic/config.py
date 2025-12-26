@@ -97,6 +97,16 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
+    abliteration_orthogonal_project: bool = Field(
+        default=False,
+        description="Whether to only remove the harmful part of the refusal direction.",
+    )
+
+    abliteration_preserve_magnitude: bool = Field(
+        default=False,
+        description="Whether to keep the overall strength of model weights unchanged.",
+    )
+
     print_residual_geometry: bool = Field(
         default=False,
         description="Whether to print detailed information about residuals and refusal directions.",
@@ -136,6 +146,11 @@ class Settings(BaseSettings):
             "The KL divergence to target. Below this value, an objective based on the refusal count is used."
             'This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".'
         ),
+    )
+
+    winsorization_level: float = Field(
+        default=100.0,
+        description="The winsorization applied to the residuals, expressed as a percentage.",
     )
 
     n_trials: int = Field(

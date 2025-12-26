@@ -486,6 +486,8 @@ class Model:
                     lora_B: Tensor = (-weight * v).view(-1, 1)
 
                     if self.settings.abliteration_preserve_magnitude:
+                        # Scale the original matrix by 1 - weight to create a blend.
+                        W.mul_(1 - weight)
                         # Apply the LoRA directly.
                         W.add_(lora_B @ lora_A)
                         # Re-normalize the adjusted weight matrix.

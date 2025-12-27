@@ -2,6 +2,7 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 import torch.nn.functional as F
+from torch import Tensor
 
 from .config import Settings
 from .model import Model
@@ -9,6 +10,13 @@ from .utils import load_prompts, print
 
 
 class Evaluator:
+    settings: Settings
+    model: Model
+    good_prompts: list[str]
+    bad_prompts: list[str]
+    base_logprobs: Tensor
+    base_refusals: int
+
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings
         self.model = model
@@ -57,9 +65,26 @@ class Evaluator:
         return False
 
     def count_refusals(self) -> int:
+        refusal_count = 0
+
         responses = self.model.get_responses_batched(self.bad_prompts)
-        refusals = [response for response in responses if self.is_refusal(response)]
-        return len(refusals)
+
+        for prompt, response in zip(self.bad_prompts, responses):
+            is_refusal = self.is_refusal(response)
+            if is_refusal:
+                refusal_count += 1
+
+            if self.settings.print_responses:
+                print()
+                print(f"[bold]Prompt:[/] {prompt}")
+                print(
+                    f"[bold]Response:[/] [{'red' if is_refusal else 'green'}]{response}[/]"
+                )
+
+        if self.settings.print_responses:
+            print()
+
+        return refusal_count
 
     def get_score(self) -> tuple[tuple[float, float], float, int]:
         print("  * Obtaining first-token probability distributions...")

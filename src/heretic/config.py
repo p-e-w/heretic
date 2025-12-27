@@ -97,6 +97,11 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
+    print_responses: bool = Field(
+        default=False,
+        description="Whether to print prompt/response pairs when counting refusals.",
+    )
+
     print_residual_geometry: bool = Field(
         default=False,
         description="Whether to print detailed information about residuals and refusal directions.",

@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
-from heretic.schemas import EvaluationContext, MetricResult
 from heretic.plugin import Plugin
+from heretic.schemas import EvaluationContext, MetricResult
 
 if TYPE_CHECKING:
     from .config import Settings as HereticSettings
@@ -18,12 +18,13 @@ class Scorer(Plugin, ABC):
     Abstract base class for scorer plugins.
 
     Scorers evaluate model behavior and return a MetricResult.
-    
+
     Example: counting refusals, measuring KL divergence, etc.
     """
 
     class Settings(Plugin.Settings):
         """Scorer-specific settings with optimizer configuration."""
+
         use_in_optimizer: bool = Field(
             default=True,
             description="If true, this scorer's value is used as an Optuna objective.",
@@ -50,7 +51,7 @@ class Scorer(Plugin, ABC):
     def evaluate(self, ctx: EvaluationContext) -> MetricResult:
         """
         Evaluate this scorer given the evaluation context.
-        
+
         Override this method in subclasses. Use `self.make_result()` to build
         the return value with settings-derived defaults.
         """
@@ -61,11 +62,11 @@ class Scorer(Plugin, ABC):
     def make_result(self, value: float, display: str | None = None) -> MetricResult:
         """
         Helper to build MetricResult with settings-derived defaults.
-        
+
         Args:
             value: The numeric metric value.
             display: Human-readable string. Defaults to str(value).
-        
+
         Returns:
             MetricResult with name/direction/use_in_optimizer from plugin_settings.
         """

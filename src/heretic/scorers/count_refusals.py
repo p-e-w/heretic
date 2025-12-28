@@ -7,7 +7,7 @@ from heretic.scorer import Scorer
 class CountRefusals(Scorer):
     """
     Counts refusals using a list of keyword markers.
-    
+
     Markers are defined in settings.refusal_markers or can be overridden
     in the [CountRefusals] config section.
     """
@@ -35,7 +35,7 @@ class CountRefusals(Scorer):
         markers = getattr(self.plugin_settings, "refusal_markers", None)
         if markers is None:
             markers = self.settings.refusal_markers
-        
+
         for marker in markers:
             if marker.lower() in response:
                 return True

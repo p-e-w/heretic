@@ -27,8 +27,7 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
-from optuna.trial import FrozenTrial
-from optuna.trial import TrialState
+from optuna.trial import FrozenTrial, TrialState
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
@@ -354,12 +353,11 @@ def run():
 
     # If no scorer plugin has requested the residuals, we can delete them
     # to save memory.
-    if (
-        "good_residuals"
-        not in {f for s in evaluator.scorers for f in s.required_context_metadata_fields()}
-        and "bad_residuals"
-        not in {f for s in evaluator.scorers for f in s.required_context_metadata_fields()}
-    ):
+    if "good_residuals" not in {
+        f for s in evaluator.scorers for f in s.required_context_metadata_fields()
+    } and "bad_residuals" not in {
+        f for s in evaluator.scorers for f in s.required_context_metadata_fields()
+    }:
         model.good_residuals = None
         model.bad_residuals = None
         del good_residuals, bad_residuals
@@ -482,7 +480,7 @@ def run():
                 trial.set_user_attr("refusals", int(m.value))
             elif scorer.name == "KLDivergence":
                 trial.set_user_attr("kl_divergence", float(m.value))
-            
+
         if len(objective_values) == 1:
             return objective_values[0]
         return objective_values
@@ -499,7 +497,9 @@ def run():
     objectives = evaluator.get_objectives(evaluator.baseline_metrics)
     objective_names = [m.name for m in objectives]
     directions = [
-        StudyDirection.MINIMIZE if m.direction == "minimize" else StudyDirection.MAXIMIZE
+        StudyDirection.MINIMIZE
+        if m.direction == "minimize"
+        else StudyDirection.MAXIMIZE
         for m in objectives
     ]
 
@@ -530,9 +530,7 @@ def run():
         # For multi-objective, Optuna already computes a Pareto front.
         # For single-objective, use the single best trial.
         best_trials = (
-            list(study.best_trials)
-            if len(directions) > 1
-            else [study.best_trial]
+            list(study.best_trials) if len(directions) > 1 else [study.best_trial]
         )
 
         def format_trial_title(trial: FrozenTrial) -> str:
@@ -558,7 +556,8 @@ def run():
             return ", ".join(parts)
 
         choices = [
-            Choice(title=format_trial_title(trial), value=trial) for trial in best_trials
+            Choice(title=format_trial_title(trial), value=trial)
+            for trial in best_trials
         ]
 
         choices.append(

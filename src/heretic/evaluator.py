@@ -17,7 +17,7 @@ from .utils import load_plugin, load_prompts, print
 class Evaluator:
     """
     Manages evaluation of the model using configured scorer plugins.
-    
+
     Loads prompts, establishes baseline metrics, and runs scorers during optimization.
     """
 
@@ -93,7 +93,9 @@ class Evaluator:
         scorers: list[Scorer] = []
         for scorer_cls in scorer_classes:
             plugin_config = self._get_plugin_namespace(scorer_cls.name)
-            plugin_settings: BaseModel | None = scorer_cls.validate_settings(plugin_config)
+            plugin_settings: BaseModel | None = scorer_cls.validate_settings(
+                plugin_config
+            )
             scorers.append(
                 scorer_cls(
                     settings=self.settings,
@@ -106,7 +108,7 @@ class Evaluator:
     def evaluate(self) -> list[MetricResult]:
         """
         Run all scorers and return their metrics.
-        
+
         Returns:
             List of MetricResult from each scorer.
         """

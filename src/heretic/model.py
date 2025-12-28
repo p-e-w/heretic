@@ -532,6 +532,7 @@ class Model:
             response.replace(self.tokenizer.pad_token, "")
             for response in responses
         ]
+
     def get_responses_batched(self, prompts: list[str]) -> list[Response]:
         responses: list[Response] = []
 

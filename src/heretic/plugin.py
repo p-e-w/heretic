@@ -24,6 +24,7 @@ class Plugin:
 
     class Settings(BaseModel):
         """Base settings class for plugins. Subclasses can extend this."""
+
         pass
 
     def __init__(self, *, plugin_settings: BaseModel | None = None):
@@ -48,7 +49,9 @@ class Plugin:
             )
 
     @classmethod
-    def validate_settings(cls, raw_namespace: dict[str, Any] | None) -> BaseModel | None:
+    def validate_settings(
+        cls, raw_namespace: dict[str, Any] | None
+    ) -> BaseModel | None:
         """
         Validates plugin settings for this plugin class.
 

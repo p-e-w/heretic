@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from .config import Settings
     from .model import Model
 
+
 @dataclass(frozen=True)
 class MetricResult:
     """
@@ -21,6 +22,7 @@ class MetricResult:
     display: str
     use_in_optimizer: bool
     direction: Literal["minimize", "maximize"]
+
 
 @dataclass
 class Response:
@@ -48,7 +50,7 @@ class Response:
 class EvaluationContext:
     """
     Runtime context passed to scorers during evaluation.
-    
+
     Provides access to prompts, baseline logprobs, and the model.
     Scorers needing residuals can access them via `model.good_residuals`.
     """

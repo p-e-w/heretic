@@ -9,7 +9,7 @@ from heretic.scorer import Scorer
 class KLDivergence(Scorer):
     """
     KL divergence between current model and baseline on "good" prompts.
-    
+
     Measures how much the model's behavior has drifted from baseline.
     Lower is better (less damage).
     """

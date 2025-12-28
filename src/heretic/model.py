@@ -520,13 +520,18 @@ class Model:
             max_new_tokens=self.settings.max_response_length,
         )
 
-        # Return only the newly generated part.
-        return self.tokenizer.batch_decode(
+        responses = self.tokenizer.batch_decode(
+            # Extract the newly generated part.
             # This cast is valid because the input_ids property is a Tensor
             # if the tokenizer is invoked with return_tensors="pt", as above.
             outputs[:, cast(Tensor, inputs["input_ids"]).shape[1] :]
         )
 
+        return [
+            # Strip out pad tokens from batch generation.
+            response.replace(self.tokenizer.pad_token, "")
+            for response in responses
+        ]
     def get_responses_batched(self, prompts: list[str]) -> list[Response]:
         responses: list[Response] = []
 

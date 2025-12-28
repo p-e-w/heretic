@@ -9,7 +9,7 @@ from torch import LongTensor
 from transformers import BatchEncoding, PreTrainedTokenizerBase
 from transformers.generation.utils import GenerateOutput
 
-from .schemas import ContextMetadata, Response
+from .schemas import Response
 from .utils import print
 
 
@@ -27,12 +27,6 @@ class MetadataBuilder:
         "residuals_last_token_per_layer",
     }
 
-    SUPPORTED_CONTEXT_METADATA_FIELDS = {
-        "generation_params",
-        "good_residuals",
-        "bad_residuals",
-    }
-
     def __init__(
         self,
         settings: Any,
@@ -43,7 +37,6 @@ class MetadataBuilder:
         self.tokenizer = tokenizer
         self._model_getter = model_getter
         self.requested_response_fields: set[str] = set()
-        self.requested_context_fields: set[str] = set()
 
     def set_requested_response_fields(self, requested_fields: set[str]) -> set[str]:
         self.requested_response_fields = set(requested_fields or [])
@@ -59,25 +52,6 @@ class MetadataBuilder:
             self.requested_response_fields -= unsupported
 
         return self.requested_response_fields
-
-    def set_requested_context_metadata_fields(
-        self, requested_fields: set[str]
-    ) -> set[str]:
-        self.requested_context_fields = set(requested_fields or [])
-        unsupported = (
-            self.requested_context_fields - self.SUPPORTED_CONTEXT_METADATA_FIELDS
-        )
-
-        if unsupported:
-            print(
-                "[yellow]"
-                + "Warning: unsupported context metadata fields requested; they will be ignored: "
-                + ", ".join(sorted(unsupported))
-                + "[/]"
-            )
-            self.requested_context_fields -= unsupported
-
-        return self.requested_context_fields
 
     def has_response_fields(self) -> bool:
         return bool(self.requested_response_fields)
@@ -103,30 +77,6 @@ class MetadataBuilder:
             "return_dict_in_generate": True,
             "output_hidden_states": needs_hidden_states,
         }
-
-    def build_context_metadata(self) -> ContextMetadata:
-        requested = self.requested_context_fields
-        model = self._model_getter()
-
-        good_residuals = None
-        if "good_residuals" in requested and model.good_residuals is not None:
-            good_residuals = model.good_residuals.detach().cpu().tolist()
-
-        bad_residuals = None
-        if "bad_residuals" in requested and model.bad_residuals is not None:
-            bad_residuals = model.bad_residuals.detach().cpu().tolist()
-
-        return ContextMetadata(
-            generation_params={
-                "max_new_tokens": self.settings.max_response_length,
-                "do_sample": False,
-                "pad_token_id": self.tokenizer.eos_token_id,
-            }
-            if "generation_params" in requested
-            else None,
-            good_residuals=good_residuals,
-            bad_residuals=bad_residuals,
-        )
 
     def collect_response_metadata(
         self,

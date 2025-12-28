@@ -41,9 +41,12 @@ class DatasetSpecification(BaseModel):
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
-    scorer: str = Field(
-        default="count_refusals.CountRefusals",
-        description="Scorer plugin to use.",
+    scorers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of scorer plugins to evaluate. If empty, defaults to "
+            "[scorer, 'kl_divergence.KLDivergence']."
+        ),
     )
 
     evaluate_model: str | None = Field(

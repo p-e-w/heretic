@@ -23,6 +23,7 @@ class Plugin:
     name: ClassVar[str] = ""
 
     class Settings(BaseModel):
+        """Base settings class for plugins. Subclasses can extend this."""
         pass
 
     def __init__(self, *, plugin_settings: BaseModel | None = None):
@@ -58,6 +59,3 @@ class Plugin:
         if settings_model is None:
             return None
         return settings_model.model_validate(raw_namespace or {})
-
-
-

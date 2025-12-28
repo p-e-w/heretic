@@ -296,7 +296,11 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        evaluator.get_score()
+        metrics = evaluator.evaluate()
+        print()
+        print("[bold]Metrics:[/]")
+        for m in metrics:
+            print(f"  * {m.name}: [bold]{m.display}[/]")
         return
 
     print()
@@ -323,13 +327,13 @@ def run():
     if settings.plot_residuals:
         analyzer.plot_residuals()
 
-    # If the scorer plugin hasn't requested the residuals, we can delete them
+    # If no scorer plugin has requested the residuals, we can delete them
     # to save memory.
     if (
         "good_residuals"
-        not in evaluator.scorer_plugin.required_context_metadata_fields()
+        not in {f for s in evaluator.scorers for f in s.required_context_metadata_fields()}
         and "bad_residuals"
-        not in evaluator.scorer_plugin.required_context_metadata_fields()
+        not in {f for s in evaluator.scorers for f in s.required_context_metadata_fields()}
     ):
         model.good_residuals = None
         model.bad_residuals = None
@@ -337,9 +341,6 @@ def run():
 
     del analyzer
     empty_cache()
-
-    # Update scorer with context metadata (if it requested it)
-    evaluator.update_scorer_context_metadata()
 
     trial_index = 0
     start_time = time.perf_counter()
@@ -427,7 +428,12 @@ def run():
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
-        score, kl_divergence, refusals = evaluator.get_score()
+        metrics = evaluator.evaluate()
+        objective_values = evaluator.get_objective_values(metrics)
+
+        print("  * Metrics:")
+        for m in metrics:
+            print(f"    * {m.name}: [bold]{m.display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / trial_index) * (
@@ -440,10 +446,14 @@ def run():
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
 
-        trial.set_user_attr("kl_divergence", kl_divergence)
-        trial.set_user_attr("refusals", refusals)
-
-        return score
+        # Store all metric values in trial attrs
+        for m in metrics:
+            trial.set_user_attr(f"metric.{m.name}", m.value)
+            trial.set_user_attr(f"metric_display.{m.name}", m.display)
+            
+        if len(objective_values) == 1:
+            return objective_values[0]
+        return objective_values
 
     def objective_wrapper(trial: Trial) -> tuple[float, float]:
         try:
@@ -453,13 +463,21 @@ def run():
             trial.study.stop()
             raise TrialPruned()
 
+    # Derive objective info from baseline metrics
+    objectives = evaluator.get_objectives(evaluator.baseline_metrics)
+    objective_names = [m.name for m in objectives]
+    directions = [
+        StudyDirection.MINIMIZE if m.direction == "minimize" else StudyDirection.MAXIMIZE
+        for m in objectives
+    ]
+
     study = optuna.create_study(
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
             multivariate=True,
         ),
-        directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
+        directions=directions,
     )
 
     try:
@@ -477,35 +495,22 @@ def run():
     if not completed_trials:
         raise KeyboardInterrupt
 
-    # Get the Pareto front of trials. We can't use study.best_trials directly
-    # as get_score() doesn't return the pure KL divergence and refusal count.
-    # Note: Unlike study.best_trials, this does not handle objective constraints.
-    sorted_trials = sorted(
-        completed_trials,
-        key=lambda trial: (
-            trial.user_attrs["refusals"],
-            trial.user_attrs["kl_divergence"],
-        ),
-    )
-    min_divergence = math.inf
-    best_trials = []
-    for trial in sorted_trials:
-        kl_divergence = trial.user_attrs["kl_divergence"]
-        if kl_divergence < min_divergence:
-            min_divergence = kl_divergence
-            best_trials.append(trial)
+    # For multi-objective, Optuna already computes a Pareto front.
+    best_trials = study.best_trials
 
-    choices = [
-        Choice(
-            title=(
-                f"[Trial {trial.user_attrs['index']:>3}] "
-                f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
-            ),
-            value=trial,
-        )
-        for trial in best_trials
-    ]
+    # Display objective values + common metrics if available.
+    def format_trial_title(trial: Trial) -> str:
+        parts = [f"[Trial {trial.user_attrs['index']:>3}]"]
+        for name, val in zip(objective_names, trial.values):
+            parts.append(f"{name}: {val:.4f}")
+        # Add some common human-friendly fields if present
+        if "refusals" in trial.user_attrs:
+            parts.append(f"Refusals: {int(trial.user_attrs['refusals'])}/{len(evaluator.bad_prompts)}")
+        if "kl_divergence" in trial.user_attrs:
+            parts.append(f"KL: {trial.user_attrs['kl_divergence']:.4f}")
+        return ", ".join(parts)
+
+    choices = [Choice(title=format_trial_title(trial), value=trial) for trial in best_trials]
 
     choices.append(
         Choice(
@@ -667,7 +672,7 @@ def run():
                                 get_readme_intro(
                                     settings,
                                     trial,
-                                    evaluator.base_refusals,
+                                    evaluator.get_baseline_refusals(),
                                     evaluator.bad_prompts,
                                 )
                                 + card.text

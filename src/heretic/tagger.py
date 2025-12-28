@@ -4,7 +4,7 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict
 
-from heretic.schemas import ContextMetadata, Response
+from heretic.schemas import Response
 
 if TYPE_CHECKING:
     from .config import Settings
@@ -22,11 +22,9 @@ class Tagger(ABC):
         self,
         settings: "Settings",
         model: "Model",
-        context_metadata: ContextMetadata,
     ):
         self.settings = settings
         self.model = model
-        self.context_metadata = context_metadata
 
     @abstractmethod
     def tag_batch(self, responses: list[Response]) -> list[Dict[str, Any]]:
@@ -49,9 +47,9 @@ class Tagger(ABC):
         return set()
 
     @staticmethod
-    @abstractmethod
     def required_context_metadata_fields() -> set[str]:
         """
         Context-level metadata fields needed by this tagger.
+        Taggers needing residuals can access them via `self.model.good_residuals`.
         """
         return set()

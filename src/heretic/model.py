@@ -28,7 +28,7 @@ from transformers.generation import (
 
 from .config import QuantizationMethod, Settings
 from .metadata import MetadataBuilder
-from .schemas import ContextMetadata, Response
+from .schemas import Response
 from .utils import batchify, empty_cache, print
 
 GenerateOutput = GenerateDecoderOnlyOutput | GenerateEncoderDecoderOutput
@@ -623,15 +623,3 @@ class Model:
     def set_requested_metadata_fields(self, requested_fields: set[str]) -> set[str]:
         """Set the requested response metadata fields."""
         return self.metadata_builder.set_requested_response_fields(requested_fields)
-
-    def set_requested_context_metadata_fields(
-        self, requested_fields: set[str]
-    ) -> set[str]:
-        """Set the requested context metadata fields."""
-        return self.metadata_builder.set_requested_context_metadata_fields(
-            requested_fields
-        )
-
-    def get_context_metadata(self) -> ContextMetadata:
-        """Get the context metadata based on requested fields."""
-        return self.metadata_builder.build_context_metadata()

@@ -37,6 +37,9 @@ jobs:
       - name: Lint and check import sorting
         run: uv run ruff check --output-format=github --extend-select I .
 
+      - name: Check typing
+        run: uv run ty check --output-format=github --error-on-warning .
+
       - name: Build package
         run: uv build
 

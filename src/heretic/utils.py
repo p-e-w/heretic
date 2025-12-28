@@ -20,7 +20,7 @@ from accelerate.utils import (
     is_sdaa_available,
     is_xpu_available,
 )
-from datasets import ReadInstruction, load_dataset, load_from_disk
+from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
@@ -159,7 +159,7 @@ def is_notebook() -> bool:
 
     # Check IPython shell type (for library usage).
     try:
-        from IPython import get_ipython  # pyright: ignore[reportMissingModuleSource]
+        from IPython import get_ipython  # ty:ignore[unresolved-import]
 
         shell = get_ipython()
         if shell is None:
@@ -265,6 +265,9 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
             # Dataset saved with datasets.save_to_disk; needs special handling.
             # Path should be the subdirectory for a particular split.
             dataset = load_from_disk(path)
+            assert not isinstance(dataset, DatasetDict), (
+                "Loading dataset dicts is not supported"
+            )
             # Parse the split instructions.
             instruction = ReadInstruction.from_spec(split_str)
             # Associate the split with its number of examples (lines).
@@ -306,11 +309,11 @@ def empty_cache():
     elif is_xpu_available():
         torch.xpu.empty_cache()
     elif is_mlu_available():
-        torch.mlu.empty_cache()
+        torch.mlu.empty_cache()  # ty:ignore[unresolved-attribute]
     elif is_sdaa_available():
-        torch.sdaa.empty_cache()
+        torch.sdaa.empty_cache()  # ty:ignore[unresolved-attribute]
     elif is_musa_available():
-        torch.musa.empty_cache()
+        torch.musa.empty_cache()  # ty:ignore[unresolved-attribute]
     elif torch.backends.mps.is_available():
         torch.mps.empty_cache()
 

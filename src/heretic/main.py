@@ -146,7 +146,9 @@ def run():
         sys.argv.insert(-1, "--model")
 
     try:
-        settings = Settings()
+        # The required argument "model" must be provided by the user,
+        # either on the command line or in the configuration file.
+        settings = Settings()  # ty:ignore[missing-argument]
     except ValidationError as error:
         print(f"[red]Configuration contains [bold]{error.error_count()}[/] errors:[/]")
 
@@ -161,19 +163,34 @@ def run():
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
-        print(f"GPU type: [bold]{torch.cuda.get_device_name()}[/]")
+        count = torch.cuda.device_count()
+        print(f"Detected [bold]{count}[/] CUDA device(s):")
+        for i in range(count):
+            print(f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/]")
     elif is_xpu_available():
-        print(f"XPU type: [bold]{torch.xpu.get_device_name()}[/]")
+        count = torch.xpu.device_count()
+        print(f"Detected [bold]{count}[/] XPU device(s):")
+        for i in range(count):
+            print(f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]")
     elif is_mlu_available():
-        print(f"MLU type: [bold]{torch.mlu.get_device_name()}[/]")
+        count = torch.mlu.device_count()  # ty:ignore[unresolved-attribute]
+        print(f"Detected [bold]{count}[/] MLU device(s):")
+        for i in range(count):
+            print(f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
     elif is_sdaa_available():
-        print(f"SDAA type: [bold]{torch.sdaa.get_device_name()}[/]")
+        count = torch.sdaa.device_count()  # ty:ignore[unresolved-attribute]
+        print(f"Detected [bold]{count}[/] SDAA device(s):")
+        for i in range(count):
+            print(f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
     elif is_musa_available():
-        print(f"MUSA type: [bold]{torch.musa.get_device_name()}[/]")
+        count = torch.musa.device_count()  # ty:ignore[unresolved-attribute]
+        print(f"Detected [bold]{count}[/] MUSA device(s):")
+        for i in range(count):
+            print(f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
     elif is_npu_available():
-        print(f"CANN version: [bold]{torch.version.cann}[/]")
+        print(f"NPU detected (CANN version: [bold]{torch.version.cann}[/])")  # ty:ignore[unresolved-attribute]
     elif torch.backends.mps.is_available():
-        print("GPU type: [bold]Apple Metal (MPS)[/]")
+        print("Detected [bold]1[/] MPS device (Apple Metal)")
     else:
         print(
             "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"
@@ -278,6 +295,12 @@ def run():
     elif model.response_prefix.startswith("<|channel|>analysis<|message|>"):
         # gpt-oss.
         model.response_prefix = "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>"
+    elif model.response_prefix.startswith("<thought>"):
+        # Unknown, suggested by user.
+        model.response_prefix = "<thought></thought>"
+    elif model.response_prefix.startswith("[THINK]"):
+        # Unknown, suggested by user.
+        model.response_prefix = "[THINK][/THINK]"
 
     if model.response_prefix:
         print(f"* Prefix found: [bold]{model.response_prefix!r}[/]")
@@ -345,7 +368,7 @@ def run():
     trial_index = 0
     start_time = time.perf_counter()
 
-    def objective(trial: Trial) -> tuple[float, float]:
+    def objective(trial: Trial) -> float | tuple[float, ...]:
         nonlocal trial_index
         trial_index += 1
         trial.set_user_attr("index", trial_index)
@@ -446,16 +469,23 @@ def run():
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
 
-        # Store all metric values in trial attrs
-        for m in metrics:
-            trial.set_user_attr(f"metric.{m.name}", m.value)
-            trial.set_user_attr(f"metric_display.{m.name}", m.display)
+        # Store all metric values in trial attrs. Use scorer.name (stable plugin id)
+        # so config `label` changes don't break downstream consumers.
+        for scorer, m in zip(evaluator.scorers, metrics):
+            trial.set_user_attr(f"metric.{scorer.name}", m.value)
+            trial.set_user_attr(f"metric_display.{scorer.name}", m.display)
+
+            # Backwards-compatible keys used by the UI + README generator.
+            if scorer.name == "CountRefusals":
+                trial.set_user_attr("refusals", int(m.value))
+            elif scorer.name == "KLDivergence":
+                trial.set_user_attr("kl_divergence", float(m.value))
             
         if len(objective_values) == 1:
             return objective_values[0]
         return objective_values
 
-    def objective_wrapper(trial: Trial) -> tuple[float, float]:
+    def objective_wrapper(trial: Trial) -> float | tuple[float, ...]:
         try:
             return objective(trial)
         except KeyboardInterrupt:
@@ -487,230 +517,278 @@ def run():
         # is raised just between trials, which wouldn't be caught by the handler
         # defined in objective_wrapper above.
         pass
-
-    # If no trials at all have been evaluated, the study must have been stopped
-    # by pressing Ctrl+C while the first trial was running. In this case, we just
-    # re-raise the interrupt to invoke the standard handler defined below.
-    completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
-    if not completed_trials:
-        raise KeyboardInterrupt
-
-    # For multi-objective, Optuna already computes a Pareto front.
-    best_trials = study.best_trials
-
-    # Display objective values + common metrics if available.
-    def format_trial_title(trial: Trial) -> str:
-        parts = [f"[Trial {trial.user_attrs['index']:>3}]"]
-        for name, val in zip(objective_names, trial.values):
-            parts.append(f"{name}: {val:.4f}")
-        # Add some common human-friendly fields if present
-        if "refusals" in trial.user_attrs:
-            parts.append(f"Refusals: {int(trial.user_attrs['refusals'])}/{len(evaluator.bad_prompts)}")
-        if "kl_divergence" in trial.user_attrs:
-            parts.append(f"KL: {trial.user_attrs['kl_divergence']:.4f}")
-        return ", ".join(parts)
-
-    choices = [Choice(title=format_trial_title(trial), value=trial) for trial in best_trials]
-
-    choices.append(
-        Choice(
-            title="None (exit program)",
-            value="",
-        )
-    )
-
-    print()
-    print("[bold green]Optimization finished![/]")
-    print()
-    print(
-        (
-            "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
-            "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
-            "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
-            "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"
-        )
-    )
-
     while True:
-        print()
-        trial = prompt_select("Which trial do you want to use?", choices)
+        # If no trials at all have been evaluated, the study must have been stopped
+        # by pressing Ctrl+C while the first trial was running. In this case, we just
+        # re-raise the interrupt to invoke the standard handler defined below.
+        completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
+        if not completed_trials:
+            raise KeyboardInterrupt
 
-        if trial is None or trial == "":
-            break
+        # For multi-objective, Optuna already computes a Pareto front.
+        # For single-objective, use the single best trial.
+        best_trials = (
+            list(study.best_trials)
+            if len(directions) > 1
+            else [study.best_trial]
+        )
+
+        def format_trial_title(trial: Trial) -> str:
+            parts: list[str] = [f"[Trial {trial.user_attrs['index']:>3}]"]
+
+            values = trial.values
+            if values is None:
+                values = (trial.value,)  # type: ignore[assignment]
+
+            for name, val in zip(objective_names, values):
+                if val is None:
+                    continue
+                parts.append(f"{name}: {val:.4f}")
+
+            # Add some common human-friendly fields if present
+            if "refusals" in trial.user_attrs:
+                parts.append(
+                    f"Refusals: {int(trial.user_attrs['refusals'])}/{len(evaluator.bad_prompts)}"
+                )
+            if "kl_divergence" in trial.user_attrs:
+                parts.append(f"KL: {trial.user_attrs['kl_divergence']:.4f}")
+
+            return ", ".join(parts)
+
+        choices = [
+            Choice(title=format_trial_title(trial), value=trial) for trial in best_trials
+        ]
+
+        choices.append(
+            Choice(
+                title="Continue optimization (run more trials)",
+                value="continue",
+            )
+        )
+
+        choices.append(
+            Choice(
+                title="None (exit program)",
+                value="",
+            )
+        )
 
         print()
-        print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
-        print("* Parameters:")
-        for name, value in get_trial_parameters(trial).items():
-            print(f"  * {name} = [bold]{value}[/]")
-        print("* Resetting model...")
-        model.reset_model()
-        print("* Abliterating...")
-        model.abliterate(
-            refusal_directions,
-            trial.user_attrs["direction_index"],
-            trial.user_attrs["parameters"],
+        print("[bold green]Optimization finished![/]")
+        print()
+        print(
+            (
+                "The following trials resulted in Pareto optimal combinations of the optimization objectives. "
+                "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
+                "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
+                "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"
+            )
         )
 
         while True:
             print()
-            action = prompt_select(
-                "What do you want to do with the decensored model?",
-                [
-                    "Save the model to a local folder",
-                    "Upload the model to Hugging Face",
-                    "Chat with the model",
-                    "Nothing (return to trial selection menu)",
-                ],
-            )
+            trial = prompt_select("Which trial do you want to use?", choices)
 
-            if action is None or action == "Nothing (return to trial selection menu)":
+            if trial == "continue":
+                while True:
+                    try:
+                        n_more_trials = int(
+                            prompt_text("How many more trials do you want to run?")
+                        )
+                        if n_more_trials > 0:
+                            break
+                        print("[red]Please enter a number greater than 0.[/]")
+                    except ValueError:
+                        print("[red]Invalid input. Please enter a number.[/]")
+
+                settings.n_trials += n_more_trials
+                try:
+                    study.optimize(objective_wrapper, n_trials=n_more_trials)
+                except KeyboardInterrupt:
+                    pass
                 break
 
-            # All actions are wrapped in a try/except block so that if an error occurs,
-            # another action can be tried, instead of the program crashing and losing
-            # the optimized model.
-            try:
-                match action:
-                    case "Save the model to a local folder":
-                        save_directory = prompt_path("Path to the folder:")
-                        if not save_directory:
-                            continue
+            elif trial is None or trial == "":
+                return
 
-                        print("Saving model...")
-                        strategy = obtain_merge_strategy(settings)
-                        if strategy is None:
-                            print("[yellow]Action cancelled.[/]")
-                            continue
+            print()
+            print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
+            print("* Parameters:")
+            for name, value in get_trial_parameters(trial).items():
+                print(f"  * {name} = [bold]{value}[/]")
+            print("* Resetting model...")
+            model.reset_model()
+            print("* Abliterating...")
+            model.abliterate(
+                refusal_directions,
+                trial.user_attrs["direction_index"],
+                trial.user_attrs["parameters"],
+            )
 
-                        if strategy == "adapter":
-                            model.model.save_pretrained(save_directory)
-                        else:
-                            merged_model = model.get_merged_model()
-                            merged_model.save_pretrained(save_directory)
-                            del merged_model
-                            empty_cache()
+            while True:
+                print()
+                action = prompt_select(
+                    "What do you want to do with the decensored model?",
+                    [
+                        "Save the model to a local folder",
+                        "Upload the model to Hugging Face",
+                        "Chat with the model",
+                        "Nothing (return to trial selection menu)",
+                    ],
+                )
 
-                        model.tokenizer.save_pretrained(save_directory)
-                        print(f"Model saved to [bold]{save_directory}[/].")
+                if (
+                    action is None
+                    or action == "Nothing (return to trial selection menu)"
+                ):
+                    break
 
-                    case "Upload the model to Hugging Face":
-                        # We don't use huggingface_hub.login() because that stores the token on disk,
-                        # and since this program will often be run on rented or shared GPU servers,
-                        # it's better to not persist credentials.
-                        token = huggingface_hub.get_token()
-                        if not token:
-                            token = prompt_password("Hugging Face access token:")
-                        if not token:
-                            continue
+                # All actions are wrapped in a try/except block so that if an error occurs,
+                # another action can be tried, instead of the program crashing and losing
+                # the optimized model.
+                try:
+                    match action:
+                        case "Save the model to a local folder":
+                            save_directory = prompt_path("Path to the folder:")
+                            if not save_directory:
+                                continue
 
-                        user = huggingface_hub.whoami(token)
-                        fullname = user.get(
-                            "fullname",
-                            user.get("name", "unknown user"),
-                        )
-                        email = user.get("email", "no email found")
-                        print(f"Logged in as [bold]{fullname} ({email})[/]")
+                            print("Saving model...")
+                            strategy = obtain_merge_strategy(settings)
+                            if strategy is None:
+                                print("[yellow]Action cancelled.[/]")
+                                continue
 
-                        repo_id = prompt_text(
-                            "Name of repository:",
-                            default=f"{user['name']}/{Path(settings.model).name}-heretic",
-                        )
+                            if strategy == "adapter":
+                                model.model.save_pretrained(save_directory)
+                            else:
+                                merged_model = model.get_merged_model()
+                                merged_model.save_pretrained(save_directory)
+                                del merged_model
+                                empty_cache()
 
-                        visibility = prompt_select(
-                            "Should the repository be public or private?",
-                            [
-                                "Public",
-                                "Private",
-                            ],
-                        )
-                        private = visibility == "Private"
+                            model.tokenizer.save_pretrained(save_directory)
+                            print(f"Model saved to [bold]{save_directory}[/].")
 
-                        strategy = obtain_merge_strategy(settings)
-                        if strategy is None:
-                            print("[yellow]Action cancelled.[/]")
-                            continue
+                        case "Upload the model to Hugging Face":
+                            # We don't use huggingface_hub.login() because that stores the token on disk,
+                            # and since this program will often be run on rented or shared GPU servers,
+                            # it's better to not persist credentials.
+                            token = huggingface_hub.get_token()
+                            if not token:
+                                token = prompt_password("Hugging Face access token:")
+                            if not token:
+                                continue
 
-                        if strategy == "adapter":
-                            print("Uploading LoRA adapter...")
-                            model.model.push_to_hub(
+                            user = huggingface_hub.whoami(token)
+                            fullname = user.get(
+                                "fullname",
+                                user.get("name", "unknown user"),
+                            )
+                            email = user.get("email", "no email found")
+                            print(f"Logged in as [bold]{fullname} ({email})[/]")
+
+                            repo_id = prompt_text(
+                                "Name of repository:",
+                                default=f"{user['name']}/{Path(settings.model).name}-heretic",
+                            )
+
+                            visibility = prompt_select(
+                                "Should the repository be public or private?",
+                                [
+                                    "Public",
+                                    "Private",
+                                ],
+                            )
+                            private = visibility == "Private"
+
+                            strategy = obtain_merge_strategy(settings)
+                            if strategy is None:
+                                print("[yellow]Action cancelled.[/]")
+                                continue
+
+                            if strategy == "adapter":
+                                print("Uploading LoRA adapter...")
+                                model.model.push_to_hub(
+                                    repo_id,
+                                    private=private,
+                                    token=token,
+                                )
+                            else:
+                                print("Uploading merged model...")
+                                merged_model = model.get_merged_model()
+                                merged_model.push_to_hub(
+                                    repo_id,
+                                    private=private,
+                                    token=token,
+                                )
+                                del merged_model
+                                empty_cache()
+
+                            model.tokenizer.push_to_hub(
                                 repo_id,
                                 private=private,
                                 token=token,
                             )
-                        else:
-                            print("Uploading merged model...")
-                            merged_model = model.get_merged_model()
-                            merged_model.push_to_hub(
-                                repo_id,
-                                private=private,
-                                token=token,
-                            )
-                            del merged_model
-                            empty_cache()
 
-                        model.tokenizer.push_to_hub(
-                            repo_id,
-                            private=private,
-                            token=token,
-                        )
-
-                        # If the model path doesn't exist locally, it can be assumed
-                        # to be a model hosted on the Hugging Face Hub, in which case
-                        # we can retrieve the model card.
-                        if not Path(settings.model).exists():
-                            card = ModelCard.load(settings.model)
-                            if card.data is None:
-                                card.data = ModelCardData()
-                            if card.data.tags is None:
-                                card.data.tags = []
-                            card.data.tags.append("heretic")
-                            card.data.tags.append("uncensored")
-                            card.data.tags.append("decensored")
-                            card.data.tags.append("abliterated")
-                            card.text = (
-                                get_readme_intro(
-                                    settings,
-                                    trial,
-                                    evaluator.get_baseline_refusals(),
-                                    evaluator.bad_prompts,
+                            # If the model path doesn't exist locally, it can be assumed
+                            # to be a model hosted on the Hugging Face Hub, in which case
+                            # we can retrieve the model card.
+                            if not Path(settings.model).exists():
+                                card = ModelCard.load(settings.model)
+                                if card.data is None:
+                                    card.data = ModelCardData()
+                                if card.data.tags is None:
+                                    card.data.tags = []
+                                card.data.tags.append("heretic")
+                                card.data.tags.append("uncensored")
+                                card.data.tags.append("decensored")
+                                card.data.tags.append("abliterated")
+                                card.text = (
+                                    get_readme_intro(
+                                        settings,
+                                        trial,
+                                        evaluator.get_baseline_refusals(),
+                                        evaluator.bad_prompts,
+                                    )
+                                    + card.text
                                 )
-                                + card.text
+                                card.push_to_hub(repo_id, token=token)
+
+                            print(f"Model uploaded to [bold]{repo_id}[/].")
+
+                        case "Chat with the model":
+                            print()
+                            print(
+                                "[cyan]Press Ctrl+C at any time to return to the menu.[/]"
                             )
-                            card.push_to_hub(repo_id, token=token)
 
-                        print(f"Model uploaded to [bold]{repo_id}[/].")
+                            chat = [
+                                {"role": "system", "content": settings.system_prompt},
+                            ]
 
-                    case "Chat with the model":
-                        print()
-                        print(
-                            "[cyan]Press Ctrl+C at any time to return to the menu.[/]"
-                        )
+                            while True:
+                                try:
+                                    message = prompt_text(
+                                        "User:",
+                                        qmark=">",
+                                        unsafe=True,
+                                    )
+                                    if not message:
+                                        break
+                                    chat.append({"role": "user", "content": message})
 
-                        chat = [
-                            {"role": "system", "content": settings.system_prompt},
-                        ]
-
-                        while True:
-                            try:
-                                message = prompt_text(
-                                    "User:",
-                                    qmark=">",
-                                    unsafe=True,
-                                )
-                                if not message:
+                                    print("[bold]Assistant:[/] ", end="")
+                                    response = model.stream_chat_response(chat)
+                                    chat.append(
+                                        {"role": "assistant", "content": response}
+                                    )
+                                except (KeyboardInterrupt, EOFError):
+                                    # Ctrl+C/Ctrl+D
                                     break
-                                chat.append({"role": "user", "content": message})
 
-                                print("[bold]Assistant:[/] ", end="")
-                                response = model.stream_chat_response(chat)
-                                chat.append({"role": "assistant", "content": response})
-                            except (KeyboardInterrupt, EOFError):
-                                # Ctrl+C/Ctrl+D
-                                break
-
-            except Exception as error:
-                print(f"[red]Error: {error}[/]")
+                except Exception as error:
+                    print(f"[red]Error: {error}[/]")
 
 
 def main():

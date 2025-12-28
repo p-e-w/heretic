@@ -27,6 +27,7 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
+from optuna.trial import FrozenTrial
 from optuna.trial import TrialState
 from pydantic import ValidationError
 from questionary import Choice
@@ -284,8 +285,9 @@ def run():
     # to avoid issues where multiple different tokens that all start
     # with a space character lead to the common prefix ending with
     # a space, which would result in an uncommon tokenization.
-    model.response_prefix = commonprefix([r.response_text for r in responses]).rstrip(
-        " "
+    response_texts = [r.response_text for r in responses if r.response_text is not None]
+    model.response_prefix = (
+        commonprefix(response_texts).rstrip(" ") if response_texts else ""
     )
 
     # Suppress CoT output.
@@ -533,7 +535,7 @@ def run():
             else [study.best_trial]
         )
 
-        def format_trial_title(trial: Trial) -> str:
+        def format_trial_title(trial: FrozenTrial) -> str:
             parts: list[str] = [f"[Trial {trial.user_attrs['index']:>3}]"]
 
             values = trial.values

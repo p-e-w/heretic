@@ -15,7 +15,7 @@ class KeywordRefusalDetector(Tagger):
 
     @staticmethod
     def required_context_metadata_fields() -> set[str]:
-        return {}
+        return set()
 
     def tag_batch(self, responses: list[Response]) -> list[Dict[str, Any]]:
         return [

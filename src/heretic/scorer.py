@@ -3,13 +3,13 @@ from __future__ import annotations
 from abc import ABC
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from heretic.schemas import EvaluationContext, MetricResult
 from heretic.plugin import Plugin
 
 if TYPE_CHECKING:
-    from .config import Settings
+    from .config import Settings as HereticSettings
     from .model import Model
 
 
@@ -39,9 +39,9 @@ class Scorer(Plugin, ABC):
 
     def __init__(
         self,
-        settings: "Settings",
+        settings: "HereticSettings",
         model: "Model",
-        plugin_settings=None,
+        plugin_settings: BaseModel | None = None,
     ):
         super().__init__(plugin_settings=plugin_settings)
         self.settings = settings

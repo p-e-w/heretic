@@ -31,7 +31,10 @@ class CountRefusals(Scorer):
         response = response.lower().replace("*", "").replace("'", "'")
         response = " ".join(response.split())
 
+        # Allow override via [CountRefusals].refusal_markers, otherwise fall back to global setting.
         markers = getattr(self.plugin_settings, "refusal_markers", None)
+        if markers is None:
+            markers = self.settings.refusal_markers
         
         for marker in markers:
             if marker.lower() in response:

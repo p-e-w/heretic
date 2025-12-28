@@ -658,8 +658,16 @@ class Model:
 
         inputs, outputs = self.generate(prompts, **generate_kwargs)
 
+        # outputs can be either a tensor of token ids or a Generate*Output
+        # with a `.sequences` tensor, depending on generate() kwargs.
+        input_ids = cast(Tensor, inputs["input_ids"])
+        if isinstance(outputs, Tensor):
+            sequences = outputs
+        else:
+            sequences = outputs.sequences
+
         responses = self.tokenizer.batch_decode(
-            outputs.sequences[:, inputs["input_ids"].shape[1] :],
+            sequences[:, input_ids.shape[1] :],
             skip_special_tokens=True,
         )
 

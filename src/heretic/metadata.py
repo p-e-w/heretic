@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-from typing import Any, Callable
+from typing import Any, Callable, Literal, cast
 
 import torch
 import torch.nn.functional as F
@@ -86,8 +86,13 @@ class MetadataBuilder:
         generate_kwargs: dict[str, Any],
         responses: list[str],
     ) -> list[Response]:
-        sequences = outputs.sequences if hasattr(outputs, "sequences") else outputs
-        input_length = inputs["input_ids"].shape[1]
+        if isinstance(outputs, LongTensor):
+            sequences: LongTensor = outputs
+        else:
+            sequences = cast(LongTensor, cast(Any, outputs).sequences)
+
+        input_ids = cast(LongTensor, inputs["input_ids"])
+        input_length = input_ids.shape[1]
 
         hidden_state_summaries = None
         if self.needs_hidden_states():
@@ -119,7 +124,7 @@ class MetadataBuilder:
                 )
 
             if "input_ids" in self.requested_response_fields:
-                entry.input_ids = inputs["input_ids"][prompt_index].tolist()
+                entry.input_ids = input_ids[prompt_index].tolist()
 
             if "response_ids" in self.requested_response_fields:
                 entry.response_ids = response_ids
@@ -136,7 +141,7 @@ class MetadataBuilder:
                 token_logits: list[float] = []
 
                 for step_index, token_id in enumerate(response_ids):
-                    score_row = outputs.scores[step_index][prompt_index]
+                    score_row = cast(Any, outputs).scores[step_index][prompt_index]
                     logprobs_row = F.log_softmax(score_row, dim=-1)
                     token_logprob = logprobs_row[token_id].item()
 
@@ -215,7 +220,7 @@ class MetadataBuilder:
 
     def _infer_finish_reason(
         self, response_ids: list[int], generate_kwargs: dict[str, Any]
-    ) -> str | None:
+    ) -> Literal["len", "eos", "unk", "empty"] | None:
         max_new_tokens = generate_kwargs.get("max_new_tokens")
         if max_new_tokens is None:
             return None

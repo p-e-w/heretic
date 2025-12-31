@@ -171,7 +171,15 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
         # Probably a repository path; let load_dataset figure it out.
         dataset = load_dataset(path, split=split_str)
 
-    return list(dataset[specification.column])
+    prompts = list(dataset[specification.column])
+
+    if specification.prefix:
+        prompts = [f"{specification.prefix} {prompt}" for prompt in prompts]
+
+    if specification.suffix:
+        prompts = [f"{prompt} {specification.suffix}" for prompt in prompts]
+
+    return prompts
 
 
 T = TypeVar("T")

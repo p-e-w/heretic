@@ -220,12 +220,12 @@ def run():
 
     print()
     print(f"Loading good prompts from [bold]{settings.good_prompts.dataset}[/]...")
-    good_prompts = load_prompts(settings.good_prompts)
+    good_prompts = load_prompts(settings, settings.good_prompts)
     print(f"* [bold]{len(good_prompts)}[/] prompts loaded")
 
     print()
     print(f"Loading bad prompts from [bold]{settings.bad_prompts.dataset}[/]...")
-    bad_prompts = load_prompts(settings.bad_prompts)
+    bad_prompts = load_prompts(settings, settings.bad_prompts)
     print(f"* [bold]{len(bad_prompts)}[/] prompts loaded")
 
     if settings.batch_size == 0:

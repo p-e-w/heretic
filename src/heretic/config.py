@@ -37,6 +37,11 @@ class DatasetSpecification(BaseModel):
         description="Text to append to each prompt.",
     )
 
+    system_prompt: str | None = Field(
+        default=None,
+        description="System prompt to use with the prompts (overrides global system prompt if set).",
+    )
+
     residual_plot_label: str | None = Field(
         default=None,
         description="Label to use for the dataset in plots of residual vectors.",

@@ -4,7 +4,7 @@
 import gc
 import getpass
 import os
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypeVar
@@ -136,7 +136,16 @@ def format_duration(seconds: float) -> str:
         return f"{seconds}s"
 
 
-def load_prompts(specification: DatasetSpecification) -> list[str]:
+@dataclass
+class Prompt:
+    system: str
+    user: str
+
+
+def load_prompts(
+    settings: Settings,
+    specification: DatasetSpecification,
+) -> list[Prompt]:
     path = specification.dataset
     split_str = specification.split
 
@@ -179,7 +188,19 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
     if specification.suffix:
         prompts = [f"{prompt} {specification.suffix}" for prompt in prompts]
 
-    return prompts
+    system_prompt = (
+        settings.system_prompt
+        if specification.system_prompt is None
+        else specification.system_prompt
+    )
+
+    return [
+        Prompt(
+            system=system_prompt,
+            user=prompt,
+        )
+        for prompt in prompts
+    ]
 
 
 T = TypeVar("T")
@@ -230,7 +251,7 @@ def get_readme_intro(
     settings: Settings,
     trial: Trial,
     base_refusals: int,
-    bad_prompts: list[str],
+    bad_prompts: list[Prompt],
 ) -> str:
     model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
 

@@ -6,14 +6,14 @@ from torch import Tensor
 
 from .config import Settings
 from .model import Model
-from .utils import load_prompts, print
+from .utils import Prompt, load_prompts, print
 
 
 class Evaluator:
     settings: Settings
     model: Model
-    good_prompts: list[str]
-    bad_prompts: list[str]
+    good_prompts: list[Prompt]
+    bad_prompts: list[Prompt]
     base_logprobs: Tensor
     base_refusals: int
 
@@ -25,7 +25,7 @@ class Evaluator:
         print(
             f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."
         )
-        self.good_prompts = load_prompts(settings.good_evaluation_prompts)
+        self.good_prompts = load_prompts(settings, settings.good_evaluation_prompts)
         print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
 
         print("* Obtaining first-token probability distributions...")
@@ -35,7 +35,7 @@ class Evaluator:
         print(
             f"Loading bad evaluation prompts from [bold]{settings.bad_evaluation_prompts.dataset}[/]..."
         )
-        self.bad_prompts = load_prompts(settings.bad_evaluation_prompts)
+        self.bad_prompts = load_prompts(settings, settings.bad_evaluation_prompts)
         print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
 
         print("* Counting model refusals...")
@@ -76,7 +76,8 @@ class Evaluator:
 
             if self.settings.print_responses:
                 print()
-                print(f"[bold]Prompt:[/] {prompt}")
+                print(f"[bold]System prompt:[/] {prompt.system}")
+                print(f"[bold]Prompt:[/] {prompt.user}")
                 print(
                     f"[bold]Response:[/] [{'red' if is_refusal else 'green'}]{response}[/]"
                 )

@@ -1,6 +1,6 @@
 from pydantic import Field
 
-from heretic.scorer import EvaluationContext, Scorer, MetricResult
+from heretic.scorer import EvaluationContext, Scorer, Score
 
 
 class CountRefusals(Scorer):
@@ -20,7 +20,7 @@ class CountRefusals(Scorer):
     def required_response_metadata_fields() -> set[str]:
         return {"response_text"}
 
-    def evaluate(self, ctx: EvaluationContext) -> MetricResult:
+    def evaluate(self, ctx: EvaluationContext) -> Score:
         responses = ctx.bad_responses()
         refusals = sum(self._is_refusal(r.response_text or "") for r in responses)
         return self.make_result(refusals, f"{refusals}/{len(ctx.bad_prompts)}")

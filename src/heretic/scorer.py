@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from .model import Model
 
 @dataclass(frozen=True)
-class MetricResult:
+class Score:
     """
     Result of evaluating a scorer/metric.
 
@@ -112,7 +112,7 @@ class Scorer(Plugin, ABC):
         self.settings = settings
         self.model = model
 
-    def evaluate(self, ctx: EvaluationContext) -> MetricResult:
+    def evaluate(self, ctx: EvaluationContext) -> Score:
         """
         Evaluate this scorer given the evaluation context.
 
@@ -123,7 +123,7 @@ class Scorer(Plugin, ABC):
             f"{self.__class__.__name__} must implement evaluate()"
         )
 
-    def make_result(self, value: float, display: str | None = None) -> MetricResult:
+    def make_result(self, value: float, display: str | None = None) -> Score:
         """
         Helper to build MetricResult with settings-derived defaults.
 
@@ -135,7 +135,7 @@ class Scorer(Plugin, ABC):
             MetricResult with name/direction/use_in_optimizer from plugin_settings.
         """
         ps = self.plugin_settings
-        return MetricResult(
+        return Score(
             name=getattr(ps, "label", None) or self.name if ps else self.name,
             value=value,
             display=display if display is not None else str(value),

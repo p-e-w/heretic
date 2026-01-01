@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .config import Settings
 from .model import Model
-from .scorer import EvaluationContext, Scorer, MetricResult
+from .scorer import EvaluationContext, Scorer, Score
 from .utils import load_plugin, load_prompts, print
 
 
@@ -104,7 +104,7 @@ class Evaluator:
             )
         return scorers
 
-    def evaluate(self) -> list[MetricResult]:
+    def evaluate(self) -> list[Score]:
         """
         Run all scorers and return their metrics.
 
@@ -120,15 +120,15 @@ class Evaluator:
         )
         return [scorer.evaluate(ctx) for scorer in self.scorers]
 
-    def get_objectives(self, metrics: list[MetricResult]) -> list[MetricResult]:
+    def get_objectives(self, metrics: list[Score]) -> list[Score]:
         """Filter metrics to only those used in optimization."""
         return [m for m in metrics if m.use_in_optimizer]
 
-    def get_objective_values(self, metrics: list[MetricResult]) -> tuple[float, ...]:
+    def get_objective_values(self, metrics: list[Score]) -> tuple[float, ...]:
         """Extract objective values as a tuple for Optuna."""
         return tuple(m.value for m in self.get_objectives(metrics))
 
-    def get_objective_directions(self, metrics: list[MetricResult]) -> list[str]:
+    def get_objective_directions(self, metrics: list[Score]) -> list[str]:
         """Get optimization directions for objectives."""
         return [m.direction for m in self.get_objectives(metrics)]
 

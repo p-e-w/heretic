@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch.nn.functional as F
 
-from heretic.scorer import EvaluationContext, Scorer, MetricResult
+from heretic.scorer import EvaluationContext, Scorer, Score
 
 class KLDivergence(Scorer):
     """
@@ -14,7 +14,7 @@ class KLDivergence(Scorer):
 
     name = "KLDivergence"
 
-    def evaluate(self, ctx: EvaluationContext) -> MetricResult:
+    def evaluate(self, ctx: EvaluationContext) -> Score:
         logprobs = ctx.model.get_logprobs_batched(ctx.good_prompts)
         kl = F.kl_div(
             logprobs,

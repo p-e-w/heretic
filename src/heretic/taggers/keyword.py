@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from heretic.schemas import Response
+from heretic.scorer import Response
 from heretic.tagger import Tagger
 
 

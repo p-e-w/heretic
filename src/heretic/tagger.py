@@ -4,7 +4,7 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict
 
-from heretic.schemas import Response
+from heretic.scorer import Response
 
 if TYPE_CHECKING:
     from .config import Settings

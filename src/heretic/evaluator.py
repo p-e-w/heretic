@@ -9,8 +9,7 @@ from pydantic import BaseModel
 
 from .config import Settings
 from .model import Model
-from .schemas import EvaluationContext, MetricResult
-from .scorer import Scorer
+from .scorer import EvaluationContext, Scorer, MetricResult
 from .utils import load_plugin, load_prompts, print
 
 

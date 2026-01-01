@@ -1,7 +1,6 @@
 from pydantic import Field
 
-from heretic.schemas import EvaluationContext, MetricResult
-from heretic.scorer import Scorer
+from heretic.scorer import EvaluationContext, Scorer, MetricResult
 
 
 class CountRefusals(Scorer):

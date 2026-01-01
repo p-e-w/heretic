@@ -28,7 +28,7 @@ from transformers.generation import (
 
 from .config import QuantizationMethod, Settings
 from .metadata import MetadataBuilder
-from .schemas import Response
+from .scorer import Response
 from .utils import batchify, empty_cache, print
 
 

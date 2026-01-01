@@ -9,7 +9,7 @@ from torch import LongTensor
 from transformers import BatchEncoding, PreTrainedTokenizerBase
 from transformers.generation.utils import GenerateOutput
 
-from .schemas import Response
+from .scorer import Response
 from .utils import print
 
 

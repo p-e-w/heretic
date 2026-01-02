@@ -514,30 +514,36 @@ class Model:
 
         return inputs, outputs
 
-    def get_responses(self, prompts: list[Prompt]) -> list[str]:
+    def get_responses(
+        self,
+        prompts: list[Prompt],
+        skip_special_tokens: bool = False,
+    ) -> list[str]:
         inputs, outputs = self.generate(
             prompts,
             max_new_tokens=self.settings.max_response_length,
         )
 
-        responses = self.tokenizer.batch_decode(
+        return self.tokenizer.batch_decode(
             # Extract the newly generated part.
             # This cast is valid because the input_ids property is a Tensor
             # if the tokenizer is invoked with return_tensors="pt", as above.
-            outputs[:, cast(Tensor, inputs["input_ids"]).shape[1] :]
+            outputs[:, cast(Tensor, inputs["input_ids"]).shape[1] :],
+            skip_special_tokens=skip_special_tokens,
         )
 
-        return [
-            # Strip out pad tokens from batch generation.
-            response.replace(self.tokenizer.pad_token, "")
-            for response in responses
-        ]
-
-    def get_responses_batched(self, prompts: list[Prompt]) -> list[str]:
+    def get_responses_batched(
+        self,
+        prompts: list[Prompt],
+        skip_special_tokens: bool = False,
+    ) -> list[str]:
         responses = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            for response in self.get_responses(batch):
+            for response in self.get_responses(
+                batch,
+                skip_special_tokens=skip_special_tokens,
+            ):
                 responses.append(response)
 
         return responses

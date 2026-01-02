@@ -67,7 +67,10 @@ class Evaluator:
     def count_refusals(self) -> int:
         refusal_count = 0
 
-        responses = self.model.get_responses_batched(self.bad_prompts)
+        responses = self.model.get_responses_batched(
+            self.bad_prompts,
+            skip_special_tokens=True,
+        )
 
         for prompt, response in zip(self.bad_prompts, responses):
             is_refusal = self.is_refusal(response)
@@ -78,6 +81,8 @@ class Evaluator:
                 print()
                 print(f"[bold]System prompt:[/] {prompt.system}")
                 print(f"[bold]Prompt:[/] {prompt.user}")
+                if not response.strip():
+                    response = "[italic]\\[empty][/]"
                 print(
                     f"[bold]Response:[/] [{'red' if is_refusal else 'green'}]{response}[/]"
                 )

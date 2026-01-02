@@ -44,8 +44,8 @@ class Settings(BaseSettings):
     scorers: list[str] = Field(
         default_factory=list,
         description=(
-            "List of scorer plugins to evaluate. If empty, defaults to "
-            "[scorer, 'kl_divergence.KLDivergence']."
+            "List of scorer plugins to evaluate. Each entry must be either "
+            "'path/to/plugin.py:ClassName' or 'fully.qualified.module.ClassName'."
         ),
     )
 

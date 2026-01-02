@@ -1,8 +1,14 @@
 # Copy this file to config.toml and edit the configuration to your liking.
 
 # List of scorers/metrics to evaluate.
-# If empty/omitted, Heretic defaults to: [scorer, "kl_divergence.KLDivergence"]
-scorers = ["count_refusals.CountRefusals", "kl_divergence.KLDivergence"]
+#
+# Plugin names must be either:
+# - "path\\to\\plugin.py:ClassName"
+# - "fully.qualified.module.ClassName"
+scorers = [
+    "heretic.scorers.count_refusals.CountRefusals",
+    "heretic.scorers.kl_divergence.KLDivergence",
+]
 
 # List of PyTorch dtypes to try when loading model tensors.
 # If loading with a dtype fails, the next dtype in the list will be tried.

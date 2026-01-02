@@ -72,7 +72,7 @@ class Evaluator:
         if not scorer_names:
             raise ValueError(
                 "No scorers configured. Set 'scorers' in config.toml, e.g.:\n"
-                'scorers = ["count_refusals.CountRefusals", "kl_divergence.KLDivergence"]'
+                'scorers = ["heretic.scorers.count_refusals.CountRefusals", "heretic.scorers.kl_divergence.KLDivergence"]'
             )
 
         scorer_classes: list[type[Scorer]] = []

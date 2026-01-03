@@ -469,30 +469,21 @@ def run():
     backend = JournalFileBackend(log_file)
     storage = JournalStorage(backend)
 
+    study = optuna.create_study(
+        study_name="my_study",
+        sampler=TPESampler(
+            n_startup_trials=settings.n_startup_trials,
+            n_ei_candidates=128,
+            multivariate=True,
+        ),
+        storage=storage,
+        directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
+        load_if_exists=True,
+    )
     if resume:
         print("Resuming existing study.")
-        study = optuna.load_study(
-            study_name="my_study",
-            sampler=TPESampler(
-                n_startup_trials=settings.n_startup_trials,
-                n_ei_candidates=128,
-                multivariate=True,
-            ),
-            storage=storage,
-        )
         start_index = len(study.trials)
         trial_index = start_index
-    else:
-        study = optuna.create_study(
-            study_name="my_study",
-            sampler=TPESampler(
-                n_startup_trials=settings.n_startup_trials,
-                n_ei_candidates=128,
-                multivariate=True,
-            ),
-            storage=storage,
-            directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
-        )
 
     try:
         remaining_trials = settings.n_trials - start_index

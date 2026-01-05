@@ -29,7 +29,7 @@ from transformers.generation import (
 from .config import QuantizationMethod, Settings
 from .metadata import MetadataBuilder
 from .scorer import Response
-from .utils import batchify, empty_cache, print
+from .utils import Prompt, batchify, empty_cache, print
 
 
 @dataclass
@@ -108,7 +108,15 @@ class Model:
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
                 # (https://github.com/meta-llama/llama/issues/380).
-                self.generate(["Test"], max_new_tokens=1)
+                self.generate(
+                    [
+                        Prompt(
+                            system=settings.system_prompt,
+                            user="What is 1+1?",
+                        )
+                    ],
+                    max_new_tokens=1,
+                )
             except Exception as error:
                 self.model = None  # ty:ignore[invalid-assignment]
                 empty_cache()
@@ -467,18 +475,18 @@ class Model:
                     weight_A.data = lora_A.to(weight_A.dtype)
                     weight_B.data = lora_B.to(weight_B.dtype)
 
-    def get_chat(self, prompt: str) -> list[dict[str, str]]:
-        return [
-            {"role": "system", "content": self.settings.system_prompt},
-            {"role": "user", "content": prompt},
-        ]
-
     def generate(
         self,
-        prompts: list[str],
+        prompts: list[Prompt],
         **kwargs: Any,
     ) -> tuple[BatchEncoding, GenerateDecoderOnlyOutput | LongTensor]:
-        chats = [self.get_chat(prompt) for prompt in prompts]
+        chats = [
+            [
+                {"role": "system", "content": prompt.system},
+                {"role": "user", "content": prompt.user},
+            ]
+            for prompt in prompts
+        ]
 
         # This cast is valid because list[str] is the return type
         # for batched operation with tokenize=False.
@@ -514,7 +522,11 @@ class Model:
 
         return inputs, outputs
 
-    def get_responses(self, prompts: list[str]) -> list[str]:
+    def get_responses(
+        self,
+        prompts: list[Prompt],
+        skip_special_tokens: bool = False,
+    ) -> list[str]:
         inputs, outputs = self.generate(
             prompts,
             max_new_tokens=self.settings.max_response_length,
@@ -524,25 +536,23 @@ class Model:
             # Extract the newly generated part.
             # This cast is valid because the input_ids property is a Tensor
             # if the tokenizer is invoked with return_tensors="pt", as above.
-            outputs[:, cast(Tensor, inputs["input_ids"]).shape[1] :]
+            outputs[:, cast(Tensor, inputs["input_ids"]).shape[1] :],
+            skip_special_tokens=skip_special_tokens,
         )
-
-        return [
-            # Strip out pad tokens from batch generation.
-            response.replace(self.tokenizer.pad_token, "")
-            for response in responses
-        ]
-
-    def get_responses_batched(self, prompts: list[str]) -> list[Response]:
-        responses: list[Response] = []
-
-        for batch in batchify(prompts, self.settings.batch_size):
-            batch_responses = self._get_responses_with_metadata(batch)
-            responses.extend(batch_responses)
-
+        # Strip out pad tokens from batch generation (some tokenizers insert them
+        # into decoded text for batched decoding).
+        pad = self.tokenizer.pad_token
+        if pad:
+            responses = [r.replace(pad, "") for r in responses]
         return responses
 
-    def get_residuals(self, prompts: list[str]) -> Tensor:
+    def get_responses_batched(self, prompts: list[Prompt]) -> list[Response]:
+        responses: list[Response] = []
+        for batch in batchify(prompts, self.settings.batch_size):
+            responses.extend(self._get_responses_with_metadata(batch))
+        return responses
+
+    def get_residuals(self, prompts: list[Prompt]) -> Tensor:
         # We only generate one token, and we return the residual vectors
         # at that token position, for each prompt and layer.
         _, outputs = self.generate(
@@ -573,7 +583,7 @@ class Model:
         # problems during calculations involving residual vectors.
         return residuals.to(torch.float32)
 
-    def get_residuals_batched(self, prompts: list[str]) -> Tensor:
+    def get_residuals_batched(self, prompts: list[Prompt]) -> Tensor:
         residuals = []
 
         for batch in batchify(prompts, self.settings.batch_size):
@@ -583,7 +593,7 @@ class Model:
 
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.
-    def get_logprobs(self, prompts: list[str]) -> Tensor:
+    def get_logprobs(self, prompts: list[Prompt]) -> Tensor:
         # We only generate one token, and we return the (log) probability distributions
         # over the vocabulary at that token position, for each prompt.
         _, outputs = self.generate(
@@ -604,7 +614,7 @@ class Model:
         # The returned tensor has shape (prompt, token).
         return F.log_softmax(logits, dim=-1)
 
-    def get_logprobs_batched(self, prompts: list[str]) -> Tensor:
+    def get_logprobs_batched(self, prompts: list[Prompt]) -> Tensor:
         logprobs = []
 
         for batch in batchify(prompts, self.settings.batch_size):
@@ -652,7 +662,7 @@ class Model:
             skip_special_tokens=True,
         )
 
-    def _get_responses_with_metadata(self, prompts: list[str]) -> list[Response]:
+    def _get_responses_with_metadata(self, prompts: list[Prompt]) -> list[Response]:
         needs_token_scores = self.metadata_builder.needs_token_scores()
 
         generate_kwargs = self.metadata_builder.build_generate_kwargs(

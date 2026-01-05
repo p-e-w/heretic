@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .config import Settings
 from .model import Model
-from .scorer import EvaluationContext, Score, Scorer
+from .scorer import EvaluationContext, Scorer, Score
 from .utils import load_plugin, load_prompts, print
 
 
@@ -28,7 +28,7 @@ class Evaluator:
         print(
             f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."
         )
-        self.good_prompts = load_prompts(settings.good_evaluation_prompts)
+        self.good_prompts = load_prompts(settings, settings.good_evaluation_prompts)
         print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
 
         print("* Obtaining first-token probability distributions...")
@@ -38,7 +38,7 @@ class Evaluator:
         print(
             f"Loading bad evaluation prompts from [bold]{settings.bad_evaluation_prompts.dataset}[/]..."
         )
-        self.bad_prompts = load_prompts(settings.bad_evaluation_prompts)
+        self.bad_prompts = load_prompts(settings, settings.bad_evaluation_prompts)
         print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
 
         print()

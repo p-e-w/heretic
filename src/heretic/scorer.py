@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field
 
 from heretic.plugin import Plugin
+from heretic.utils import Prompt
 
 if TYPE_CHECKING:
     from .config import Settings as HereticSettings
@@ -17,7 +18,7 @@ FinishReason = Literal["len", "eos", "unk", "empty"]
 
 @dataclass(frozen=True)
 class ResponseText:
-    prompt_text: str
+    prompt: Prompt
     response_text: str
     finish_reason: FinishReason
 
@@ -71,7 +72,12 @@ class Response:
 
     @property
     def prompt_text(self) -> str:
-        return self.text.prompt_text
+        # Convenience: most call sites treat "prompt text" as the user prompt.
+        return self.text.prompt.user
+
+    @property
+    def prompt(self) -> Prompt:
+        return self.text.prompt
 
     @property
     def finish_reason(self) -> FinishReason:
@@ -109,8 +115,8 @@ class EvaluationContext:
 
     settings: "HereticSettings"
     model: "Model"
-    good_prompts: list[str]
-    bad_prompts: list[str]
+    good_prompts: list[Prompt]
+    bad_prompts: list[Prompt]
     base_good_logprobs: Any  # Tensor
 
     _bad_responses: list[Response] | None = field(default=None, init=False, repr=False)
@@ -123,6 +129,19 @@ class EvaluationContext:
         if self._bad_responses is None:
             self._bad_responses = self.model.get_responses_batched(self.bad_prompts)
         return self._bad_responses
+
+    # General helpers (Prompt-based) for plugin flexibility.
+    def responses(self, prompts: list[Prompt]) -> list[Response]:
+        return self.model.get_responses_batched(prompts)
+
+    def response_text(self, prompts: list[Prompt]) -> list[ResponseText]:
+        return [r.text for r in self.responses(prompts)]
+
+    def response_tokenization(self, prompts: list[Prompt]) -> list[ResponseTokenization]:
+        return [r.tokenization for r in self.responses(prompts)]
+
+    def response_token_scores(self, prompts: list[Prompt]) -> list[ResponseTokenScores]:
+        return [r.token_scores for r in self.responses(prompts)]
 
     # Convenience accessors returning fully-populated grouped metadata
     def bad_response(self, index: int) -> Response:

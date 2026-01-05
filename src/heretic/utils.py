@@ -7,7 +7,7 @@ import importlib
 import importlib.util
 import inspect
 import os
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypeVar
@@ -213,7 +213,16 @@ def format_duration(seconds: float) -> str:
         return f"{seconds}s"
 
 
-def load_prompts(specification: DatasetSpecification) -> list[str]:
+@dataclass
+class Prompt:
+    system: str
+    user: str
+
+
+def load_prompts(
+    settings: Settings,
+    specification: DatasetSpecification,
+) -> list[Prompt]:
     path = specification.dataset
     split_str = specification.split
 
@@ -248,7 +257,27 @@ def load_prompts(specification: DatasetSpecification) -> list[str]:
         # Probably a repository path; let load_dataset figure it out.
         dataset = load_dataset(path, split=split_str)
 
-    return list(dataset[specification.column])
+    prompts = list(dataset[specification.column])
+
+    if specification.prefix:
+        prompts = [f"{specification.prefix} {prompt}" for prompt in prompts]
+
+    if specification.suffix:
+        prompts = [f"{prompt} {specification.suffix}" for prompt in prompts]
+
+    system_prompt = (
+        settings.system_prompt
+        if specification.system_prompt is None
+        else specification.system_prompt
+    )
+
+    return [
+        Prompt(
+            system=system_prompt,
+            user=prompt,
+        )
+        for prompt in prompts
+    ]
 
 
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:
@@ -296,7 +325,7 @@ def get_readme_intro(
     settings: Settings,
     trial: Trial,
     base_refusals: int,
-    bad_prompts: list[str],
+    bad_prompts: list[Prompt],
 ) -> str:
     model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
 

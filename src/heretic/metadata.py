@@ -16,6 +16,7 @@ from .scorer import (
     ResponseTokenScores,
 )
 from .utils import print
+from .utils import Prompt
 
 
 class MetadataBuilder:
@@ -81,7 +82,7 @@ class MetadataBuilder:
 
     def collect_response_metadata(
         self,
-        prompts: list[str],
+        prompts: list[Prompt],
         inputs: BatchEncoding,
         outputs: GenerateOutput | LongTensor,
         generate_kwargs: dict[str, Any],
@@ -129,7 +130,7 @@ class MetadataBuilder:
             metadata.append(
                 Response(
                     text=ResponseText(
-                        prompt_text=prompt,
+                        prompt=prompt,
                         response_text=responses[prompt_index],
                         finish_reason=finish_reason,
                     ),

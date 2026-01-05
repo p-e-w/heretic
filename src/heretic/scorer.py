@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, List, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -11,6 +11,29 @@ from heretic.plugin import Plugin
 if TYPE_CHECKING:
     from .config import Settings as HereticSettings
     from .model import Model
+
+FinishReason = Literal["len", "eos", "unk", "empty"]
+
+
+@dataclass(frozen=True)
+class ResponseText:
+    prompt_text: str
+    response_text: str
+    finish_reason: FinishReason
+
+
+@dataclass(frozen=True)
+class ResponseTokenization:
+    input_ids: list[int]
+    response_ids: list[int]
+    response_tokens: list[str]
+
+
+@dataclass(frozen=True)
+class ResponseTokenScores:
+    token_logprobs: list[float]
+    token_logits: list[float]
+
 
 @dataclass(frozen=True)
 class Score:
@@ -28,26 +51,51 @@ class Score:
     direction: Literal["minimize", "maximize"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Response:
-    response_text: str | None = None
-    prompt_text: str | None = None
+    """
+    A model response with structured metadata.
 
-    finish_reason: Literal["len", "eos", "unk", "empty"] | None = None
+    Metadata is split into grouped objects; within each group, all fields are
+    fully populated (no `None`s).
+    """
 
-    # Tokenization
-    input_ids: List[int] | None = None
-    response_ids: List[int] | None = None
-    response_tokens: List[str] | None = None
-    response_offsets: List[tuple[int, int]] | None = None
+    text: ResponseText
+    tokenization: ResponseTokenization
+    token_scores: ResponseTokenScores
 
-    # Logprobs / uncertainty
-    token_logprobs: List[float] | None = None
-    token_logits: List[float] | None = None
+    # Convenience accessors (non-optional, since groups are fully populated).
+    @property
+    def response_text(self) -> str:
+        return self.text.response_text
 
-    # Hidden states / residuals (optional, heavy)
-    hidden_states: List[List[List[float]]] | None = None
-    residuals_last_token_per_layer: List[List[float]] | None = None
+    @property
+    def prompt_text(self) -> str:
+        return self.text.prompt_text
+
+    @property
+    def finish_reason(self) -> FinishReason:
+        return self.text.finish_reason
+
+    @property
+    def input_ids(self) -> list[int]:
+        return self.tokenization.input_ids
+
+    @property
+    def response_ids(self) -> list[int]:
+        return self.tokenization.response_ids
+
+    @property
+    def response_tokens(self) -> list[str]:
+        return self.tokenization.response_tokens
+
+    @property
+    def token_logprobs(self) -> list[float]:
+        return self.token_scores.token_logprobs
+
+    @property
+    def token_logits(self) -> list[float]:
+        return self.token_scores.token_logits
 
 
 @dataclass
@@ -75,6 +123,28 @@ class EvaluationContext:
         if self._bad_responses is None:
             self._bad_responses = self.model.get_responses_batched(self.bad_prompts)
         return self._bad_responses
+
+    # Convenience accessors returning fully-populated grouped metadata
+    def bad_response(self, index: int) -> Response:
+        return self.bad_responses()[index]
+
+    def bad_response_text(self) -> list[ResponseText]:
+        return [r.text for r in self.bad_responses()]
+
+    def bad_response_text_at(self, index: int) -> ResponseText:
+        return self.bad_response(index).text
+
+    def bad_response_tokenization(self) -> list[ResponseTokenization]:
+        return [r.tokenization for r in self.bad_responses()]
+
+    def bad_response_tokenization_at(self, index: int) -> ResponseTokenization:
+        return self.bad_response(index).tokenization
+
+    def bad_response_token_scores(self) -> list[ResponseTokenScores]:
+        return [r.token_scores for r in self.bad_responses()]
+
+    def bad_response_token_scores_at(self, index: int) -> ResponseTokenScores:
+        return self.bad_response(index).token_scores
 
 
 class Scorer(Plugin, ABC):
@@ -147,7 +217,8 @@ class Scorer(Plugin, ABC):
     def required_response_metadata_fields() -> set[str]:
         """
         Response-level metadata fields needed by this scorer.
-        Override to request fields like 'response_text', 'token_logprobs', etc.
+        Override to request grouped metadata:
+        - 'token_scores' to enable token logprobs/logits
         """
         return set()
 

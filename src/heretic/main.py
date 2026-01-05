@@ -284,7 +284,7 @@ def run():
     # to avoid issues where multiple different tokens that all start
     # with a space character lead to the common prefix ending with
     # a space, which would result in an uncommon tokenization.
-    response_texts = [r.response_text for r in responses if r.response_text is not None]
+    response_texts = [r.text.response_text for r in responses]
     model.response_prefix = (
         commonprefix(response_texts).rstrip(" ") if response_texts else ""
     )

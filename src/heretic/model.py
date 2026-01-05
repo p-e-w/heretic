@@ -654,11 +654,9 @@ class Model:
 
     def _get_responses_with_metadata(self, prompts: list[str]) -> list[Response]:
         needs_token_scores = self.metadata_builder.needs_token_scores()
-        needs_hidden_states = self.metadata_builder.needs_hidden_states()
 
         generate_kwargs = self.metadata_builder.build_generate_kwargs(
             needs_token_scores=needs_token_scores,
-            needs_hidden_states=needs_hidden_states,
             max_new_tokens=self.settings.max_response_length,
         )
 

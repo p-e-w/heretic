@@ -15,8 +15,7 @@ from .scorer import (
     ResponseTokenization,
     ResponseTokenScores,
 )
-from .utils import print
-from .utils import Prompt
+from .utils import Prompt, print
 
 
 class MetadataBuilder:

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import torch.nn.functional as F
 
-from heretic.scorer import EvaluationContext, Scorer, Score
+from heretic.scorer import EvaluationContext, Score, Scorer
+
 
 class KLDivergence(Scorer):
     """

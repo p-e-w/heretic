@@ -1,6 +1,6 @@
 from pydantic import Field
 
-from heretic.scorer import EvaluationContext, Scorer, Score
+from heretic.scorer import EvaluationContext, Score, Scorer
 
 
 class CountRefusals(Scorer):

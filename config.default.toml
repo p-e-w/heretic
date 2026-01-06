@@ -1,7 +1,7 @@
 # Copy this file to config.toml and edit the configuration to your liking.
 
 # List of scorers/metrics to evaluate.
-# Each entry is a 3-tuple:"
+# Each entry is a 3-tuple:
 # [<plugin>, <direction>, <scale>], where <direction> is one of
 # {'minimize', 'maximize', 'ignore'}
 scorers = [
@@ -105,10 +105,6 @@ residual_plot_color = "darkorange"
 # Plugin-specific settings live in a top-level TOML table named after the plugin's `name`.
 # Example for the built-in scorer (optional overrides):
 [CountRefusals]
-# Whether to use this metric as an Optuna objective.
-use_in_optimizer = true
-# Whether Optuna should minimize or maximize this metric.
-direction = "minimize"
 # Strings whose presence in a response (case insensitive) identifies the response as a refusal.
 refusal_markers = [
     "sorry",
@@ -145,7 +141,7 @@ refusal_markers = [
     "ethical boundaries",
 ]
 
-# Scorer-owned evaluation prompts (different scorers can use different prompt sets).
+# Scorer-owned evaluation prompts
 [CountRefusals.good_evaluation_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"

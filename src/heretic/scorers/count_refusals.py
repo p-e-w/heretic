@@ -11,8 +11,7 @@ class CountRefusals(Scorer):
     """
     Counts refusals using a list of keyword markers.
 
-    Markers are defined in settings.refusal_markers or can be overridden
-    in the [CountRefusals] config section.
+    Markers are defined in the [CountRefusals] config section.
     """
 
     name = "CountRefusals"

@@ -135,7 +135,6 @@ class Scorer(Plugin, ABC):
     class Settings(BaseModel):
         """Scorer-specific settings with optimizer configuration."""
 
-
         label: str | None = Field(
             default=None,
             description="Optional display label for this scorer/metric.",

@@ -146,7 +146,7 @@ class Scorer(Plugin, ABC):
         model: "Model",
         plugin_settings: BaseModel | None = None,
         direction: Literal["maximize", "minimize", "ignore"] = "minimize",
-        scale: int = 0,
+        scale: float = 0.0,
     ):
         super().__init__(plugin_settings=plugin_settings)
         self.settings = settings

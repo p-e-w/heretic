@@ -2,7 +2,7 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 from enum import Enum
-from typing import Dict
+from typing import Dict, Literal, TypeAlias
 
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -53,14 +53,19 @@ class DatasetSpecification(BaseModel):
     )
 
 
+ObjectiveDirection: TypeAlias = Literal["minimize", "maximize", "ignore"]
+ScorerConfig: TypeAlias = tuple[str, ObjectiveDirection, float]
+
+
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
-    scorers: list[str] = Field(
+    scorers: list[ScorerConfig] = Field(
         default_factory=list,
         description=(
-            "List of scorer plugins to evaluate. Each entry must be either "
-            "'path/to/plugin.py:ClassName' or 'fully.qualified.module.ClassName'."
+            "List of scorer plugin configs. Each entry is a 3-tuple:"
+            " [<plugin>, <direction>, <scale>], where <direction> is one of"
+            " {'minimize', 'maximize', 'ignore'}."
         ),
     )
 

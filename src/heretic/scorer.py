@@ -175,7 +175,7 @@ class Scorer(Plugin, ABC):
     Example: counting refusals, measuring KL divergence, etc.
     """
 
-    class Settings(Plugin.Settings):
+    class Settings(BaseModel):
         """Scorer-specific settings with optimizer configuration."""
 
         use_in_optimizer: bool = Field(

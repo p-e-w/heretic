@@ -3,7 +3,6 @@
 
 from typing import Any, cast
 
-import torch.nn.functional as F
 import torch
 from torch import LongTensor
 from transformers import BatchEncoding, PreTrainedTokenizerBase
@@ -60,9 +59,7 @@ class MetadataBuilder:
             requested -= unsupported
 
         # Token scores are opt-in because they require `output_scores=True`.
-        self._needs_token_scores = bool(
-            requested & {"token_logprobs", "token_logits"}
-        )
+        self._needs_token_scores = bool(requested & {"token_logprobs", "token_logits"})
         return requested
 
     def needs_token_scores(self) -> bool:

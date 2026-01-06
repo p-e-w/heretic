@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .config import Settings
+from .config import ObjectiveDirection, Settings
 from .model import Model
 from .scorer import EvaluationContext, Score, Scorer
 from .utils import load_plugin, print
@@ -51,16 +51,17 @@ class Evaluator:
 
     def _load_scorers(self) -> list[Scorer]:
         """Load and instantiate all configured scorer plugins."""
-        scorer_names = self.settings.scorers
-        if not scorer_names:
-            raise ValueError(
-                "No scorers configured. Set 'scorers' in config.toml, e.g.:\n"
-                'scorers = ["heretic.scorers.count_refusals.CountRefusals", "heretic.scorers.kl_divergence.KLDivergence"]'
-            )
+        scorer_configs = self.settings.scorers
+        # the scaling factor and optimization direction (maximize, minimize, none)
+        # is set at the top level
+        if not scorer_configs:
+            raise ValueError("No scorers configured. Set 'scorers' in config.toml")
 
         scorer_classes: list[type[Scorer]] = []
-        for name in scorer_names:
-            scorer_cls = load_plugin(name=name, base_class=Scorer)
+
+        # resolve plugin classes from names and validate
+        for plugin_name, _, _ in scorer_configs:
+            scorer_cls = load_plugin(name=plugin_name, base_class=Scorer)
             scorer_cls.validate_contract()
             scorer_classes.append(scorer_cls)
             print(f"* Loaded: [bold]{scorer_cls.__name__}[/bold]")
@@ -73,16 +74,21 @@ class Evaluator:
         self.model.set_requested_metadata_fields(response_fields)
 
         scorers: list[Scorer] = []
-        for scorer_cls in scorer_classes:
+        # instantiate scorers
+        for index, scorer_cls in enumerate(scorer_classes):
             plugin_config = self._get_plugin_namespace(scorer_cls.name)
             plugin_settings: BaseModel | None = scorer_cls.validate_settings(
                 plugin_config
             )
+            direction: ObjectiveDirection = scorer_configs[index][1]
+            scale: float = float(scorer_configs[index][2])
             scorers.append(
                 scorer_cls(
                     settings=self.settings,
                     model=self.model,
                     plugin_settings=plugin_settings,
+                    direction=direction,
+                    scale=scale,
                 )
             )
         return scorers
@@ -99,11 +105,16 @@ class Evaluator:
 
     def get_objectives(self, metrics: list[Score]) -> list[Score]:
         """Filter metrics to only those used in optimization."""
-        return [m for m in metrics if m.use_in_optimizer]
+        return [m for m in metrics if m.direction != "ignore"]
 
     def get_objective_values(self, metrics: list[Score]) -> tuple[float, ...]:
         """Extract objective values as a tuple for Optuna."""
-        return tuple(m.value for m in self.get_objectives(metrics))
+        values: list[float] = []
+        for scorer, m in zip(self.scorers, metrics):
+            if m.direction == "ignore":
+                continue
+            values.append(float(m.value) * float(getattr(scorer, "scale", 1.0)))
+        return tuple(values)
 
     def get_objective_directions(self, metrics: list[Score]) -> list[str]:
         """Get optimization directions for objectives."""

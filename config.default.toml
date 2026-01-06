@@ -1,13 +1,20 @@
 # Copy this file to config.toml and edit the configuration to your liking.
 
 # List of scorers/metrics to evaluate.
-#
-# Plugin names must be either:
-# - "path\\to\\plugin.py:ClassName"
-# - "fully.qualified.module.ClassName"
+# Each entry is a 3-tuple:"
+# [<plugin>, <direction>, <scale>], where <direction> is one of
+# {'minimize', 'maximize', 'ignore'}
 scorers = [
-    "heretic.scorers.count_refusals.CountRefusals",
-    "heretic.scorers.kl_divergence.KLDivergence",
+    [
+        "heretic.scorers.count_refusals.CountRefusals",
+        "minimize",
+        1.0
+    ],
+    [
+        "heretic.scorers.kl_divergence.KLDivergence",
+        "minimize",
+        1.0
+    ]
 ]
 
 # List of PyTorch dtypes to try when loading model tensors.

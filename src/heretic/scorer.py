@@ -43,18 +43,17 @@ class Score:
 
     - `value`: scalar value used for optimization (if enabled)
     - `display`: string shown to the user in logs/console
+    - `direction`: what Optuna should do with the score
     """
 
     name: str
     value: float
     display: str
-    use_in_optimizer: bool
-    direction: Literal["minimize", "maximize"]
+    direction: Literal["minimize", "maximize", "ignore"]
 
 
 @dataclass(frozen=True)
 class Response:
-
     text: ResponseText
     tokenization: ResponseTokenization
     token_scores: ResponseTokenScores
@@ -136,14 +135,7 @@ class Scorer(Plugin, ABC):
     class Settings(BaseModel):
         """Scorer-specific settings with optimizer configuration."""
 
-        use_in_optimizer: bool = Field(
-            default=True,
-            description="If true, this scorer's value is used as an Optuna objective.",
-        )
-        direction: Literal["minimize", "maximize"] = Field(
-            default="minimize",
-            description="Whether Optuna should minimize or maximize this scorer's value.",
-        )
+
         label: str | None = Field(
             default=None,
             description="Optional display label for this scorer/metric.",
@@ -154,10 +146,14 @@ class Scorer(Plugin, ABC):
         settings: "HereticSettings",
         model: "Model",
         plugin_settings: BaseModel | None = None,
+        direction: Literal["maximize", "minimize", "ignore"] = "minimize",
+        scale: int = 0,
     ):
         super().__init__(plugin_settings=plugin_settings)
         self.settings = settings
         self.model = model
+        self.direction = direction
+        self.scale = scale
 
     def evaluate(self, ctx: EvaluationContext) -> Score:
         """
@@ -186,8 +182,7 @@ class Scorer(Plugin, ABC):
             name=getattr(ps, "label", None) or self.name if ps else self.name,
             value=value,
             display=display if display is not None else str(value),
-            use_in_optimizer=getattr(ps, "use_in_optimizer", True) if ps else True,
-            direction=getattr(ps, "direction", "minimize") if ps else "minimize",
+            direction=self.direction,
         )
 
     def get_primary_prompt_count(self) -> int | None:
@@ -205,13 +200,5 @@ class Scorer(Plugin, ABC):
         Response-level metadata fields needed by this scorer.
         Override to request grouped metadata:
         - 'token_scores' to enable token logprobs/logits
-        """
-        return set()
-
-    @staticmethod
-    def required_context_metadata_fields() -> set[str]:
-        """
-        Context-level metadata fields needed by this scorer.
-        Override to request fields like 'good_residuals', 'bad_residuals', etc.
         """
         return set()

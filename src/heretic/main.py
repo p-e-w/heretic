@@ -334,9 +334,6 @@ def run():
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
 
-    model.good_residuals = good_residuals
-    model.bad_residuals = bad_residuals
-
     refusal_directions = F.normalize(
         bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
         p=2,
@@ -351,16 +348,7 @@ def run():
     if settings.plot_residuals:
         analyzer.plot_residuals()
 
-    # If no scorer plugin has requested the residuals, we can delete them
-    # to save memory.
-    if "good_residuals" not in {
-        f for s in evaluator.scorers for f in s.required_context_metadata_fields()
-    } and "bad_residuals" not in {
-        f for s in evaluator.scorers for f in s.required_context_metadata_fields()
-    }:
-        model.good_residuals = None
-        model.bad_residuals = None
-        del good_residuals, bad_residuals
+    del good_residuals, bad_residuals
 
     del analyzer
     empty_cache()

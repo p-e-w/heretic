@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
@@ -54,12 +54,6 @@ class Score:
 
 @dataclass(frozen=True)
 class Response:
-    """
-    A model response with structured metadata.
-
-    Metadata is split into grouped objects; within each group, all fields are
-    fully populated (no `None`s).
-    """
 
     text: ResponseText
     tokenization: ResponseTokenization
@@ -109,61 +103,25 @@ class EvaluationContext:
     """
     Runtime context passed to scorers during evaluation.
 
-    Provides access to prompts, baseline logprobs, and the model.
-    Scorers needing residuals can access them via `model.good_residuals`.
+    Provides access to settings, the model and some convenience functions.
     """
 
     settings: "HereticSettings"
     model: "Model"
-    good_prompts: list[Prompt]
-    bad_prompts: list[Prompt]
-    base_good_logprobs: Any  # Tensor
 
-    _bad_responses: list[Response] | None = field(default=None, init=False, repr=False)
-
-    def bad_responses(self) -> list[Response]:
-        """
-        Lazily generate responses for `bad_prompts` once and cache them.
-        Scorers call this to avoid recomputing expensive generations.
-        """
-        if self._bad_responses is None:
-            self._bad_responses = self.model.get_responses_batched(self.bad_prompts)
-        return self._bad_responses
-
-    # General helpers (Prompt-based) for plugin flexibility.
     def responses(self, prompts: list[Prompt]) -> list[Response]:
         return self.model.get_responses_batched(prompts)
 
     def response_text(self, prompts: list[Prompt]) -> list[ResponseText]:
         return [r.text for r in self.responses(prompts)]
 
-    def response_tokenization(self, prompts: list[Prompt]) -> list[ResponseTokenization]:
+    def response_tokenization(
+        self, prompts: list[Prompt]
+    ) -> list[ResponseTokenization]:
         return [r.tokenization for r in self.responses(prompts)]
 
     def response_token_scores(self, prompts: list[Prompt]) -> list[ResponseTokenScores]:
         return [r.token_scores for r in self.responses(prompts)]
-
-    # Convenience accessors returning fully-populated grouped metadata
-    def bad_response(self, index: int) -> Response:
-        return self.bad_responses()[index]
-
-    def bad_response_text(self) -> list[ResponseText]:
-        return [r.text for r in self.bad_responses()]
-
-    def bad_response_text_at(self, index: int) -> ResponseText:
-        return self.bad_response(index).text
-
-    def bad_response_tokenization(self) -> list[ResponseTokenization]:
-        return [r.tokenization for r in self.bad_responses()]
-
-    def bad_response_tokenization_at(self, index: int) -> ResponseTokenization:
-        return self.bad_response(index).tokenization
-
-    def bad_response_token_scores(self) -> list[ResponseTokenScores]:
-        return [r.token_scores for r in self.bad_responses()]
-
-    def bad_response_token_scores_at(self, index: int) -> ResponseTokenScores:
-        return self.bad_response(index).token_scores
 
 
 class Scorer(Plugin, ABC):
@@ -231,6 +189,15 @@ class Scorer(Plugin, ABC):
             use_in_optimizer=getattr(ps, "use_in_optimizer", True) if ps else True,
             direction=getattr(ps, "direction", "minimize") if ps else "minimize",
         )
+
+    def get_primary_prompt_count(self) -> int | None:
+        """
+        Optional helper for UIs/README generation.
+
+        If this scorer evaluates on a primary prompt set (e.g. refusal-count on
+        "bad evaluation prompts"), return its size. Otherwise return None.
+        """
+        return None
 
     @staticmethod
     def required_response_metadata_fields() -> set[str]:

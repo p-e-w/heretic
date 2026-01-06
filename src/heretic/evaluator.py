@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from .config import Settings
 from .model import Model
 from .scorer import EvaluationContext, Score, Scorer
-from .utils import load_plugin, load_prompts, print
+from .utils import load_plugin, print
 
 
 class Evaluator:
@@ -23,23 +23,6 @@ class Evaluator:
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings
         self.model = model
-
-        print()
-        print(
-            f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."
-        )
-        self.good_prompts = load_prompts(settings, settings.good_evaluation_prompts)
-        print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
-
-        print("* Obtaining first-token probability distributions...")
-        self.base_good_logprobs = model.get_logprobs_batched(self.good_prompts)
-
-        print()
-        print(
-            f"Loading bad evaluation prompts from [bold]{settings.bad_evaluation_prompts.dataset}[/]..."
-        )
-        self.bad_prompts = load_prompts(settings, settings.bad_evaluation_prompts)
-        print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
 
         print()
         print("Loading scorers...")
@@ -111,13 +94,7 @@ class Evaluator:
         Returns:
             List of MetricResult from each scorer.
         """
-        ctx = EvaluationContext(
-            settings=self.settings,
-            model=self.model,
-            good_prompts=self.good_prompts,
-            bad_prompts=self.bad_prompts,
-            base_good_logprobs=self.base_good_logprobs,
-        )
+        ctx = EvaluationContext(settings=self.settings, model=self.model)
         return [scorer.evaluate(ctx) for scorer in self.scorers]
 
     def get_objectives(self, metrics: list[Score]) -> list[Score]:
@@ -134,7 +111,7 @@ class Evaluator:
 
     def get_baseline_refusals(self) -> int:
         """Get baseline refusal count (for backwards compat in main.py)."""
-        for m in self.baseline_metrics:
-            if m.name == "CountRefusals":
+        for scorer, m in zip(self.scorers, self.baseline_metrics):
+            if scorer.name == "CountRefusals":
                 return int(m.value)
         return 0

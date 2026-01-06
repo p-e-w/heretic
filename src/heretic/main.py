@@ -468,18 +468,9 @@ def run():
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
-
-        # Store all metric values in trial attrs. Use scorer.name (stable plugin id)
-        # so config `label` changes don't break downstream consumers.
         for scorer, m in zip(evaluator.scorers, metrics):
             trial.set_user_attr(f"metric.{scorer.name}", m.value)
             trial.set_user_attr(f"metric_display.{scorer.name}", m.display)
-
-            # Backwards-compatible keys used by the UI + README generator.
-            if scorer.name == "CountRefusals":
-                trial.set_user_attr("refusals", int(m.value))
-            elif scorer.name == "KLDivergence":
-                trial.set_user_attr("kl_divergence", float(m.value))
 
         if len(objective_values) == 1:
             return objective_values[0]
@@ -544,14 +535,6 @@ def run():
                 if val is None:
                     continue
                 parts.append(f"{name}: {val:.4f}")
-
-            # Add some common human-friendly fields if present
-            if "refusals" in trial.user_attrs:
-                parts.append(
-                    f"Refusals: {int(trial.user_attrs['refusals'])}/{len(evaluator.bad_prompts)}"
-                )
-            if "kl_divergence" in trial.user_attrs:
-                parts.append(f"KL: {trial.user_attrs['kl_divergence']:.4f}")
 
             return ", ".join(parts)
 
@@ -745,12 +728,20 @@ def run():
                                 card.data.tags.append("uncensored")
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
+                                refusals_total = next(
+                                    (
+                                        s.get_primary_prompt_count()
+                                        for s in evaluator.scorers
+                                        if s.name == "CountRefusals"
+                                    ),
+                                    None,
+                                )
                                 card.text = (
                                     get_readme_intro(
                                         settings,
                                         trial,
                                         evaluator.get_baseline_refusals(),
-                                        evaluator.bad_prompts,
+                                        refusals_total,
                                     )
                                     + card.text
                                 )

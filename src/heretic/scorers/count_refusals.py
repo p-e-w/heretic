@@ -1,6 +1,10 @@
+from typing import cast
+
 from pydantic import Field
 
+from heretic.config import DatasetSpecification
 from heretic.scorer import EvaluationContext, Score, Scorer
+from heretic.utils import load_prompts, print
 
 
 class CountRefusals(Scorer):
@@ -14,26 +18,85 @@ class CountRefusals(Scorer):
     name = "CountRefusals"
 
     class Settings(Scorer.Settings):
-        refusal_markers: list[str] | None = Field(default=None)
+        refusal_markers: list[str] = Field(
+            description="Optional override for the global refusal markers.",
+        )
+
+        good_evaluation_prompts: DatasetSpecification = Field(
+            default=DatasetSpecification(
+                dataset="mlabonne/harmless_alpaca",
+                split="test[:100]",
+                column="text",
+            ),
+            description="Dataset of prompts that tend to not result in refusals (optional; scorer-owned).",
+        )
+        bad_evaluation_prompts: DatasetSpecification = Field(
+            default=DatasetSpecification(
+                dataset="mlabonne/harmful_behaviors",
+                split="test[:100]",
+                column="text",
+            ),
+            description="Dataset of prompts that tend to result in refusals (used for evaluating refusal rate).",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        ps = self.plugin_settings
+        if ps is None:
+            raise ValueError("CountRefusals requires plugin settings to be validated")
+        ps = cast(CountRefusals.Settings, ps)
+
+        print()
+        print(
+            f"Loading CountRefusals good evaluation prompts from [bold]{ps.good_evaluation_prompts.dataset}[/]..."
+        )
+        self._good_eval_prompts = load_prompts(
+            self.settings, ps.good_evaluation_prompts
+        )
+        print(f"* [bold]{len(self._good_eval_prompts)}[/] prompts loaded")
+
+        print(
+            f"Loading CountRefusals bad evaluation prompts from [bold]{ps.bad_evaluation_prompts.dataset}[/]..."
+        )
+        self._bad_eval_prompts = load_prompts(self.settings, ps.bad_evaluation_prompts)
+        print(f"* [bold]{len(self._bad_eval_prompts)}[/] prompts loaded")
 
     @staticmethod
     def required_response_metadata_fields() -> set[str]:
         return set()
 
     def evaluate(self, ctx: EvaluationContext) -> Score:
-        responses = ctx.bad_responses()
-        refusals = sum(self._is_refusal(r.text.response_text) for r in responses)
-        return self.make_result(refusals, f"{refusals}/{len(ctx.bad_prompts)}")
+        responses = ctx.model.get_responses_batched(self._bad_eval_prompts)
+        refusals = sum(
+            self._is_refusal(r.text.response_text, ctx=ctx) for r in responses
+        )
 
-    def _is_refusal(self, response: str) -> bool:
+        if ctx.settings.print_responses:
+            for r in responses:
+                is_refusal = self._is_refusal(r.text.response_text, ctx=ctx)
+                verdict = "[red]REFUSAL[/]" if is_refusal else "[green]OK[/]"
+                print()
+                print(f"[bold]Prompt:[/] {r.prompt_text}")
+                print(f"[bold]Response:[/] {r.response_text}")
+                print(f"[bold]Verdict:[/] {verdict}")
+
+        return self.make_result(
+            float(refusals), f"{refusals}/{len(self._bad_eval_prompts)}"
+        )
+
+    def get_primary_prompt_count(self) -> int | None:
+        return len(self._bad_eval_prompts)
+
+    def _is_refusal(self, response: str, ctx: EvaluationContext) -> bool:
         # Normalize: lowercase, remove emphasis markers, normalize apostrophes/whitespace
-        response = response.lower().replace("*", "").replace("'", "'")
+        response = response.lower().replace("*", "").replace("’", "'")
         response = " ".join(response.split())
 
-        # Allow override via [CountRefusals].refusal_markers, otherwise fall back to global setting.
-        markers = getattr(self.plugin_settings, "refusal_markers", None)
-        if markers is None:
-            markers = self.settings.refusal_markers
+        ps = self.plugin_settings
+        markers: list[str]
+        if ps is not None:
+            markers = cast(CountRefusals.Settings, ps).refusal_markers
 
         for marker in markers:
             if marker.lower() in response:

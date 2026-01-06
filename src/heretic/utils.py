@@ -49,6 +49,7 @@ def load_plugin(
       from that file.
     - `fully.qualified.module.MyPluginClass`: import the module and load the class.
     """
+
     def import_module(module_name: str):
         try:
             return importlib.import_module(module_name)
@@ -325,9 +326,10 @@ def get_readme_intro(
     settings: Settings,
     trial: Trial,
     base_refusals: int,
-    bad_prompts: list[Prompt],
+    refusals_total: int | None,
 ) -> str:
     model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
+    total = refusals_total if refusals_total is not None else "?"
 
     return f"""# This is a decensored version of {
         model_link
@@ -351,9 +353,7 @@ def get_readme_intro(
 | Metric | This model | Original model ({model_link}) |
 | :----- | :--------: | :---------------------------: |
 | **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
-| **Refusals** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
-        len(bad_prompts)
-    } |
+| **Refusals** | {trial.user_attrs["refusals"]}/{total} | {base_refusals}/{total} |
 
 -----
 

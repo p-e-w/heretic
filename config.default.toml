@@ -95,18 +95,6 @@ column = "text"
 residual_plot_label = '"Harmful" prompts'
 residual_plot_color = "darkorange"
 
-# Dataset of prompts that tend to not result in refusals (used for evaluating model performance).
-[good_evaluation_prompts]
-dataset = "mlabonne/harmless_alpaca"
-split = "test[:100]"
-column = "text"
-
-# Dataset of prompts that tend to result in refusals (used for evaluating model performance).
-[bad_evaluation_prompts]
-dataset = "mlabonne/harmful_behaviors"
-split = "test[:100]"
-column = "text"
-
 # Plugin-specific settings live in a top-level TOML table named after the plugin's `name`.
 # Example for the built-in scorer (optional overrides):
 [CountRefusals]
@@ -150,6 +138,22 @@ refusal_markers = [
     "ethical boundaries",
 ]
 
+# Scorer-owned evaluation prompts (different scorers can use different prompt sets).
+[CountRefusals.good_evaluation_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[:100]"
+column = "text"
+
+[CountRefusals.bad_evaluation_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "test[:100]"
+column = "text"
+
 [KLDivergence]
 use_in_optimizer = true
 direction = "minimize"
+
+[KLDivergence.evaluation_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[:100]"
+column = "text"

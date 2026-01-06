@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 import torch.nn.functional as F
+import torch
 from torch import LongTensor
 from transformers import BatchEncoding, PreTrainedTokenizerBase
 from transformers.generation.utils import GenerateOutput
@@ -31,8 +32,7 @@ class MetadataBuilder:
         "input_ids",
         "response_ids",
         "response_tokens",
-        # token scores group (aliases)
-        "token_scores",
+        # token scores group
         "token_logprobs",
         "token_logits",
     }
@@ -41,11 +41,9 @@ class MetadataBuilder:
         self,
         settings: Any,
         tokenizer: PreTrainedTokenizerBase,
-        model_getter: Callable[[], Any],
     ):
         self.settings = settings
         self.tokenizer = tokenizer
-        self._model_getter = model_getter
         self._needs_token_scores = False
 
     def set_requested_response_fields(self, requested_fields: set[str]) -> set[str]:
@@ -63,7 +61,7 @@ class MetadataBuilder:
 
         # Token scores are opt-in because they require `output_scores=True`.
         self._needs_token_scores = bool(
-            requested & {"token_scores", "token_logprobs", "token_logits"}
+            requested & {"token_logprobs", "token_logits"}
         )
         return requested
 
@@ -121,10 +119,14 @@ class MetadataBuilder:
             ):
                 for step_index, token_id in enumerate(response_ids):
                     score_row = cast(Any, outputs).scores[step_index][prompt_index]
-                    logprobs_row = F.log_softmax(score_row, dim=-1)
-                    token_logprob = logprobs_row[token_id].item()
-                    token_logprobs.append(token_logprob)
-                    token_logits.append(score_row[token_id].item())
+                    token_logit_t = score_row[token_id]
+                    # Avoid full-vocab log_softmax (O(vocab)) materialization as we only need
+                    # the chosen token's logprob:
+                    # log p(token) = logit(token) - logsumexp(logits)
+                    token_logprob_t = token_logit_t - torch.logsumexp(score_row, dim=-1)
+
+                    token_logprobs.append(token_logprob_t.item())
+                    token_logits.append(token_logit_t.item())
 
             metadata.append(
                 Response(
@@ -146,6 +148,7 @@ class MetadataBuilder:
             )
 
         return metadata
+
     def _infer_finish_reason(
         self, *, response_ids: list[int], max_new_tokens: int | None
     ) -> FinishReason:

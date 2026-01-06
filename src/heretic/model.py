@@ -147,8 +147,15 @@ class Model:
         self.metadata_builder = MetadataBuilder(
             settings=settings,
             tokenizer=self.tokenizer,
-            model_getter=lambda: self.model,
         )
+
+    def _strip_pad_tokens(self, texts: list[str]) -> list[str]:
+        # Strip out pad tokens from batch generation (some tokenizers insert them
+        # into decoded text for batched decoding).
+        pad = self.tokenizer.pad_token
+        if not pad:
+            return texts
+        return [t.replace(pad, "") for t in texts]
 
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.
@@ -539,12 +546,7 @@ class Model:
             outputs[:, cast(Tensor, inputs["input_ids"]).shape[1] :],
             skip_special_tokens=skip_special_tokens,
         )
-        # Strip out pad tokens from batch generation (some tokenizers insert them
-        # into decoded text for batched decoding).
-        pad = self.tokenizer.pad_token
-        if pad:
-            responses = [r.replace(pad, "") for r in responses]
-        return responses
+        return self._strip_pad_tokens(responses)
 
     def get_responses_batched(self, prompts: list[Prompt]) -> list[Response]:
         responses: list[Response] = []
@@ -684,6 +686,7 @@ class Model:
             sequences[:, input_ids.shape[1] :],
             skip_special_tokens=True,
         )
+        responses = self._strip_pad_tokens(responses)
 
         metadata = self.metadata_builder.collect_response_metadata(
             prompts=prompts,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 import torch.nn.functional as F
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from heretic.config import DatasetSpecification
 from heretic.scorer import EvaluationContext, Score, Scorer
@@ -20,7 +20,7 @@ class KLDivergence(Scorer):
 
     name = "KLDivergence"
 
-    class Settings(Scorer.Settings):
+    class Settings(BaseModel):
         evaluation_prompts: DatasetSpecification = Field(
             default=DatasetSpecification(
                 dataset="mlabonne/harmless_alpaca",

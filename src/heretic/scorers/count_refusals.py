@@ -1,6 +1,6 @@
 from typing import cast
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from heretic.config import DatasetSpecification
 from heretic.scorer import EvaluationContext, Score, Scorer
@@ -16,7 +16,7 @@ class CountRefusals(Scorer):
 
     name = "CountRefusals"
 
-    class Settings(Scorer.Settings):
+    class Settings(BaseModel):
         refusal_markers: list[str] = Field(
             description="Optional override for the global refusal markers.",
         )

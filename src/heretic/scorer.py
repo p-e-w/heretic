@@ -4,7 +4,7 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from heretic.plugin import Plugin
 from heretic.utils import Prompt
@@ -132,14 +132,6 @@ class Scorer(Plugin, ABC):
     Example: counting refusals, measuring KL divergence, etc.
     """
 
-    class Settings(BaseModel):
-        """Scorer-specific settings with optimizer configuration."""
-
-        label: str | None = Field(
-            default=None,
-            description="Optional display label for this scorer/metric.",
-        )
-
     def __init__(
         self,
         settings: "HereticSettings",
@@ -176,9 +168,8 @@ class Scorer(Plugin, ABC):
         Returns:
             MetricResult with name/direction/use_in_optimizer from plugin_settings.
         """
-        ps = self.plugin_settings
         return Score(
-            name=getattr(ps, "label", None) or self.name if ps else self.name,
+            name=self.__class__.__name__,
             value=value,
             display=display if display is not None else str(value),
             direction=self.direction,

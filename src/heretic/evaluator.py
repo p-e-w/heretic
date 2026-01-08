@@ -66,13 +66,6 @@ class Evaluator:
             scorer_classes.append(scorer_cls)
             print(f"* Loaded: [bold]{scorer_cls.__name__}[/bold]")
 
-        # Aggregate response metadata requirements across all scorers
-        response_fields: set[str] = set()
-        for scorer_cls in scorer_classes:
-            response_fields |= set(scorer_cls.required_response_metadata_fields())
-
-        self.model.set_requested_metadata_fields(response_fields)
-
         scorers: list[Scorer] = []
         # instantiate scorers
         for index, scorer_cls in enumerate(scorer_classes):

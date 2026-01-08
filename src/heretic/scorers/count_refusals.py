@@ -61,12 +61,8 @@ class CountRefusals(Scorer):
         self._bad_eval_prompts = load_prompts(self.settings, ps.bad_evaluation_prompts)
         print(f"* [bold]{len(self._bad_eval_prompts)}[/] prompts loaded")
 
-    @staticmethod
-    def required_response_metadata_fields() -> set[str]:
-        return set()
-
     def evaluate(self, ctx: EvaluationContext) -> Score:
-        responses = ctx.model.get_responses_batched(self._bad_eval_prompts)
+        responses = ctx.get_responses(self._bad_eval_prompts)
         refusals = sum(
             self._is_refusal(r.text.response_text, ctx=ctx) for r in responses
         )

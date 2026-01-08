@@ -27,8 +27,7 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, Settings
-from .metadata import MetadataBuilder
-from .scorer import Response
+from .scorer import FinishReason, Response
 from .utils import Prompt, batchify, empty_cache, print
 
 
@@ -141,11 +140,7 @@ class Model:
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
 
-        # Initialize metadata builder
-        self.metadata_builder = MetadataBuilder(
-            settings=settings,
-            tokenizer=self.tokenizer,
-        )
+        # Response metadata is generated on demand via EvaluationContext and cached there.
 
     def _strip_pad_tokens(self, texts: list[str]) -> list[str]:
         # Strip out pad tokens from batch generation (some tokenizers insert them
@@ -549,7 +544,9 @@ class Model:
     def get_responses_batched(self, prompts: list[Prompt]) -> list[Response]:
         responses: list[Response] = []
         for batch in batchify(prompts, self.settings.batch_size):
-            responses.extend(self._get_responses_with_metadata(batch))
+            responses.extend(
+                self._get_responses_with_metadata(batch, needs_token_scores=False)
+            )
         return responses
 
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
@@ -662,13 +659,39 @@ class Model:
             skip_special_tokens=True,
         )
 
-    def _get_responses_with_metadata(self, prompts: list[Prompt]) -> list[Response]:
-        needs_token_scores = self.metadata_builder.needs_token_scores()
+    def _infer_finish_reason(
+        self, *, response_ids: list[int], max_new_tokens: int | None
+    ) -> FinishReason:
+        if max_new_tokens is None:
+            return "unk"
 
-        generate_kwargs = self.metadata_builder.build_generate_kwargs(
-            needs_token_scores=needs_token_scores,
-            max_new_tokens=self.settings.max_response_length,
-        )
+        if not response_ids:
+            return "empty"
+
+        if len(response_ids) >= max_new_tokens:
+            return "len"
+
+        if response_ids[-1] == self.tokenizer.eos_token_id:
+            return "eos"
+
+        return "unk"
+
+    def _get_responses_with_metadata(
+        self, prompts: list[Prompt], *, needs_token_scores: bool
+    ) -> list[Response]:
+        """
+        Generate responses and collect response metadata.
+
+        If `needs_token_scores` is True, uses `output_scores=True` and derives chosen-token
+        logits/logprobs from the generation scores.
+        """
+        from .scorer import ResponseText, ResponseTokenization, ResponseTokenScores
+
+        generate_kwargs: dict[str, Any] = {
+            "max_new_tokens": self.settings.max_response_length,
+            "output_scores": needs_token_scores,
+            "return_dict_in_generate": True,
+        }
 
         inputs, outputs = self.generate(prompts, **generate_kwargs)
 
@@ -680,22 +703,71 @@ class Model:
         else:
             sequences = outputs.sequences
 
-        responses = self.tokenizer.batch_decode(
+        decoded = self.tokenizer.batch_decode(
             sequences[:, input_ids.shape[1] :],
             skip_special_tokens=True,
         )
-        responses = self._strip_pad_tokens(responses)
+        decoded = self._strip_pad_tokens(decoded)
 
-        metadata = self.metadata_builder.collect_response_metadata(
-            prompts=prompts,
-            inputs=inputs,
-            outputs=outputs,
-            generate_kwargs=generate_kwargs,
-            responses=responses,
-        )
+        input_ids_t = cast(LongTensor, inputs["input_ids"])
+        input_length = input_ids_t.shape[1]
 
-        return metadata
+        responses: list[Response] = []
 
-    def set_requested_metadata_fields(self, requested_fields: set[str]) -> set[str]:
-        """Set the requested response metadata fields."""
-        return self.metadata_builder.set_requested_response_fields(requested_fields)
+        for prompt_index, prompt in enumerate(prompts):
+            response_ids = sequences[prompt_index, input_length:].tolist()
+            has_response = bool(response_ids)
+            response_tokens = (
+                self.tokenizer.convert_ids_to_tokens(response_ids)
+                if has_response
+                else []
+            )
+
+            finish_reason = self._infer_finish_reason(
+                response_ids=response_ids,
+                max_new_tokens=cast(int | None, generate_kwargs.get("max_new_tokens")),
+            )
+
+            token_logprobs: list[float] = []
+            token_logits: list[float] = []
+
+            if needs_token_scores and has_response and hasattr(outputs, "scores"):
+                # outputs.scores is a tuple[FloatTensor] with length == generated steps.
+                for step_index, token_id in enumerate(response_ids):
+                    score_row = cast(Any, outputs).scores[step_index][prompt_index]
+                    token_logit_t = score_row[token_id]
+                    token_logprob_t = token_logit_t - torch.logsumexp(score_row, dim=-1)
+                    token_logprobs.append(token_logprob_t.item())
+                    token_logits.append(token_logit_t.item())
+
+            responses.append(
+                Response(
+                    text=ResponseText(
+                        prompt=prompt,
+                        response_text=decoded[prompt_index],
+                        finish_reason=finish_reason,
+                    ),
+                    tokenization=ResponseTokenization(
+                        input_ids=input_ids_t[prompt_index].tolist(),
+                        response_ids=response_ids,
+                        response_tokens=response_tokens,
+                    ),
+                    token_scores=ResponseTokenScores(
+                        token_logprobs=token_logprobs,
+                        token_logits=token_logits,
+                    ),
+                )
+            )
+
+        return responses
+
+    def get_responses_batched_with_token_scores(
+        self, prompts: list[Prompt]
+    ) -> list[Response]:
+        """Generate responses and include per-token chosen logits/logprobs."""
+        responses: list[Response] = []
+        for batch in batchify(prompts, self.settings.batch_size):
+            responses.extend(
+                self._get_responses_with_metadata(batch, needs_token_scores=True)
+            )
+        return responses

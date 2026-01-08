@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
@@ -108,19 +108,61 @@ class EvaluationContext:
     settings: "HereticSettings"
     model: "Model"
 
+    _responses_cache: dict[tuple[tuple[str, str], ...], list[Response]] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _responses_cache_has_token_scores: set[tuple[tuple[str, str], ...]] = field(
+        default_factory=set, init=False, repr=False
+    )
+
+    def _cache_key(self, prompts: list[Prompt]) -> tuple[tuple[str, str], ...]:
+        return tuple((p.system, p.user) for p in prompts)
+
+    def get_responses(self, prompts: list[Prompt]) -> list[Response]:
+        """
+        Get model responses (text + tokenization). Token scores may be empty unless
+        `get_token_scores()` was used.
+        """
+        key = self._cache_key(prompts)
+        if key not in self._responses_cache:
+            self._responses_cache[key] = self.model.get_responses_batched(prompts)
+        return self._responses_cache[key]
+
+    def get_responses_with_token_scores(self, prompts: list[Prompt]) -> list[Response]:
+        """Get model responses including per-token chosen logits/logprobs."""
+        key = self._cache_key(prompts)
+        if (
+            key not in self._responses_cache
+            or key not in self._responses_cache_has_token_scores
+        ):
+            self._responses_cache[key] = (
+                self.model.get_responses_batched_with_token_scores(prompts)
+            )
+            self._responses_cache_has_token_scores.add(key)
+        return self._responses_cache[key]
+
+    def get_response_text(self, prompts: list[Prompt]) -> list[ResponseText]:
+        return [r.text for r in self.get_responses(prompts)]
+
+    def get_tokenization(self, prompts: list[Prompt]) -> list[ResponseTokenization]:
+        return [r.tokenization for r in self.get_responses(prompts)]
+
+    def get_token_scores(self, prompts: list[Prompt]) -> list[ResponseTokenScores]:
+        return [r.token_scores for r in self.get_responses_with_token_scores(prompts)]
+
     def responses(self, prompts: list[Prompt]) -> list[Response]:
-        return self.model.get_responses_batched(prompts)
+        return self.get_responses(prompts)
 
     def response_text(self, prompts: list[Prompt]) -> list[ResponseText]:
-        return [r.text for r in self.responses(prompts)]
+        return self.get_response_text(prompts)
 
     def response_tokenization(
         self, prompts: list[Prompt]
     ) -> list[ResponseTokenization]:
-        return [r.tokenization for r in self.responses(prompts)]
+        return self.get_tokenization(prompts)
 
     def response_token_scores(self, prompts: list[Prompt]) -> list[ResponseTokenScores]:
-        return [r.token_scores for r in self.responses(prompts)]
+        return self.get_token_scores(prompts)
 
 
 class Scorer(Plugin, ABC):
@@ -183,12 +225,3 @@ class Scorer(Plugin, ABC):
         "bad evaluation prompts"), return its size. Otherwise return None.
         """
         return None
-
-    @staticmethod
-    def required_response_metadata_fields() -> set[str]:
-        """
-        Response-level metadata fields needed by this scorer.
-        Override to request grouped metadata:
-        - 'token_scores' to enable token logprobs/logits
-        """
-        return set()

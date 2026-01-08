@@ -155,22 +155,6 @@ class Settings(BaseSettings):
         description="Matplotlib style sheet to use for plots of residual vectors.",
     )
 
-    kl_divergence_scale: float = Field(
-        default=1.0,
-        description=(
-            'Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models. '
-            "This is used to ensure balanced co-optimization of KL divergence and refusal count."
-        ),
-    )
-
-    kl_divergence_target: float = Field(
-        default=0.01,
-        description=(
-            "The KL divergence to target. Below this value, an objective based on the refusal count is used."
-            'This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".'
-        ),
-    )
-
     n_trials: int = Field(
         default=200,
         description="Number of abliteration trials to run during optimization.",
@@ -214,7 +198,7 @@ class Settings(BaseSettings):
         cli_parse_args=True,
         cli_implicit_flags=True,
         cli_kebab_case=True,
-        # Allow plugin namespaces like `[CountRefusals]` at the top level.
+        # Allow plugin namespaces like `[RefusalRate]` at the top level.
         # We validate/whitelist these later after the selected plugin is loaded.
         extra="allow",
     )

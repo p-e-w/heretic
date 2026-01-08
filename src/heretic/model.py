@@ -11,6 +11,7 @@ import torch
 # bitsandbytes is optional - only available with CUDA
 try:
     import bitsandbytes as bnb
+
     HAS_BITSANDBYTES = True
 except ImportError:
     bnb = None  # type: ignore
@@ -89,10 +90,7 @@ class Model:
         dtypes_to_try = settings.dtypes
         if settings.device == DeviceType.CPU:
             # Put float32 first for CPU, as it's most compatible
-            if "float32" in dtypes_to_try:
-                dtypes_to_try = ["float32"] + [d for d in dtypes_to_try if d != "float32"]
-            else:
-                dtypes_to_try = ["float32"] + list(dtypes_to_try)
+            dtypes_to_try = ["float32"] + [d for d in dtypes_to_try if d != "float32"]
 
         for dtype in dtypes_to_try:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
@@ -178,9 +176,7 @@ class Model:
 
             # Disable quantization for CPU (bitsandbytes requires CUDA)
             if settings.quantization == QuantizationMethod.BNB_4BIT:
-                print(
-                    "[yellow]Quantization disabled: bitsandbytes requires CUDA.[/]"
-                )
+                print("[yellow]Quantization disabled: bitsandbytes requires CUDA.[/]")
                 settings.quantization = QuantizationMethod.NONE
 
         elif settings.device == DeviceType.CUDA:

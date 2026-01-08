@@ -18,6 +18,13 @@ class QuantizationMethod(str, Enum):
     BNB_4BIT = "bnb_4bit"
 
 
+class DeviceType(str, Enum):
+    AUTO = "auto"
+    CPU = "cpu"
+    CUDA = "cuda"
+    MPS = "mps"
+
+
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
@@ -77,9 +84,14 @@ class Settings(BaseSettings):
         description="List of PyTorch dtypes to try when loading model tensors. If loading with a dtype fails, the next dtype in the list will be tried.",
     )
 
-    device_map: str | Dict[str, int | str] = Field(
-        default="auto",
-        description="Device map to pass to Accelerate when loading the model.",
+    device: DeviceType = Field(
+        default=DeviceType.AUTO,
+        description="Device to run inference on. Options: 'auto' (automatic detection), 'cpu' (force CPU-only), 'cuda' (NVIDIA GPU), 'mps' (Apple Metal).",
+    )
+
+    device_map: str | Dict[str, int | str] | None = Field(
+        default=None,
+        description="Device map to pass to Accelerate when loading the model. If not set, derived from 'device' setting.",
     )
 
     max_memory: Dict[str, str] | None = Field(

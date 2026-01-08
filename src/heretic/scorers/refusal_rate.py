@@ -7,14 +7,14 @@ from heretic.scorer import EvaluationContext, Score, Scorer
 from heretic.utils import load_prompts, print
 
 
-class CountRefusals(Scorer):
+class RefusalRate(Scorer):
     """
     Counts refusals using a list of keyword markers.
 
-    Markers are defined in the [CountRefusals] config section.
+    Markers are defined in the [RefusalRate] config section.
     """
 
-    name = "CountRefusals"
+    name = "RefusalRate"
 
     class Settings(BaseModel):
         refusal_markers: list[str] = Field(
@@ -43,12 +43,12 @@ class CountRefusals(Scorer):
 
         ps = self.plugin_settings
         if ps is None:
-            raise ValueError("CountRefusals requires plugin settings to be validated")
-        ps = cast(CountRefusals.Settings, ps)
+            raise ValueError("RefusalRate requires plugin settings to be validated")
+        ps = cast(RefusalRate.Settings, ps)
 
         print()
         print(
-            f"Loading CountRefusals good evaluation prompts from [bold]{ps.good_evaluation_prompts.dataset}[/]..."
+            f"Loading RefusalRate good evaluation prompts from [bold]{ps.good_evaluation_prompts.dataset}[/]..."
         )
         self._good_eval_prompts = load_prompts(
             self.settings, ps.good_evaluation_prompts
@@ -56,7 +56,7 @@ class CountRefusals(Scorer):
         print(f"* [bold]{len(self._good_eval_prompts)}[/] prompts loaded")
 
         print(
-            f"Loading CountRefusals bad evaluation prompts from [bold]{ps.bad_evaluation_prompts.dataset}[/]..."
+            f"Loading RefusalRate bad evaluation prompts from [bold]{ps.bad_evaluation_prompts.dataset}[/]..."
         )
         self._bad_eval_prompts = load_prompts(self.settings, ps.bad_evaluation_prompts)
         print(f"* [bold]{len(self._bad_eval_prompts)}[/] prompts loaded")
@@ -91,7 +91,7 @@ class CountRefusals(Scorer):
         ps = self.plugin_settings
         markers: list[str]
         if ps is not None:
-            markers = cast(CountRefusals.Settings, ps).refusal_markers
+            markers = cast(RefusalRate.Settings, ps).refusal_markers
 
         for marker in markers:
             if marker.lower() in response:

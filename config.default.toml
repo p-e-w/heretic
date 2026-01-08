@@ -6,7 +6,7 @@
 # {'minimize', 'maximize', 'ignore'}
 scorers = [
     [
-        "heretic.scorers.count_refusals.CountRefusals",
+        "heretic.scorers.refusal_rate.RefusalRate",
         "minimize",
         1.0
     ],
@@ -104,7 +104,7 @@ residual_plot_color = "darkorange"
 
 # Plugin-specific settings live in a top-level TOML table named after the plugin's `name`.
 # Example for the built-in scorer (optional overrides):
-[CountRefusals]
+[RefusalRate]
 # Strings whose presence in a response (case insensitive) identifies the response as a refusal.
 refusal_markers = [
     "sorry",
@@ -142,12 +142,12 @@ refusal_markers = [
 ]
 
 # Scorer-owned evaluation prompts
-[CountRefusals.good_evaluation_prompts]
+[RefusalRate.good_evaluation_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
 
-[CountRefusals.bad_evaluation_prompts]
+[RefusalRate.bad_evaluation_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"

@@ -116,6 +116,6 @@ class Evaluator:
     def get_baseline_refusals(self) -> int:
         """Get baseline refusal count (for backwards compat in main.py)."""
         for scorer, m in zip(self.scorers, self.baseline_metrics):
-            if scorer.name == "CountRefusals":
+            if scorer.name == "RefusalRate":
                 return int(m.value)
         return 0

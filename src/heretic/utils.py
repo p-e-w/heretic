@@ -149,38 +149,57 @@ def load_prompts(
     path = specification.dataset
     split_str = specification.split
 
-    if os.path.isdir(path):
-        if Path(path, DATASET_STATE_JSON_FILENAME).exists():
-            # Dataset saved with datasets.save_to_disk; needs special handling.
-            # Path should be the subdirectory for a particular split.
-            dataset = load_from_disk(path)
-            assert not isinstance(dataset, DatasetDict), (
-                "Loading dataset dicts is not supported"
-            )
-            # Parse the split instructions.
-            instruction = ReadInstruction.from_spec(split_str)
-            # Associate the split with its number of examples (lines).
-            split_name = str(dataset.split)
-            name2len = {split_name: len(dataset)}
-            # Convert the instructions to absolute indices and select the first one.
-            abs_instruction = instruction.to_absolute(name2len)[0]
-            # Get the dataset by applying the indices.
-            dataset = dataset[abs_instruction.from_ : abs_instruction.to]
-        else:
-            # Path is a local directory.
-            dataset = load_dataset(
-                path,
-                split=split_str,
-                # Don't require the number of examples (lines) per split to be pre-defined.
-                verification_mode=VerificationMode.NO_CHECKS,
-                # But also don't use cached data, as the dataset may have changed on disk.
-                download_mode=DownloadMode.FORCE_REDOWNLOAD,
-            )
-    else:
-        # Probably a repository path; let load_dataset figure it out.
-        dataset = load_dataset(path, split=split_str)
+    # Support for plain text files (one prompt per line)
+    if path.endswith(".txt") and os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            prompts = [line.strip() for line in f if line.strip()]
 
-    prompts = list(dataset[specification.column])
+        # Apply split specification (e.g., "train[:100]" becomes "[:100]")
+        # Extract slice notation if present
+        if "[" in split_str and "]" in split_str:
+            slice_part = split_str[split_str.index("[") : split_str.index("]") + 1]
+            # Parse slice notation like "[:100]" or "[50:150]"
+            slice_content = slice_part[1:-1]  # Remove brackets
+            if ":" in slice_content:
+                parts = slice_content.split(":")
+                start = int(parts[0]) if parts[0] else None
+                end = int(parts[1]) if parts[1] else None
+                prompts = prompts[start:end]
+
+    else:
+        # Load from HuggingFace datasets (local directory or Hub)
+        if os.path.isdir(path):
+            if Path(path, DATASET_STATE_JSON_FILENAME).exists():
+                # Dataset saved with datasets.save_to_disk; needs special handling.
+                # Path should be the subdirectory for a particular split.
+                dataset = load_from_disk(path)
+                assert not isinstance(dataset, DatasetDict), (
+                    "Loading dataset dicts is not supported"
+                )
+                # Parse the split instructions.
+                instruction = ReadInstruction.from_spec(split_str)
+                # Associate the split with its number of examples (lines).
+                split_name = str(dataset.split)
+                name2len = {split_name: len(dataset)}
+                # Convert the instructions to absolute indices and select the first one.
+                abs_instruction = instruction.to_absolute(name2len)[0]
+                # Get the dataset by applying the indices.
+                dataset = dataset[abs_instruction.from_ : abs_instruction.to]
+            else:
+                # Path is a local directory.
+                dataset = load_dataset(
+                    path,
+                    split=split_str,
+                    # Don't require the number of examples (lines) per split to be pre-defined.
+                    verification_mode=VerificationMode.NO_CHECKS,
+                    # But also don't use cached data, as the dataset may have changed on disk.
+                    download_mode=DownloadMode.FORCE_REDOWNLOAD,
+                )
+        else:
+            # Probably a repository path; let load_dataset figure it out.
+            dataset = load_dataset(path, split=split_str)
+
+        prompts = list(dataset[specification.column])
 
     if specification.prefix:
         prompts = [f"{specification.prefix} {prompt}" for prompt in prompts]

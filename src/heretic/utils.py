@@ -154,17 +154,17 @@ def load_prompts(
         with open(path, encoding="utf-8") as f:
             prompts = [line.strip() for line in f if line.strip()]
 
-        # Apply split specification (e.g., "train[:100]" becomes "[:100]")
-        # Extract slice notation if present
-        if "[" in split_str and "]" in split_str:
-            slice_part = split_str[split_str.index("[") : split_str.index("]") + 1]
-            # Parse slice notation like "[:100]" or "[50:150]"
-            slice_content = slice_part[1:-1]  # Remove brackets
-            if ":" in slice_content:
-                parts = slice_content.split(":")
-                start = int(parts[0]) if parts[0] else None
-                end = int(parts[1]) if parts[1] else None
-                prompts = prompts[start:end]
+        # Apply split specification using the robust parsing from the `datasets` library.
+        # We treat the list of prompts as a single split, so the name is arbitrary.
+        try:
+            instruction = ReadInstruction.from_spec(split_str)
+            name2len = {"_": len(prompts)}
+            abs_instruction = instruction.to_absolute(name2len)[0]
+            prompts = prompts[abs_instruction.from_ : abs_instruction.to]
+        except (ValueError, IndexError):
+            # If split_str doesn't contain slice notation (e.g., just "train"),
+            # use all prompts.
+            pass
 
     else:
         # Load from HuggingFace datasets (local directory or Hub)

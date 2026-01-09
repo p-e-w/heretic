@@ -106,6 +106,18 @@ refusal_markers = [
 system_prompt = "You are a helpful assistant."
 
 # Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).
+# The dataset can be:
+#   - A Hugging Face dataset ID (e.g., "mlabonne/harmless_alpaca")
+#   - A local directory containing a dataset
+#   - A plain text file (.txt) with one prompt per line
+#
+# Text file format:
+#   - One prompt per line (UTF-8 encoding)
+#   - Empty lines and whitespace-only lines are ignored
+#   - Leading/trailing whitespace is stripped from each prompt
+#   - The "column" field is ignored for text files
+#   - Slice notation works: split = "[:100]" uses first 100 lines,
+#     split = "[50:150]" uses lines 50-149
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "train[:400]"

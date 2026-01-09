@@ -27,6 +27,8 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, Settings
+from .metadata import MetadataBuilder
+from .scorer import Response
 from .utils import Prompt, batchify, empty_cache, print
 
 
@@ -139,6 +141,20 @@ class Model:
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
 
+        # Initialize metadata builder
+        self.metadata_builder = MetadataBuilder(
+            settings=settings,
+            tokenizer=self.tokenizer,
+        )
+
+    def _strip_pad_tokens(self, texts: list[str]) -> list[str]:
+        # Strip out pad tokens from batch generation (some tokenizers insert them
+        # into decoded text for batched decoding).
+        pad = self.tokenizer.pad_token
+        if not pad:
+            return texts
+        return [t.replace(pad, "") for t in texts]
+
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PreTrainedModel)
@@ -173,10 +189,8 @@ class Model:
     def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
         """
         Creates quantization config based on settings.
-
         Args:
             dtype: The dtype string (e.g., "auto", "bfloat16")
-
         Returns:
             BitsAndBytesConfig or None
         """
@@ -254,7 +268,6 @@ class Model:
     def reset_model(self):
         """
         Resets the model to a clean state for the next trial or evaluation.
-
         Behavior:
         - Fast path: If the same model is loaded and doesn't need full reload,
           resets LoRA adapter weights to zero (identity transformation).
@@ -524,28 +537,19 @@ class Model:
             max_new_tokens=self.settings.max_response_length,
         )
 
-        return self.tokenizer.batch_decode(
+        responses = self.tokenizer.batch_decode(
             # Extract the newly generated part.
             # This cast is valid because the input_ids property is a Tensor
             # if the tokenizer is invoked with return_tensors="pt", as above.
             outputs[:, cast(Tensor, inputs["input_ids"]).shape[1] :],
             skip_special_tokens=skip_special_tokens,
         )
+        return self._strip_pad_tokens(responses)
 
-    def get_responses_batched(
-        self,
-        prompts: list[Prompt],
-        skip_special_tokens: bool = False,
-    ) -> list[str]:
-        responses = []
-
+    def get_responses_batched(self, prompts: list[Prompt]) -> list[Response]:
+        responses: list[Response] = []
         for batch in batchify(prompts, self.settings.batch_size):
-            for response in self.get_responses(
-                batch,
-                skip_special_tokens=skip_special_tokens,
-            ):
-                responses.append(response)
-
+            responses.extend(self._get_responses_with_metadata(batch))
         return responses
 
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
@@ -657,3 +661,41 @@ class Model:
             outputs[0, inputs["input_ids"].shape[1] :],
             skip_special_tokens=True,
         )
+
+    def _get_responses_with_metadata(self, prompts: list[Prompt]) -> list[Response]:
+        needs_token_scores = self.metadata_builder.needs_token_scores()
+
+        generate_kwargs = self.metadata_builder.build_generate_kwargs(
+            needs_token_scores=needs_token_scores,
+            max_new_tokens=self.settings.max_response_length,
+        )
+
+        inputs, outputs = self.generate(prompts, **generate_kwargs)
+
+        # outputs can be either a tensor of token ids or a Generate*Output
+        # with a `.sequences` tensor, depending on generate() kwargs.
+        input_ids = cast(Tensor, inputs["input_ids"])
+        if isinstance(outputs, Tensor):
+            sequences = outputs
+        else:
+            sequences = outputs.sequences
+
+        responses = self.tokenizer.batch_decode(
+            sequences[:, input_ids.shape[1] :],
+            skip_special_tokens=True,
+        )
+        responses = self._strip_pad_tokens(responses)
+
+        metadata = self.metadata_builder.collect_response_metadata(
+            prompts=prompts,
+            inputs=inputs,
+            outputs=outputs,
+            generate_kwargs=generate_kwargs,
+            responses=responses,
+        )
+
+        return metadata
+
+    def set_requested_metadata_fields(self, requested_fields: set[str]) -> set[str]:
+        """Set the requested response metadata fields."""
+        return self.metadata_builder.set_requested_response_fields(requested_fields)

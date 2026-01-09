@@ -1,125 +1,128 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-import torch.nn.functional as F
-from torch import Tensor
+from __future__ import annotations
 
-from .config import Settings
+from typing import Any
+
+from pydantic import BaseModel
+
+from .config import ObjectiveDirection, Settings
 from .model import Model
-from .utils import Prompt, load_prompts, print
+from .scorer import EvaluationContext, Score, Scorer
+from .utils import load_plugin, print
 
 
 class Evaluator:
-    settings: Settings
-    model: Model
-    good_prompts: list[Prompt]
-    bad_prompts: list[Prompt]
-    base_logprobs: Tensor
-    base_refusals: int
+    """
+    Manages evaluation of the model using configured scorer plugins.
+
+    Loads prompts, establishes baseline metrics, and runs scorers during optimization.
+    """
 
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings
         self.model = model
 
         print()
-        print(
-            f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."
-        )
-        self.good_prompts = load_prompts(settings, settings.good_evaluation_prompts)
-        print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
+        print("Loading scorers...")
+        self.scorers = self._load_scorers()
 
-        print("* Obtaining first-token probability distributions...")
-        self.base_logprobs = model.get_logprobs_batched(self.good_prompts)
+        # Establish baseline metrics (pre-abliteration)
+        self.baseline_metrics = self.evaluate()
+        self._print_baseline()
 
-        print()
-        print(
-            f"Loading bad evaluation prompts from [bold]{settings.bad_evaluation_prompts.dataset}[/]..."
-        )
-        self.bad_prompts = load_prompts(settings, settings.bad_evaluation_prompts)
-        print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
+    def _print_baseline(self) -> None:
+        """Print baseline metrics summary."""
+        for m in self.baseline_metrics:
+            print(f"* Baseline {m.name}: [bold]{m.display}[/]")
 
-        print("* Counting model refusals...")
-        self.base_refusals = self.count_refusals()
-        print(
-            f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
-        )
+    def _get_plugin_namespace(self, namespace: str) -> dict[str, Any]:
+        """Returns the config dict from the `[<namespace>]` TOML table."""
+        extra = self.settings.model_extra or {}
+        value = extra.get(namespace)
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise TypeError(
+                f"Plugin namespace [{namespace}] must be a table/object, got {type(value).__name__}"
+            )
+        return value
 
-    def is_refusal(self, response: str) -> bool:
-        # Classify empty responses as refusals to avoid optimizing for them.
-        if not response.strip():
-            return True
+    def _load_scorers(self) -> list[Scorer]:
+        """Load and instantiate all configured scorer plugins."""
+        scorer_configs = self.settings.scorers
+        # the scaling factor and optimization direction (maximize, minimize, none)
+        # is set at the top level
+        if not scorer_configs:
+            raise ValueError("No scorers configured. Set 'scorers' in config.toml")
 
-        # Remove emphasis (e.g. "I *will not*...").
-        response = response.lower().replace("*", "")
+        scorer_classes: list[type[Scorer]] = []
 
-        # Normalize typographic apostrophes ("won’t" -> "won't").
-        response = response.replace("’", "'")
+        # resolve plugin classes from names and validate
+        for plugin_name, _, _ in scorer_configs:
+            scorer_cls = load_plugin(name=plugin_name, base_class=Scorer)
+            scorer_cls.validate_contract()
+            scorer_classes.append(scorer_cls)
+            print(f"* Loaded: [bold]{scorer_cls.__name__}[/bold]")
 
-        # Normalize whitespace between words to a single space.
-        response = " ".join(response.split())
+        # Aggregate response metadata requirements across all scorers
+        response_fields: set[str] = set()
+        for scorer_cls in scorer_classes:
+            response_fields |= set(scorer_cls.required_response_metadata_fields())
 
-        for marker in self.settings.refusal_markers:
-            if marker.lower() in response:
-                return True
+        self.model.set_requested_metadata_fields(response_fields)
 
-        return False
-
-    def count_refusals(self) -> int:
-        refusal_count = 0
-
-        responses = self.model.get_responses_batched(
-            self.bad_prompts,
-            skip_special_tokens=True,
-        )
-
-        for prompt, response in zip(self.bad_prompts, responses):
-            is_refusal = self.is_refusal(response)
-            if is_refusal:
-                refusal_count += 1
-
-            if self.settings.print_responses:
-                print()
-                print(f"[bold]System prompt:[/] {prompt.system}")
-                print(f"[bold]Prompt:[/] {prompt.user}")
-                if not response.strip():
-                    response = "[italic]\\[empty][/]"
-                print(
-                    f"[bold]Response:[/] [{'red' if is_refusal else 'green'}]{response}[/]"
+        scorers: list[Scorer] = []
+        # instantiate scorers
+        for index, scorer_cls in enumerate(scorer_classes):
+            plugin_config = self._get_plugin_namespace(scorer_cls.name)
+            plugin_settings: BaseModel | None = scorer_cls.validate_settings(
+                plugin_config
+            )
+            direction: ObjectiveDirection = scorer_configs[index][1]
+            scale: float = float(scorer_configs[index][2])
+            scorers.append(
+                scorer_cls(
+                    settings=self.settings,
+                    model=self.model,
+                    plugin_settings=plugin_settings,
+                    direction=direction,
+                    scale=scale,
                 )
+            )
+        return scorers
 
-        if self.settings.print_responses:
-            print()
+    def evaluate(self) -> list[Score]:
+        """
+        Run all scorers and return their metrics.
 
-        return refusal_count
+        Returns:
+            List of MetricResult from each scorer.
+        """
+        ctx = EvaluationContext(settings=self.settings, model=self.model)
+        return [scorer.evaluate(ctx) for scorer in self.scorers]
 
-    def get_score(self) -> tuple[tuple[float, float], float, int]:
-        print("  * Obtaining first-token probability distributions...")
-        logprobs = self.model.get_logprobs_batched(self.good_prompts)
-        kl_divergence = F.kl_div(
-            logprobs,
-            self.base_logprobs,
-            reduction="batchmean",
-            log_target=True,
-        ).item()
-        print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
+    def get_objectives(self, metrics: list[Score]) -> list[Score]:
+        """Filter metrics to only those used in optimization."""
+        return [m for m in metrics if m.direction != "ignore"]
 
-        print("  * Counting model refusals...")
-        refusals = self.count_refusals()
-        print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
+    def get_objective_values(self, metrics: list[Score]) -> tuple[float, ...]:
+        """Extract objective values as a tuple for Optuna."""
+        values: list[float] = []
+        for scorer, m in zip(self.scorers, metrics):
+            if m.direction == "ignore":
+                continue
+            values.append(float(m.value) * float(getattr(scorer, "scale", 1.0)))
+        return tuple(values)
 
-        kl_divergence_scale = self.settings.kl_divergence_scale
-        kl_divergence_target = self.settings.kl_divergence_target
+    def get_objective_directions(self, metrics: list[Score]) -> list[str]:
+        """Get optimization directions for objectives."""
+        return [m.direction for m in self.get_objectives(metrics)]
 
-        refusals_score = refusals / self.base_refusals
-
-        if kl_divergence >= kl_divergence_target:
-            kld_score = kl_divergence / kl_divergence_scale
-        else:
-            kld_score = refusals_score * kl_divergence_target / kl_divergence_scale
-
-        score = (
-            kld_score,
-            refusals_score,
-        )
-
-        return score, kl_divergence, refusals
+    def get_baseline_refusals(self) -> int:
+        """Get baseline refusal count (for backwards compat in main.py)."""
+        for scorer, m in zip(self.scorers, self.baseline_metrics):
+            if scorer.name == "CountRefusals":
+                return int(m.value)
+        return 0

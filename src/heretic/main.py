@@ -27,7 +27,7 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.study import StudyDirection
-from optuna.trial import TrialState
+from optuna.trial import FrozenTrial, TrialState
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
@@ -284,7 +284,10 @@ def run():
     # to avoid issues where multiple different tokens that all start
     # with a space character lead to the common prefix ending with
     # a space, which would result in an uncommon tokenization.
-    model.response_prefix = commonprefix(responses).rstrip(" ")
+    response_texts = [r.text.response_text for r in responses]
+    model.response_prefix = (
+        commonprefix(response_texts).rstrip(" ") if response_texts else ""
+    )
 
     # Suppress CoT output.
     if model.response_prefix.startswith("<think>"):
@@ -305,7 +308,11 @@ def run():
     else:
         print("* None found")
 
-    evaluator = Evaluator(settings, model)
+    try:
+        evaluator = Evaluator(settings, model)
+    except (ImportError, ValueError, TypeError) as e:
+        print(f"[red]Error initializing evaluator: {e}[/]")
+        return
 
     if settings.evaluate_model is not None:
         print()
@@ -313,7 +320,11 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        evaluator.get_score()
+        metrics = evaluator.evaluate()
+        print()
+        print("[bold]Metrics:[/]")
+        for m in metrics:
+            print(f"  * {m.name}: [bold]{m.display}[/]")
         return
 
     print()
@@ -322,6 +333,7 @@ def run():
     good_residuals = model.get_residuals_batched(good_prompts)
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
+
     refusal_directions = F.normalize(
         bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
         p=2,
@@ -336,14 +348,15 @@ def run():
     if settings.plot_residuals:
         analyzer.plot_residuals()
 
-    # We don't need the residuals after computing refusal directions.
-    del good_residuals, bad_residuals, analyzer
+    del good_residuals, bad_residuals
+
+    del analyzer
     empty_cache()
 
     trial_index = 0
     start_time = time.perf_counter()
 
-    def objective(trial: Trial) -> tuple[float, float]:
+    def objective(trial: Trial) -> float | tuple[float, ...]:
         nonlocal trial_index
         trial_index += 1
         trial.set_user_attr("index", trial_index)
@@ -426,7 +439,12 @@ def run():
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
-        score, kl_divergence, refusals = evaluator.get_score()
+        metrics = evaluator.evaluate()
+        objective_values = evaluator.get_objective_values(metrics)
+
+        print("  * Metrics:")
+        for m in metrics:
+            print(f"    * {m.name}: [bold]{m.display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / trial_index) * (
@@ -438,13 +456,15 @@ def run():
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
+        for scorer, m in zip(evaluator.scorers, metrics):
+            trial.set_user_attr(f"metric.{scorer.name}", m.value)
+            trial.set_user_attr(f"metric_display.{scorer.name}", m.display)
 
-        trial.set_user_attr("kl_divergence", kl_divergence)
-        trial.set_user_attr("refusals", refusals)
+        if len(objective_values) == 1:
+            return objective_values[0]
+        return objective_values
 
-        return score
-
-    def objective_wrapper(trial: Trial) -> tuple[float, float]:
+    def objective_wrapper(trial: Trial) -> float | tuple[float, ...]:
         try:
             return objective(trial)
         except KeyboardInterrupt:
@@ -452,13 +472,23 @@ def run():
             trial.study.stop()
             raise TrialPruned()
 
+    # Derive objective info from baseline metrics
+    objectives = evaluator.get_objectives(evaluator.baseline_metrics)
+    objective_names = [m.name for m in objectives]
+    directions = [
+        StudyDirection.MINIMIZE
+        if m.direction == "minimize"
+        else StudyDirection.MAXIMIZE
+        for m in objectives
+    ]
+
     study = optuna.create_study(
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
             multivariate=True,
         ),
-        directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
+        directions=directions,
     )
 
     try:
@@ -468,7 +498,6 @@ def run():
         # is raised just between trials, which wouldn't be caught by the handler
         # defined in objective_wrapper above.
         pass
-
     while True:
         # If no trials at all have been evaluated, the study must have been stopped
         # by pressing Ctrl+C while the first trial was running. In this case, we just
@@ -477,33 +506,28 @@ def run():
         if not completed_trials:
             raise KeyboardInterrupt
 
-        # Get the Pareto front of trials. We can't use study.best_trials directly
-        # as get_score() doesn't return the pure KL divergence and refusal count.
-        # Note: Unlike study.best_trials, this does not handle objective constraints.
-        sorted_trials = sorted(
-            completed_trials,
-            key=lambda trial: (
-                trial.user_attrs["refusals"],
-                trial.user_attrs["kl_divergence"],
-            ),
+        # For multi-objective, Optuna already computes a Pareto front.
+        # For single-objective, use the single best trial.
+        best_trials = (
+            list(study.best_trials) if len(directions) > 1 else [study.best_trial]
         )
-        min_divergence = math.inf
-        best_trials = []
-        for trial in sorted_trials:
-            kl_divergence = trial.user_attrs["kl_divergence"]
-            if kl_divergence < min_divergence:
-                min_divergence = kl_divergence
-                best_trials.append(trial)
+
+        def format_trial_title(trial: FrozenTrial) -> str:
+            parts: list[str] = [f"[Trial {trial.user_attrs['index']:>3}]"]
+
+            values = trial.values
+            if values is None:
+                values = (trial.value,)  # type: ignore[assignment]
+
+            for name, val in zip(objective_names, values):
+                if val is None:
+                    continue
+                parts.append(f"{name}: {val:.4f}")
+
+            return ", ".join(parts)
 
         choices = [
-            Choice(
-                title=(
-                    f"[Trial {trial.user_attrs['index']:>3}] "
-                    f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                    f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
-                ),
-                value=trial,
-            )
+            Choice(title=format_trial_title(trial), value=trial)
             for trial in best_trials
         ]
 
@@ -526,7 +550,7 @@ def run():
         print()
         print(
             (
-                "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
+                "The following trials resulted in Pareto optimal combinations of the optimization objectives. "
                 "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
                 "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
                 "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"
@@ -692,12 +716,20 @@ def run():
                                 card.data.tags.append("uncensored")
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
+                                refusals_total = next(
+                                    (
+                                        s.get_primary_prompt_count()
+                                        for s in evaluator.scorers
+                                        if s.name == "CountRefusals"
+                                    ),
+                                    None,
+                                )
                                 card.text = (
                                     get_readme_intro(
                                         settings,
                                         trial,
-                                        evaluator.base_refusals,
-                                        evaluator.bad_prompts,
+                                        evaluator.get_baseline_refusals(),
+                                        refusals_total,
                                     )
                                     + card.text
                                 )

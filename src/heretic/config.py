@@ -112,6 +112,16 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
+    abliteration_orthogonal_project: bool = Field(
+        default=False,
+        description="Whether to only remove the harmful part of the refusal direction.",
+    )
+
+    abliteration_preserve_magnitude: bool = Field(
+        default=False,
+        description="Whether to keep the overall strength of model weights unchanged.",
+    )
+
     print_responses: bool = Field(
         default=False,
         description="Whether to print prompt/response pairs when counting refusals.",
@@ -155,6 +165,14 @@ class Settings(BaseSettings):
         description=(
             "The KL divergence to target. Below this value, an objective based on the refusal count is used."
             'This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".'
+        ),
+    )
+
+    winsorization_quantile: float = Field(
+        default=1.0,
+        description=(
+            "The winsorization to apply to the residuals, expressed as the quantile to clamp to (between 0 and 1). "
+            "Disabled by default. Example: winsorization_quantile = 0.95 applies a 90% winsorization."
         ),
     )
 

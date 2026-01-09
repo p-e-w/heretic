@@ -34,6 +34,12 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
+# Whether to only remove the harmful part of the refusal direction.
+abliteration_orthogonal_project = false
+
+# Whether to preserve the magnitude of the weights.
+abliteration_preserve_magnitude = false
+
 # Whether to print prompt/response pairs when counting refusals.
 print_responses = false
 
@@ -59,6 +65,10 @@ kl_divergence_scale = 1.0
 # The KL divergence to target. Below this value, an objective based on the refusal count is used.
 # This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".
 kl_divergence_target = 0.01
+
+# The winsorization to apply to the residuals, expressed as the quantile to clamp to (between 0 and 1).
+# Disabled by default. Example: winsorization_quantile = 0.95 applies a 90% winsorization.
+winsorization_quantile = 1.0
 
 # Number of abliteration trials to run during optimization.
 n_trials = 200

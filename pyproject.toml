@@ -23,7 +23,9 @@ classifiers = [
 ]
 dependencies = [
     "accelerate>=1.10.0",
-    "bitsandbytes>=0.45.0",
+    # bitsandbytes requires CUDA or Apple Silicon. Exclude Intel Macs where it won't work.
+    # On systems without CUDA, the import will fail gracefully with a helpful error message.
+    "bitsandbytes>=0.45.0; (platform_system != 'Darwin') or (platform_machine == 'arm64')",
     "datasets>=4.0.0",
     "hf-transfer>=0.1.9",
     "huggingface-hub>=0.34.4",

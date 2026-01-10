@@ -6,8 +6,16 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, cast
 
-import bitsandbytes as bnb
 import torch
+
+# bitsandbytes is optional - only available with CUDA
+try:
+    import bitsandbytes as bnb
+
+    HAS_BITSANDBYTES = True
+except ImportError:
+    bnb = None  # type: ignore
+    HAS_BITSANDBYTES = False
 import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear
@@ -26,7 +34,7 @@ from transformers.generation import (
     GenerateDecoderOnlyOutput,  # ty:ignore[possibly-missing-import]
 )
 
-from .config import QuantizationMethod, Settings
+from .config import DeviceType, QuantizationMethod, Settings
 from .utils import Prompt, batchify, empty_cache, print
 
 
@@ -46,6 +54,9 @@ class Model:
         self.settings = settings
         self.response_prefix = ""
         self.needs_reload = False
+
+        # Derive device_map from device setting if not explicitly set
+        self._resolve_device_settings()
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -75,7 +86,13 @@ class Model:
         if self.settings.evaluate_model is not None:
             self.trusted_models[settings.evaluate_model] = settings.trust_remote_code
 
-        for dtype in settings.dtypes:
+        # For CPU mode, prefer float32 as it's most compatible
+        dtypes_to_try = settings.dtypes
+        if settings.device == DeviceType.CPU:
+            # Put float32 first for CPU, as it's most compatible
+            dtypes_to_try = ["float32"] + [d for d in dtypes_to_try if d != "float32"]
+
+        for dtype in dtypes_to_try:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
 
             try:
@@ -139,6 +156,48 @@ class Model:
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
 
+    def _resolve_device_settings(self):
+        """
+        Resolves device settings, deriving device_map from device if needed.
+        Also handles CPU-specific adjustments like disabling quantization.
+        """
+        settings = self.settings
+
+        # If device_map is explicitly set, use it
+        if settings.device_map is not None:
+            return
+
+        # Derive device_map from device setting
+        if settings.device == DeviceType.CPU:
+            settings.device_map = "cpu"
+
+            # Warn about CPU mode being slow
+            print("[bold yellow]Running in CPU-only mode. This will be slow.[/]")
+
+            # Disable quantization for CPU (bitsandbytes requires CUDA)
+            if settings.quantization == QuantizationMethod.BNB_4BIT:
+                print("[yellow]Quantization disabled: bitsandbytes requires CUDA.[/]")
+                settings.quantization = QuantizationMethod.NONE
+
+        elif settings.device == DeviceType.CUDA:
+            if not torch.cuda.is_available():
+                raise RuntimeError(
+                    "CUDA device requested but CUDA is not available. "
+                    "Use --device auto or --device cpu instead."
+                )
+            settings.device_map = "auto"
+
+        elif settings.device == DeviceType.MPS:
+            if not torch.backends.mps.is_available():
+                raise RuntimeError(
+                    "MPS device requested but MPS is not available. "
+                    "Use --device auto or --device cpu instead."
+                )
+            settings.device_map = "mps"
+
+        else:  # DeviceType.AUTO
+            settings.device_map = "auto"
+
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PreTrainedModel)
@@ -181,6 +240,12 @@ class Model:
             BitsAndBytesConfig or None
         """
         if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+            if not HAS_BITSANDBYTES:
+                raise RuntimeError(
+                    "4-bit quantization requires bitsandbytes, which is not available. "
+                    "Install it with 'pip install bitsandbytes' (requires CUDA) "
+                    "or use --quantization none."
+                )
             # BitsAndBytesConfig expects a torch.dtype, not a string.
             if dtype == "auto":
                 compute_dtype = torch.bfloat16

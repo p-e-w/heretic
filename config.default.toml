@@ -2,6 +2,7 @@
 
 # List of PyTorch dtypes to try when loading model tensors.
 # If loading with a dtype fails, the next dtype in the list will be tried.
+# For CPU-only usage, float32 is most compatible and will be tried first automatically.
 dtypes = [
     # In practice, "auto" almost always means bfloat16.
     "auto",
@@ -15,8 +16,17 @@ dtypes = [
     "float32",
 ]
 
+# Device to run inference on.
+# Options:
+#   "auto" - Automatically detect best available device (GPU if available, else CPU)
+#   "cpu"  - Force CPU-only mode (slow but works anywhere)
+#   "cuda" - Force NVIDIA CUDA GPU
+#   "mps"  - Force Apple Metal Performance Shaders (Apple Silicon)
+device = "auto"
+
 # Device map to pass to Accelerate when loading the model.
-device_map = "auto"
+# If not set, this is derived automatically from the 'device' setting above.
+# device_map = "auto"
 
 # Quantization method to use when loading the model.
 # Options: "none" (no quantization), "bnb_4bit" (4-bit quantization using bitsandbytes).

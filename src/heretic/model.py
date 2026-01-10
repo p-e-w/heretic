@@ -6,8 +6,16 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, cast
 
-import bitsandbytes as bnb
 import torch
+
+# bitsandbytes is optional - only available on systems with CUDA support.
+try:
+    import bitsandbytes as bnb
+
+    HAS_BITSANDBYTES = True
+except ImportError:
+    bnb = None  # type: ignore[assignment]
+    HAS_BITSANDBYTES = False
 import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear
@@ -181,6 +189,12 @@ class Model:
             BitsAndBytesConfig or None
         """
         if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+            if not HAS_BITSANDBYTES:
+                raise RuntimeError(
+                    "4-bit quantization requires bitsandbytes, which is not available. "
+                    "Install it with 'pip install bitsandbytes' (requires CUDA) "
+                    "or set quantization = 'none' in your config."
+                )
             # BitsAndBytesConfig expects a torch.dtype, not a string.
             if dtype == "auto":
                 compute_dtype = torch.bfloat16

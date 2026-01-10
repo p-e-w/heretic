@@ -142,6 +142,17 @@ class Prompt:
     user: str
 
 
+def _get_split_slice(split_str: str, length: int, split_name: str) -> tuple[int, int]:
+    """
+    Parse a split specification and return (start, end) indices.
+    Uses the datasets library's ReadInstruction for robust parsing.
+    """
+    instruction = ReadInstruction.from_spec(split_str)
+    name2len = {split_name: length}
+    abs_instruction = instruction.to_absolute(name2len)[0]
+    return abs_instruction.from_, abs_instruction.to
+
+
 def load_prompts(
     settings: Settings,
     specification: DatasetSpecification,
@@ -150,24 +161,32 @@ def load_prompts(
     split_str = specification.split
 
     # Support for plain text files (one prompt per line)
-    if path.endswith(".txt") and os.path.isfile(path):
+    if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:
             prompts = [line.strip() for line in f if line.strip()]
 
-        # Apply split specification using the robust parsing from the `datasets` library.
+        # Apply split specification if provided.
         # We treat the list of prompts as a single split, so the name is arbitrary.
-        try:
-            instruction = ReadInstruction.from_spec(split_str)
-            name2len = {"_": len(prompts)}
-            abs_instruction = instruction.to_absolute(name2len)[0]
-            prompts = prompts[abs_instruction.from_ : abs_instruction.to]
-        except (ValueError, IndexError):
-            # If split_str doesn't contain slice notation (e.g., just "train"),
-            # use all prompts.
-            pass
+        if split_str is not None:
+            try:
+                start, end = _get_split_slice(split_str, len(prompts), "_")
+                prompts = prompts[start:end]
+            except (ValueError, IndexError):
+                # If split_str doesn't contain valid slice notation, use all prompts.
+                pass
 
     else:
         # Load from HuggingFace datasets (local directory or Hub)
+        # These require split and column to be specified.
+        if split_str is None:
+            raise ValueError(
+                f"The 'split' field is required for HuggingFace datasets: {path}"
+            )
+        if specification.column is None:
+            raise ValueError(
+                f"The 'column' field is required for HuggingFace datasets: {path}"
+            )
+
         if os.path.isdir(path):
             if Path(path, DATASET_STATE_JSON_FILENAME).exists():
                 # Dataset saved with datasets.save_to_disk; needs special handling.
@@ -176,15 +195,10 @@ def load_prompts(
                 assert not isinstance(dataset, DatasetDict), (
                     "Loading dataset dicts is not supported"
                 )
-                # Parse the split instructions.
-                instruction = ReadInstruction.from_spec(split_str)
-                # Associate the split with its number of examples (lines).
+                # Apply the split using the helper function.
                 split_name = str(dataset.split)
-                name2len = {split_name: len(dataset)}
-                # Convert the instructions to absolute indices and select the first one.
-                abs_instruction = instruction.to_absolute(name2len)[0]
-                # Get the dataset by applying the indices.
-                dataset = dataset[abs_instruction.from_ : abs_instruction.to]
+                start, end = _get_split_slice(split_str, len(dataset), split_name)
+                dataset = dataset[start:end]
             else:
                 # Path is a local directory.
                 dataset = load_dataset(

@@ -23,9 +23,15 @@ class DatasetSpecification(BaseModel):
         description="Hugging Face dataset ID, or path to dataset on disk."
     )
 
-    split: str = Field(description="Portion of the dataset to use.")
+    split: str | None = Field(
+        default=None,
+        description="Portion of the dataset to use. Required for HuggingFace datasets, optional for text files.",
+    )
 
-    column: str = Field(description="Column in the dataset that contains the prompts.")
+    column: str | None = Field(
+        default=None,
+        description="Column in the dataset that contains the prompts. Required for HuggingFace datasets, ignored for text files.",
+    )
 
     prefix: str = Field(
         default="",

@@ -14,6 +14,8 @@ from .utils import load_plugin, print
 
 
 class Evaluator:
+    settings: Settings
+    model: Model
     """
     Manages evaluation of the model using configured scorer plugins.
 

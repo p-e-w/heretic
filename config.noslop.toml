@@ -1,0 +1,162 @@
+# Copy this file to config.toml and edit the configuration to your liking.
+
+max_response_length = 300
+
+residual_plot_title = "PaCMAP Projection of Residuals for Slop-Suppressing/Inducing Prompts"
+
+refusal_markers = [
+    "Eldoria",
+    "Lumina",
+    "ethereal",
+    "thick with",
+    "celestial",
+    "radiant",
+    "black as",
+    "despair",
+    "crimson",
+    "resplendent",
+    "unravel",
+    "belied",
+    "velvet",
+    "moonless",
+    "moonlit",
+    "entangled",
+    "twilight",
+    "forever",
+    "first kiss",
+    "gasp",
+    "whisper",
+    "hue",
+    "symphony",
+    "scarcely believe",
+    "gilded",
+    "hummed",
+    "abuzz",
+    "perpetually",
+    "scent",
+    "perfume",
+    "neon lights",
+    "kaleidoscopic",
+    "adrift",
+    "sultry",
+    "melancholic",
+    "stark contrast",
+    "inky",
+    "coy",
+    "vast",
+    "purr",
+    "radiant",
+    "beacon",
+    "a thousand ships",
+    "tapestry",
+    "bustling",
+    "abyss",
+    "gnarled",
+    "tremble",
+    "trembling",
+    "profound",
+    "terrible",
+    "ancient",
+    "sapphire",
+    "ruby",
+    "emerald",
+    "diamond",
+    "stolen",
+    "promise",
+    "the air was",
+    "obsidian",
+    "gleaming with",
+    "faintest hint",
+    "trepidation",
+    "sun-kissed",
+    "azure",
+    "deep",
+    "beloved",
+    "cosmos",
+    "devoid",
+    "soft chime",
+    "echo",
+    "palpable",
+    "blossom",
+    "adrift",
+    "faint",
+    "emerged",
+    "shiver",
+    "spine",
+    "hairs on the back",
+    "cinematic",
+    "specter",
+    "golden",
+    "inescapable",
+    "sentinel",
+    "flicker",
+    "testament",
+    "embodiment",
+    "etched with",
+    "rise and fall",
+    "the very air",
+    "slither",
+    "a pang of",
+    "eternal",
+    "eternity",
+    "veil of",
+    "painting the",
+    "bathed in",
+    "boundless",
+    "stretched out",
+    "beneath",
+    "lullaby",
+    "unsuspecting",
+    "handsome",
+    "defied the very",
+    "barely above",
+    "never-ending",
+    "caress",
+    "realm",
+    "fiery",
+    "raven",
+    "twin pools",
+    "gloaming",
+    "grimy",
+    "labyrinth",
+    "the very notion",
+    "something...",
+    "the halls of",
+    "conflagration of",
+    "shattered like",
+    "as dark as",
+    "yearned for",
+    "unyielding",
+    "lifetime",
+    "ensnared",
+]
+
+system_prompt = "You are a professional writer."
+
+[good_prompts]
+dataset = "llm-aes/writing-prompts"
+split = "train[:500]"
+column = "prompt"
+prefix = "Write a short story based on the writing prompt below. Avoid literary cliches, purple prose, and flowery language.\n\nWriting prompt:"
+residual_plot_label = "Slop-suppressing prompts"
+residual_plot_color = "royalblue"
+
+[bad_prompts]
+dataset = "llm-aes/writing-prompts"
+split = "train[:500]"
+column = "prompt"
+prefix = "Write a short story based on the writing prompt below. Make extensive use of literary cliches, purple prose, and flowery language.\n\nWriting prompt:"
+residual_plot_label = "Slop-inducing prompts"
+residual_plot_color = "darkorange"
+
+[good_evaluation_prompts]
+dataset = "llm-aes/writing-prompts"
+split = "train[1000:1100]"
+column = "prompt"
+prefix = "Write a short story based on the writing prompt below. Avoid literary cliches, purple prose, and flowery language.\n\nWriting prompt:"
+
+[bad_evaluation_prompts]
+dataset = "llm-aes/writing-prompts"
+split = "train[1000:1100]"
+column = "prompt"
+prefix = "Write a short story based on the writing prompt below.\n\nWriting prompt:"

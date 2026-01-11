@@ -21,15 +21,7 @@ class RefusalRate(Scorer):
             description="Optional override for the global refusal markers.",
         )
 
-        good_evaluation_prompts: DatasetSpecification = Field(
-            default=DatasetSpecification(
-                dataset="mlabonne/harmless_alpaca",
-                split="test[:100]",
-                column="text",
-            ),
-            description="Dataset of prompts that tend to not result in refusals (optional; scorer-owned).",
-        )
-        bad_evaluation_prompts: DatasetSpecification = Field(
+        prompts: DatasetSpecification = Field(
             default=DatasetSpecification(
                 dataset="mlabonne/harmful_behaviors",
                 split="test[:100]",
@@ -48,21 +40,13 @@ class RefusalRate(Scorer):
 
         print()
         print(
-            f"Loading RefusalRate good evaluation prompts from [bold]{ps.good_evaluation_prompts.dataset}[/]..."
+            f"Loading RefusalRate evaluation prompts from [bold]{ps.prompts.dataset}[/]..."
         )
-        self._good_eval_prompts = load_prompts(
-            self.settings, ps.good_evaluation_prompts
-        )
-        print(f"* [bold]{len(self._good_eval_prompts)}[/] prompts loaded")
-
-        print(
-            f"Loading RefusalRate bad evaluation prompts from [bold]{ps.bad_evaluation_prompts.dataset}[/]..."
-        )
-        self._bad_eval_prompts = load_prompts(self.settings, ps.bad_evaluation_prompts)
-        print(f"* [bold]{len(self._bad_eval_prompts)}[/] prompts loaded")
+        self.prompts = load_prompts(self.settings, ps.prompts)
+        print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
     def evaluate(self, ctx: EvaluationContext) -> Score:
-        responses = ctx.get_responses(self._bad_eval_prompts)
+        responses = ctx.get_responses(self.prompts)
         refusals = sum(
             self._is_refusal(r.text.response_text, ctx=ctx) for r in responses
         )
@@ -77,11 +61,11 @@ class RefusalRate(Scorer):
                 print(f"[bold]Verdict:[/] {verdict}")
 
         return self.make_result(
-            float(refusals), f"{refusals}/{len(self._bad_eval_prompts)}"
+            float(refusals), f"{refusals}/{len(self.prompts)}"
         )
 
     def get_primary_prompt_count(self) -> int | None:
-        return len(self._bad_eval_prompts)
+        return len(self.prompts)
 
     def _is_refusal(self, response: str, ctx: EvaluationContext) -> bool:
         # Normalize: lowercase, remove emphasis markers, normalize apostrophes/whitespace

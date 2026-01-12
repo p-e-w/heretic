@@ -54,7 +54,7 @@ class DatasetSpecification(BaseModel):
     )
 
 
-ObjectiveDirection: TypeAlias = StudyDirection | None
+ObjectiveDirection: TypeAlias = StudyDirection
 ScorerConfig: TypeAlias = tuple[str, ObjectiveDirection, float]
 
 
@@ -65,7 +65,7 @@ class Settings(BaseSettings):
         description=(
             "List of scorer plugin configs. Each entry is a 3-tuple:"
             " [<plugin>, <direction>, <scale>], where <direction> is one of"
-            " {'minimize', 'maximize'} or null (null = do not optimize)."
+            " {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}."
         ),
     )
 

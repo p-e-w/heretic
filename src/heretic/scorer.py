@@ -50,7 +50,7 @@ class Score:
     name: str
     value: float
     display: str
-    direction: StudyDirection | None
+    direction: StudyDirection
 
 
 @dataclass(frozen=True)
@@ -180,7 +180,7 @@ class Scorer(Plugin, ABC):
         settings: "HereticSettings",
         model: "Model",
         plugin_settings: BaseModel | None = None,
-        direction: StudyDirection | None = StudyDirection.MINIMIZE,
+        direction: StudyDirection = StudyDirection.MINIMIZE,
         scale: float = 1.0,
     ):
         super().__init__(plugin_settings=plugin_settings)

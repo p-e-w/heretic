@@ -102,13 +102,13 @@ class Evaluator:
 
     def get_objectives(self, metrics: list[Score]) -> list[Score]:
         """Filter metrics to only those used in optimization."""
-        return [m for m in metrics if m.direction is not None]
+        return [m for m in metrics if m.direction != StudyDirection.NOT_SET]
 
     def get_objective_values(self, metrics: list[Score]) -> tuple[float, ...]:
         """Extract objective values as a tuple for Optuna."""
         values: list[float] = []
         for scorer, m in zip(self.scorers, metrics):
-            if m.direction is None:
+            if m.direction == StudyDirection.NOT_SET:
                 continue
             values.append(float(m.value) * float(getattr(scorer, "scale", 1.0)))
         return tuple(values)
@@ -117,7 +117,6 @@ class Evaluator:
         """Get optimization directions for objectives."""
         directions: list[StudyDirection] = []
         for m in self.get_objectives(metrics):
-            assert m.direction is not None
             directions.append(m.direction)
         return directions
 

@@ -475,7 +475,7 @@ def run():
     # Derive objective info from baseline metrics
     objectives = evaluator.get_objectives(evaluator.baseline_metrics)
     objective_names = [m.name for m in objectives]
-    directions = [m.direction for m in objectives if m.direction is not None]
+    directions = [m.direction for m in objectives]
 
     study = optuna.create_study(
         sampler=TPESampler(

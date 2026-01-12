@@ -3,16 +3,16 @@
 # List of scorers/metrics to evaluate.
 # Each entry is a 3-tuple:
 # [<plugin>, <direction>, <scale>], where <direction> is one of
-# {'minimize', 'maximize'} or null (null = do not optimize)
+# {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}
 scorers = [
     [
         "heretic.scorers.refusal_rate.RefusalRate",
-        "minimize",
+        1,
         1.0
     ],
     [
         "heretic.scorers.kl_divergence.KLDivergence",
-        "minimize",
+        1,
         1.0
     ]
 ]

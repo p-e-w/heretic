@@ -10,7 +10,7 @@ import os
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import questionary
 import torch
@@ -31,6 +31,8 @@ from rich.console import Console
 from .config import DatasetSpecification, Settings
 
 print = Console(highlight=False).print
+
+T = TypeVar("T")
 
 
 def is_notebook() -> bool:

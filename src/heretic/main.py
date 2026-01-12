@@ -712,7 +712,7 @@ def run():
                                     (
                                         s.get_primary_prompt_count()
                                         for s in evaluator.scorers
-                                        if s.name == "CountRefusals"
+                                        if s.__class__.__name__ == "CountRefusals"
                                     ),
                                     None,
                                 )

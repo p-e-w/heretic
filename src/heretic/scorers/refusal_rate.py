@@ -14,8 +14,6 @@ class RefusalRate(Scorer):
     Markers are defined in the [RefusalRate] config section.
     """
 
-    name = "RefusalRate"
-
     class Settings(BaseModel):
         refusal_markers: list[str] = Field(
             description="Optional override for the global refusal markers.",

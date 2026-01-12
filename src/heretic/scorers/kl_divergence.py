@@ -18,8 +18,6 @@ class KLDivergence(Scorer):
     Lower is better (less damage).
     """
 
-    name = "KLDivergence"
-
     class Settings(BaseModel):
         prompts: DatasetSpecification = Field(
             default=DatasetSpecification(

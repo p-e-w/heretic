@@ -4,6 +4,7 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
+from optuna.study import StudyDirection
 from pydantic import BaseModel
 
 from heretic.plugin import Plugin
@@ -49,7 +50,7 @@ class Score:
     name: str
     value: float
     display: str
-    direction: Literal["minimize", "maximize", "ignore"]
+    direction: StudyDirection | None
 
 
 @dataclass(frozen=True)
@@ -179,7 +180,7 @@ class Scorer(Plugin, ABC):
         settings: "HereticSettings",
         model: "Model",
         plugin_settings: BaseModel | None = None,
-        direction: Literal["maximize", "minimize", "ignore"] = "minimize",
+        direction: StudyDirection | None = StudyDirection.MINIMIZE,
         scale: float = 1.0,
     ):
         super().__init__(plugin_settings=plugin_settings)

@@ -2,8 +2,9 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 from enum import Enum
-from typing import Dict, Literal, TypeAlias
+from typing import Dict, TypeAlias
 
+from optuna.study import StudyDirection
 from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
@@ -53,7 +54,7 @@ class DatasetSpecification(BaseModel):
     )
 
 
-ObjectiveDirection: TypeAlias = Literal["minimize", "maximize", "ignore"]
+ObjectiveDirection: TypeAlias = StudyDirection | None
 ScorerConfig: TypeAlias = tuple[str, ObjectiveDirection, float]
 
 
@@ -64,7 +65,7 @@ class Settings(BaseSettings):
         description=(
             "List of scorer plugin configs. Each entry is a 3-tuple:"
             " [<plugin>, <direction>, <scale>], where <direction> is one of"
-            " {'minimize', 'maximize', 'ignore'}."
+            " {'minimize', 'maximize'} or null (null = do not optimize)."
         ),
     )
 

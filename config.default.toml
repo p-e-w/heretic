@@ -3,7 +3,7 @@
 # List of scorers/metrics to evaluate.
 # Each entry is a 3-tuple:
 # [<plugin>, <direction>, <scale>], where <direction> is one of
-# {'minimize', 'maximize', 'ignore'}
+# {'minimize', 'maximize'} or null (null = do not optimize)
 scorers = [
     [
         "heretic.scorers.refusal_rate.RefusalRate",

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from optuna.study import StudyDirection
 from pydantic import BaseModel
 
 from .config import ObjectiveDirection, Settings
@@ -101,20 +102,24 @@ class Evaluator:
 
     def get_objectives(self, metrics: list[Score]) -> list[Score]:
         """Filter metrics to only those used in optimization."""
-        return [m for m in metrics if m.direction != "ignore"]
+        return [m for m in metrics if m.direction is not None]
 
     def get_objective_values(self, metrics: list[Score]) -> tuple[float, ...]:
         """Extract objective values as a tuple for Optuna."""
         values: list[float] = []
         for scorer, m in zip(self.scorers, metrics):
-            if m.direction == "ignore":
+            if m.direction is None:
                 continue
             values.append(float(m.value) * float(getattr(scorer, "scale", 1.0)))
         return tuple(values)
 
-    def get_objective_directions(self, metrics: list[Score]) -> list[str]:
+    def get_objective_directions(self, metrics: list[Score]) -> list[StudyDirection]:
         """Get optimization directions for objectives."""
-        return [m.direction for m in self.get_objectives(metrics)]
+        directions: list[StudyDirection] = []
+        for m in self.get_objectives(metrics):
+            assert m.direction is not None
+            directions.append(m.direction)
+        return directions
 
     def get_baseline_refusals(self) -> int:
         """Get baseline refusal count (for backwards compat in main.py)."""

@@ -26,7 +26,6 @@ from huggingface_hub import ModelCard, ModelCardData
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
-from optuna.study import StudyDirection
 from optuna.trial import FrozenTrial, TrialState
 from pydantic import ValidationError
 from questionary import Choice
@@ -356,7 +355,7 @@ def run():
     trial_index = 0
     start_time = time.perf_counter()
 
-    def objective(trial: Trial) -> float | tuple[float, ...]:
+    def objective(trial: Trial) -> tuple[float, ...]:
         nonlocal trial_index
         trial_index += 1
         trial.set_user_attr("index", trial_index)
@@ -460,11 +459,9 @@ def run():
             trial.set_user_attr(f"metric.{scorer.name}", m.value)
             trial.set_user_attr(f"metric_display.{scorer.name}", m.display)
 
-        if len(objective_values) == 1:
-            return objective_values[0]
         return objective_values
 
-    def objective_wrapper(trial: Trial) -> float | tuple[float, ...]:
+    def objective_wrapper(trial: Trial) -> tuple[float, ...]:
         try:
             return objective(trial)
         except KeyboardInterrupt:

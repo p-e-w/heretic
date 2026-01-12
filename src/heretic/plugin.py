@@ -5,8 +5,7 @@ import importlib
 import importlib.util
 import inspect
 from pathlib import Path
-
-from typing import Any, ClassVar, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -104,7 +103,6 @@ class Plugin:
 
     @classmethod
     def validate_contract(cls) -> None:
-
         settings_model = getattr(cls, "Settings", None)
         if settings_model is None:
             return

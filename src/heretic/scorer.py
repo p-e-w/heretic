@@ -193,6 +193,7 @@ class Scorer(Plugin, ABC):
             self.instance_name = f"{self.__class__.__name__}.{instance_name}"
         else:
             self.instance_name = None
+
     def evaluate(self, ctx: EvaluationContext) -> Score:
         """
         Evaluate this scorer given the evaluation context.

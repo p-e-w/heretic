@@ -10,9 +10,9 @@ from pydantic import BaseModel
 
 from .config import ObjectiveDirection, Settings
 from .model import Model
+from .plugin import load_plugin
 from .scorer import EvaluationContext, Score, Scorer
 from .utils import print
-from .plugin import load_plugin
 
 
 class Evaluator:
@@ -53,7 +53,9 @@ class Evaluator:
             )
         return value
 
-    def _deep_merge_dicts(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    def _deep_merge_dicts(
+        self, base: dict[str, Any], override: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Recursively merge two dicts.
 
@@ -138,7 +140,9 @@ class Evaluator:
             raw_settings = self._get_scorer_settings_raw(
                 scorer_cls=scorer_cls, instance_name=instance_name
             )
-            plugin_settings: BaseModel | None = scorer_cls.validate_settings(raw_settings)
+            plugin_settings: BaseModel | None = scorer_cls.validate_settings(
+                raw_settings
+            )
 
             scorer = scorer_cls(
                 settings=self.settings,
@@ -146,7 +150,7 @@ class Evaluator:
                 plugin_settings=plugin_settings,
                 direction=direction,
                 scale=scale,
-                instance_name=instance_name
+                instance_name=instance_name,
             )
 
             scorer_name = (

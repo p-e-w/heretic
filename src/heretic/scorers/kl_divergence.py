@@ -21,7 +21,7 @@ class KLDivergence(Scorer):
     name = "KLDivergence"
 
     class Settings(BaseModel):
-        evaluation_prompts: DatasetSpecification = Field(
+        prompts: DatasetSpecification = Field(
             default=DatasetSpecification(
                 dataset="mlabonne/harmless_alpaca",
                 split="test[:100]",
@@ -40,16 +40,16 @@ class KLDivergence(Scorer):
 
         print()
         print(
-            f"Loading KLDivergence evaluation prompts from [bold]{ps.evaluation_prompts.dataset}[/]..."
+            f"Loading KLDivergence evaluation prompts from [bold]{ps.prompts.dataset}[/]..."
         )
-        self._eval_prompts = load_prompts(self.settings, ps.evaluation_prompts)
-        print(f"* [bold]{len(self._eval_prompts)}[/] prompts loaded")
+        self.prompts = load_prompts(self.settings, ps.prompts)
+        print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
         print("* Obtaining baseline first-token probability distributions...")
-        self._baseline_logprobs = self.model.get_logprobs_batched(self._eval_prompts)
+        self._baseline_logprobs = self.model.get_logprobs_batched(self.prompts)
 
     def evaluate(self, ctx: EvaluationContext) -> Score:
-        logprobs = ctx.model.get_logprobs_batched(self._eval_prompts)
+        logprobs = ctx.model.get_logprobs_batched(self.prompts)
         kl = F.kl_div(
             logprobs,
             self._baseline_logprobs,

@@ -58,8 +58,6 @@ ScorerConfig: TypeAlias = tuple[str, ObjectiveDirection, float]
 
 
 class Settings(BaseSettings):
-    
-
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
     scorers: list[ScorerConfig] = Field(
         default_factory=list,
@@ -192,10 +190,10 @@ class Settings(BaseSettings):
         ),
         description="Dataset of prompts that tend to result in refusals (used for calculating refusal directions).",
     )
- 
+
     # "Model" refers to the Pydantic model of the settings class here,
     # not to the language model. The field must have this exact name.
-    model_config = SettingsConfigDict(   
+    model_config = SettingsConfigDict(
         toml_file="config.toml",
         env_prefix="HERETIC_",
         cli_parse_args=True,

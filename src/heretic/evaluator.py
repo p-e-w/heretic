@@ -13,6 +13,7 @@ from .scorer import EvaluationContext, Score, Scorer
 from .utils import print
 from .plugin import load_plugin
 
+
 class Evaluator:
     settings: Settings
     model: Model

@@ -60,9 +60,7 @@ class RefusalRate(Scorer):
                 print(f"[bold]Response:[/] {r.response_text}")
                 print(f"[bold]Verdict:[/] {verdict}")
 
-        return self.make_result(
-            float(refusals), f"{refusals}/{len(self.prompts)}"
-        )
+        return self.make_result(float(refusals), f"{refusals}/{len(self.prompts)}")
 
     def get_primary_prompt_count(self) -> int | None:
         return len(self.prompts)

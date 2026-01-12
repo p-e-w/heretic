@@ -81,6 +81,7 @@ def load_plugin(
 
     return plugin_cls
 
+
 class Plugin:
     """
     Base class for Heretic plugins.

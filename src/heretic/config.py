@@ -64,12 +64,13 @@ class ScorerConfig:
     Configuration for a scorer plugin.
 
     TOML format:
-    - { plugin = "<plugin>", direction = <direction>, scale = <scale> }
+    - { plugin = "<plugin>", direction = <direction>, scale = <scale>, instance_name = "<optional>" }
     """
 
     plugin: str
     direction: ObjectiveDirection
     scale: float
+    instance_name: str | None = None
 
 
 class Settings(BaseSettings):

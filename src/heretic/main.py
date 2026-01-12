@@ -456,8 +456,8 @@ def run():
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
         for scorer, m in zip(evaluator.scorers, metrics):
-            trial.set_user_attr(f"metric.{scorer.__class__.__name__}", m.value)
-            trial.set_user_attr(f"metric_display.{scorer.__class__.__name__}", m.display)
+            trial.set_user_attr(f"metric.{m.name}", m.value)
+            trial.set_user_attr(f"metric_display.{m.name}", m.display)
 
         return objective_values
 

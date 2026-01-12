@@ -182,13 +182,17 @@ class Scorer(Plugin, ABC):
         plugin_settings: BaseModel | None = None,
         direction: StudyDirection = StudyDirection.MINIMIZE,
         scale: float = 1.0,
+        instance_name: str | None = None,
     ):
         super().__init__(plugin_settings=plugin_settings)
         self.settings = settings
         self.model = model
         self.direction = direction
         self.scale = scale
-
+        if instance_name:
+            self.instance_name = f"{self.__class__.__name__}.{instance_name}"
+        else:
+            self.instance_name = None
     def evaluate(self, ctx: EvaluationContext) -> Score:
         """
         Evaluate this scorer given the evaluation context.
@@ -212,7 +216,7 @@ class Scorer(Plugin, ABC):
             MetricResult with name/direction/use_in_optimizer from plugin_settings.
         """
         return Score(
-            name=self.__class__.__name__,
+            name=self.instance_name if self.instance_name else self.__class__.__name__,
             value=value,
             display=display if display is not None else str(value),
             direction=self.direction,

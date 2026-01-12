@@ -2,7 +2,7 @@
 
 # List of scorers/metrics to evaluate.
 # Each entry is an object:
-# { plugin = <plugin>, direction = <direction>, scale = <scale> }
+# { plugin = <plugin>, direction = <direction>, scale = <scale>, instance_name = <optional> }
 # where <direction> is one of {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}
 scorers = [
     { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = 1, scale = 1.0 },
@@ -135,6 +135,22 @@ column = "text"
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
+
+# You can also load multiple instances of the same scorer class by setting `instance_name`
+# in the `scorers = [...]` list. The instance name becomes `ClassName.instanceName`.
+#
+# Example:
+# scorers = [
+#   { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = 1, scale = 1.0, instance_name = "small" },
+#   { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = 1, scale = 1.0, instance_name = "tiny" },
+# ]
+#
+# Shared defaults for all instances live under `[RefusalRate]` and can be overridden per
+# instance under `[RefusalRate.<instance_name>]` (standard TOML nesting).
+#
+# Example instance override:
+# [RefusalRate.small.prompts]
+# split = "test[:10]"
 
 [KLDivergence]
 use_in_optimizer = true

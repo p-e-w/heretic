@@ -27,12 +27,13 @@ dependencies = [
     "datasets>=4.0.0",
     "hf-transfer>=0.1.9",
     "huggingface-hub>=0.34.4",
+    "kernels>=0.11.7",
     "optuna>=4.5.0",
     "peft>=0.14.0",
     "pydantic-settings>=2.10.1",
     "questionary>=2.1.1",
     "rich>=14.1.0",
-    "transformers>=4.55.2",
+    "transformers>=4.57.3",
 ]
 
 [project.optional-dependencies]

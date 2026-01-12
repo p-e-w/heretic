@@ -1,20 +1,12 @@
 # Copy this file to config.toml and edit the configuration to your liking.
 
 # List of scorers/metrics to evaluate.
-# Each entry is a 3-tuple:
-# [<plugin>, <direction>, <scale>], where <direction> is one of
-# {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}
+# Each entry is an object:
+# { plugin = <plugin>, direction = <direction>, scale = <scale> }
+# where <direction> is one of {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}
 scorers = [
-    [
-        "heretic.scorers.refusal_rate.RefusalRate",
-        1,
-        1.0
-    ],
-    [
-        "heretic.scorers.kl_divergence.KLDivergence",
-        1,
-        1.0
-    ]
+    { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = 1, scale = 1.0 },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", direction = 1, scale = 1.0 },
 ]
 
 # List of PyTorch dtypes to try when loading model tensors.

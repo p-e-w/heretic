@@ -6,6 +6,7 @@ from typing import Dict, TypeAlias
 
 from optuna.study import StudyDirection
 from pydantic import BaseModel, Field
+from pydantic.dataclasses import dataclass
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -55,7 +56,20 @@ class DatasetSpecification(BaseModel):
 
 
 ObjectiveDirection: TypeAlias = StudyDirection
-ScorerConfig: TypeAlias = tuple[str, ObjectiveDirection, float]
+
+
+@dataclass(frozen=True)
+class ScorerConfig:
+    """
+    Configuration for a scorer plugin.
+
+    TOML format:
+    - { plugin = "<plugin>", direction = <direction>, scale = <scale> }
+    """
+
+    plugin: str
+    direction: ObjectiveDirection
+    scale: float
 
 
 class Settings(BaseSettings):
@@ -63,9 +77,9 @@ class Settings(BaseSettings):
     scorers: list[ScorerConfig] = Field(
         default_factory=list,
         description=(
-            "List of scorer plugin configs. Each entry is a 3-tuple:"
-            " [<plugin>, <direction>, <scale>], where <direction> is one of"
-            " {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}."
+            "List of scorer plugin configs. Each entry is an object"
+            " {plugin=<plugin>, direction=<direction>, scale=<scale>}."
+            " <direction> is one of {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}."
         ),
     )
 

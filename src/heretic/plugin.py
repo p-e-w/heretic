@@ -89,15 +89,10 @@ class Plugin:
     """
     Base class for Heretic plugins.
 
-    Plugins must define:
-    - `name`: stable identifier for namespaced config. TOML table: `[<name>]`
-
     Plugins may define:
     - nested `Settings` model (subclass of pydantic.BaseModel)
       Heretic will validate `[<name>]` against it and pass an instance as `plugin_settings`.
     """
-
-    name: ClassVar[str] = ""
 
     class Settings(BaseModel):
         """Base settings class for plugins. Subclasses can extend this."""
@@ -109,10 +104,6 @@ class Plugin:
 
     @classmethod
     def validate_contract(cls) -> None:
-        if not isinstance(getattr(cls, "name", None), str) or not cls.name.strip():
-            raise ValueError(
-                f"{cls.__name__} must define a non-empty class attribute `name`"
-            )
 
         settings_model = getattr(cls, "Settings", None)
         if settings_model is None:

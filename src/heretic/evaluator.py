@@ -64,8 +64,8 @@ class Evaluator:
         scorer_classes: list[type[Scorer]] = []
 
         # resolve plugin classes from names and validate
-        for plugin_name, _, _ in scorer_configs:
-            scorer_cls = load_plugin(name=plugin_name, base_class=Scorer)
+        for cfg in scorer_configs:
+            scorer_cls = load_plugin(name=cfg.plugin, base_class=Scorer)
             scorer_cls.validate_contract()
             scorer_classes.append(scorer_cls)
             print(f"* Loaded: [bold]{scorer_cls.__name__}[/bold]")
@@ -73,12 +73,12 @@ class Evaluator:
         scorers: list[Scorer] = []
         # instantiate scorers
         for index, scorer_cls in enumerate(scorer_classes):
-            plugin_config = self._get_plugin_namespace(scorer_cls.name)
+            plugin_config = self._get_plugin_namespace(scorer_cls.__name__)
             plugin_settings: BaseModel | None = scorer_cls.validate_settings(
                 plugin_config
             )
-            direction: ObjectiveDirection = scorer_configs[index][1]
-            scale: float = float(scorer_configs[index][2])
+            direction: ObjectiveDirection = scorer_configs[index].direction
+            scale: float = float(scorer_configs[index].scale)
             scorers.append(
                 scorer_cls(
                     settings=self.settings,
@@ -123,6 +123,6 @@ class Evaluator:
     def get_baseline_refusals(self) -> int:
         """Get baseline refusal count (for backwards compat in main.py)."""
         for scorer, m in zip(self.scorers, self.baseline_metrics):
-            if scorer.name == "RefusalRate":
+            if scorer.__class__.__name__ == "RefusalRate":
                 return int(m.value)
         return 0

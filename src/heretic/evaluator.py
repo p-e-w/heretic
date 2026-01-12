@@ -10,8 +10,8 @@ from pydantic import BaseModel
 from .config import ObjectiveDirection, Settings
 from .model import Model
 from .scorer import EvaluationContext, Score, Scorer
-from .utils import load_plugin, print
-
+from .utils import print
+from .plugin import load_plugin
 
 class Evaluator:
     settings: Settings

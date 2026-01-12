@@ -347,9 +347,7 @@ def run():
     if settings.plot_residuals:
         analyzer.plot_residuals()
 
-    del good_residuals, bad_residuals
-
-    del analyzer
+    del good_residuals, bad_residuals, analyzer
     empty_cache()
 
     trial_index = 0

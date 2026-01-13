@@ -170,7 +170,7 @@ class Scorer(Plugin, ABC):
     """
     Abstract base class for scorer plugins.
 
-    Scorers evaluate model behavior and return a MetricResult.
+    Scorers evaluate model behavior and return a Score.
 
     Example: counting refusals, measuring KL divergence, etc.
     """
@@ -207,14 +207,14 @@ class Scorer(Plugin, ABC):
 
     def make_result(self, value: float, display: str | None = None) -> Score:
         """
-        Helper to build MetricResult with settings-derived defaults.
+        Helper to build Score with settings-derived defaults.
 
         Args:
             value: The numeric metric value.
             display: Human-readable string. Defaults to str(value).
 
         Returns:
-            MetricResult with name/direction/use_in_optimizer from plugin_settings.
+            Score with name/direction/use_in_optimizer from plugin_settings.
         """
         return Score(
             name=self.instance_name if self.instance_name else self.__class__.__name__,

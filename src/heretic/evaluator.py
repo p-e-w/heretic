@@ -173,7 +173,7 @@ class Evaluator:
         Run all scorers and return their metrics.
 
         Returns:
-            List of MetricResult from each scorer.
+            List of Score from each scorer.
         """
         ctx = EvaluationContext(settings=self.settings, model=self.model)
         return [scorer.evaluate(ctx) for scorer in self.scorers]

@@ -126,12 +126,7 @@ refusal_markers = [
 ]
 
 # Scorer-owned evaluation prompts
-[RefusalRate.good_evaluation_prompts]
-dataset = "mlabonne/harmless_alpaca"
-split = "test[:100]"
-column = "text"
-
-[RefusalRate.bad_evaluation_prompts]
+[RefusalRate.prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
@@ -152,11 +147,8 @@ column = "text"
 # [RefusalRate.small.prompts]
 # split = "test[:10]"
 
-[KLDivergence]
-use_in_optimizer = true
-direction = "minimize"
 
-[KLDivergence.evaluation_prompts]
+[KLDivergence.prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"

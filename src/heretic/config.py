@@ -130,6 +130,22 @@ class Settings(BaseSettings):
         description="Whether to keep the overall strength of model weights unchanged.",
     )
 
+    max_weight_limit: float = Field(
+        default=1.5,
+        description=(
+            "The maximum weight to apply during abliteration. Values higher than 1 are difficult to justify "
+            "theoretically, but have been found to improve results when enabling magnitude preservation."
+        ),
+    )
+
+    max_weight_log_scale: bool = Field(
+        default=False,
+        description=(
+            "Whether to choose the maximum weight using a logarithmic scale (making higher values less likely to be selected). "
+            "This can be useful when raising max_weight_limit to avoid incoherence during the initial random trials."
+        ),
+    )
+
     print_responses: bool = Field(
         default=False,
         description="Whether to print prompt/response pairs when counting refusals.",

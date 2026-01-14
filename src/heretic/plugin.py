@@ -5,7 +5,7 @@ import importlib
 import importlib.util
 import inspect
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, ModuleType, TypeVar
 
 from pydantic import BaseModel
 
@@ -26,7 +26,7 @@ def load_plugin(
     - `fully.qualified.module.MyPluginClass`: import the module and load the class.
     """
 
-    def import_module(module_name: str):
+    def import_module(module_name: str) -> ModuleType:
         try:
             return importlib.import_module(module_name)
         except ImportError as e:

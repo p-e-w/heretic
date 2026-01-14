@@ -19,7 +19,7 @@ class RefusalRate(Scorer):
 
     class Settings(BaseModel):
         refusal_markers: list[str] = Field(
-            description="Optional override for the global refusal markers.",
+            description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
         )
 
         prompts: DatasetSpecification = Field(

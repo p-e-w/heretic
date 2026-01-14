@@ -685,7 +685,7 @@ class Model:
         If `needs_token_scores` is True, uses `output_scores=True` and derives chosen-token
         logits/logprobs from the generation scores.
         """
-        from .scorer import ResponseText, ResponseTokenization, ResponseTokenScores
+        from .scorer import TextCompletion, ResponseTokenization, ResponseTokenScores
 
         generate_kwargs: dict[str, Any] = {
             "max_new_tokens": self.settings.max_response_length,
@@ -742,7 +742,7 @@ class Model:
 
             responses.append(
                 Response(
-                    text=ResponseText(
+                    text=TextCompletion(
                         prompt=prompt,
                         response_text=decoded[prompt_index],
                         finish_reason=finish_reason,

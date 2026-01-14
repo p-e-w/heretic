@@ -20,7 +20,7 @@ FinishReason = Literal["len", "eos", "unk", "empty"]
 
 
 @dataclass(frozen=True)
-class ResponseText:
+class TextCompletion:
     prompt: Prompt
     response_text: str
     finish_reason: FinishReason
@@ -57,7 +57,7 @@ class Score:
 
 @dataclass(frozen=True)
 class Response:
-    text: ResponseText
+    text: TextCompletion
     tokenization: ResponseTokenization
     token_scores: ResponseTokenScores
 
@@ -144,7 +144,7 @@ class EvaluationContext:
             self._responses_cache_has_token_scores.add(key)
         return self._responses_cache[key]
 
-    def get_response_text(self, prompts: list[Prompt]) -> list[ResponseText]:
+    def get_response_text(self, prompts: list[Prompt]) -> list[TextCompletion]:
         return [r.text for r in self.get_responses(prompts)]
 
     def get_tokenization(self, prompts: list[Prompt]) -> list[ResponseTokenization]:
@@ -156,7 +156,7 @@ class EvaluationContext:
     def responses(self, prompts: list[Prompt]) -> list[Response]:
         return self.get_responses(prompts)
 
-    def response_text(self, prompts: list[Prompt]) -> list[ResponseText]:
+    def response_text(self, prompts: list[Prompt]) -> list[TextCompletion]:
         return self.get_response_text(prompts)
 
     def response_tokenization(

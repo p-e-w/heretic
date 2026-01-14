@@ -93,11 +93,6 @@ class Plugin:
       Heretic will validate `[<name>]` against it and pass an instance as `plugin_settings`.
     """
 
-    class Settings(BaseModel):
-        """Base settings class for plugins. Subclasses can extend this."""
-
-        pass
-
     def __init__(self, *, plugin_settings: BaseModel | None = None):
         self.plugin_settings = plugin_settings
 

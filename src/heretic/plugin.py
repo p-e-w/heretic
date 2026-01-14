@@ -63,7 +63,7 @@ def load_plugin(
                 f"Plugin '{name}' does not export a class named '{class_name}'"
             )
         plugin_cls = obj
-    # Fully-qualified import path, e.g "heretic.scorers.count_refusals.CountRefusals"
+    # Fully-qualified import path, e.g "heretic.scorers.refusal_rate.RefusalRate"
     else:
         if "." not in name:
             raise ValueError(

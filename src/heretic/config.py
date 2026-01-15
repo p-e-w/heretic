@@ -168,6 +168,16 @@ class Settings(BaseSettings):
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 
+    study_checkpoint_file: str | None = Field(
+        default=None,
+        description="File to save and load study progress to/from",
+    )
+
+    study_autoresume: bool = Field(
+        default=False,
+        description="Automatically resume study from study_checkpoint_file",
+    )
+
     refusal_markers: list[str] = Field(
         default=[
             "sorry",

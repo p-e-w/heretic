@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+import datetime
+import hashlib
 import math
 import os
 import sys
@@ -456,21 +458,36 @@ def run():
             trial.study.stop()
             raise TrialPruned()
 
-    log_file = "log/study.jsonl"
-    resume = os.path.exists(log_file)
-    if resume:
-        choice = prompt_select("Resume previous study?", ["yes", "no"])
-        if choice == "no":
-            os.remove(log_file)
-            resume = False
+    if settings.study_checkpoint_file is not None:
+        resume = os.path.exists(settings.study_checkpoint_file)
+        if not settings.study_autoresume and resume:
+            choice = prompt_select("Resume previous study?", ["yes", "no"])
+            if choice == "no":
+                resume = False
+    else:
+        settings.study_checkpoint_file = f"log/{settings.model.replace('/', '--')}_" + f"{datetime.datetime.now(datetime.UTC).isoformat(timespec='seconds')}.jsonl"
+        resume = False
 
-    if not os.path.exists("log"):
-        os.mkdir("log")
-    backend = JournalFileBackend(log_file)
+    os.makedirs(os.path.dirname(settings.study_checkpoint_file), exist_ok=True)
+    backend = JournalFileBackend(settings.study_checkpoint_file)
     storage = JournalStorage(backend)
 
+    # Hash the settings that matter to be able to resume a study
+    study_components = [
+        f"model={settings.model}",
+        f"refusal_markers={hashlib.sha256(','.join(settings.refusal_markers).encode('utf-8')).hexdigest()}",
+        f"kl_divergence_target={settings.kl_divergence_target}",
+        f"kl_divergence_scale={settings.kl_divergence_scale}",
+        "good_prompts=" + hashlib.sha256(','.join([f"{x.system},{x.user}" for x in good_prompts]).encode("utf-8")).hexdigest(),
+        "bad_prompts=" + hashlib.sha256(','.join([f"{x.system},{x.user}" for x in bad_prompts]).encode("utf-8")).hexdigest(),
+        f"quantization={settings.quantization}",
+        f"dtype={model.model.dtype}",
+    ]
+
+    study_name = "heretic_study_" + "_".join(study_components)
+
     study = optuna.create_study(
-        study_name="my_study",
+        study_name=study_name,
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
@@ -480,10 +497,12 @@ def run():
         directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
         load_if_exists=True,
     )
+
     if resume:
-        print("Resuming existing study.")
         start_index = len(study.trials)
         trial_index = start_index
+        if start_index > 0:
+            print("Resuming existing study.")
 
     try:
         remaining_trials = settings.n_trials - start_index

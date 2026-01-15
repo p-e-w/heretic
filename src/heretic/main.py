@@ -463,16 +463,16 @@ def run():
         if not settings.study_autoresume and resume:
             choice = prompt_select("Resume previous study?", ["yes", "no"])
             if choice == "no":
-                resume = False
+                print("Exiting (specify a different study checkpoint file)")
+                return
     else:
         settings.study_checkpoint_file = f"log/{settings.model.replace('/', '--')}_" + f"{datetime.datetime.now(datetime.UTC).isoformat(timespec='seconds')}.jsonl"
-        resume = False
 
     os.makedirs(os.path.dirname(settings.study_checkpoint_file), exist_ok=True)
     backend = JournalFileBackend(settings.study_checkpoint_file)
     storage = JournalStorage(backend)
 
-    # Hash the settings that matter to be able to resume a study
+    # Hash the settings that matter to be able to resume a study.
     study_components = [
         f"model={settings.model}",
         f"refusal_markers={hashlib.sha256(','.join(settings.refusal_markers).encode('utf-8')).hexdigest()}",
@@ -498,18 +498,37 @@ def run():
         load_if_exists=True,
     )
 
-    if resume:
-        start_index = len(study.trials)
-        trial_index = start_index
-        if start_index > 0:
-            print("Resuming existing study.")
+
+    start_index = len(study.trials)
+    trial_index = start_index
+    if start_index > 0:
+        print("Resuming existing study.")
+
+    previous_startup_trials = study.user_attrs.get("startup_trials", 0)
+
+    if previous_startup_trials < settings.n_startup_trials:
+        random_trials_to_run = settings.n_startup_trials - previous_startup_trials
+    else:
+        random_trials_to_run = 0
 
     try:
         remaining_trials = settings.n_trials - start_index
+        if remaining_trials > 0 and random_trials_to_run > 0:
+            if start_index > 0:
+                print(f"Running additional {random_trials_to_run} random trials")
+            else:
+                print(f"Running initial {random_trials_to_run} random trials")
+            saved_sampler = study.sampler
+            study.sampler = optuna.samplers.RandomSampler()
+            study.optimize(objective_wrapper, n_trials=random_trials_to_run)
+            study.set_user_attr("startup_trials", random_trials_to_run + previous_startup_trials)
+            study.sampler = saved_sampler
+            remaining_trials -= random_trials_to_run
+
         if remaining_trials > 0:
             study.optimize(objective_wrapper, n_trials=remaining_trials)
         elif remaining_trials < 0:
-            settings.n_trials = start_index
+            settings.n_trials = len(study.trials)
     except KeyboardInterrupt:
         # This additional handler takes care of the small chance that KeyboardInterrupt
         # is raised just between trials, which wouldn't be caught by the handler

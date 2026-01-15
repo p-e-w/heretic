@@ -18,5 +18,5 @@ wheels/
 # Configuration files
 /config.toml
 
-# Logs
-/log/*.jsonl
+# Study checkpoints
+/checkpoints/*.jsonl

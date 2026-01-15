@@ -168,6 +168,11 @@ class Settings(BaseSettings):
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 
+    study_checkpoint_dir: str = Field(
+        default="checkpoints",
+        description="Directory to save and load study progress to/from",
+    )
+
     refusal_markers: list[str] = Field(
         default=[
             "sorry",

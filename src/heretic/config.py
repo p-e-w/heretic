@@ -112,6 +112,40 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
+    orthogonalize_direction: bool = Field(
+        default=False,
+        description="Whether to only remove the harmful part of the refusal direction.",
+    )
+
+    orthogonalize_same_layer: bool = Field(
+        default=False,
+        description=(
+            "Whether to define the harmful part of the refusal direction relative to the harmless direction "
+            "of the same layer, or relative to the harmless direction of the layer being acted upon."
+        ),
+    )
+
+    preserve_magnitudes: bool = Field(
+        default=False,
+        description="Whether to keep the overall strength of model weights unchanged.",
+    )
+
+    max_weight_limit: float = Field(
+        default=1.5,
+        description=(
+            "The maximum weight to apply during abliteration. Values higher than 1 are difficult to justify "
+            "theoretically, but have been found to improve results when enabling magnitude preservation."
+        ),
+    )
+
+    max_weight_log_scale: bool = Field(
+        default=False,
+        description=(
+            "Whether to choose the maximum weight using a logarithmic scale (making higher values less likely to be selected). "
+            "This can be useful when raising max_weight_limit to avoid incoherence during the initial random trials."
+        ),
+    )
+
     print_responses: bool = Field(
         default=False,
         description="Whether to print prompt/response pairs when counting refusals.",
@@ -155,6 +189,14 @@ class Settings(BaseSettings):
         description=(
             "The KL divergence to target. Below this value, an objective based on the refusal count is used."
             'This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".'
+        ),
+    )
+
+    winsorization_quantile: float = Field(
+        default=1.0,
+        description=(
+            "The winsorization to apply to the residuals, expressed as the quantile to clamp to (between 0 and 1). "
+            "Disabled by default. Example: winsorization_quantile = 0.95 applies a 90% winsorization."
         ),
     )
 

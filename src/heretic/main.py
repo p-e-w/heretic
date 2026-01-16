@@ -322,11 +322,10 @@ def run():
     good_residuals = model.get_residuals_batched(good_prompts)
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
-    refusal_directions = F.normalize(
-        bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
-        p=2,
-        dim=1,
-    )
+    harmful_means = bad_residuals.mean(dim=0)
+    harmless_means = good_residuals.mean(dim=0)
+    refusal_directions = F.normalize(harmful_means - harmless_means, p=2, dim=1)
+    harmless_directions = F.normalize(harmless_means, p=2, dim=1)
 
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
@@ -383,7 +382,8 @@ def run():
             max_weight = trial.suggest_float(
                 f"{component}.max_weight",
                 0.8,
-                1.5,
+                settings.max_weight_limit,
+                log=settings.max_weight_log_scale,
             )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
@@ -424,7 +424,9 @@ def run():
         print("* Resetting model...")
         model.reset_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, direction_index, parameters)
+        model.abliterate(
+            refusal_directions, harmless_directions, direction_index, parameters
+        )
         print("* Evaluating...")
         score, kl_divergence, refusals = evaluator.get_score()
 
@@ -569,6 +571,7 @@ def run():
             print("* Abliterating...")
             model.abliterate(
                 refusal_directions,
+                harmless_directions,
                 trial.user_attrs["direction_index"],
                 trial.user_attrs["parameters"],
             )

@@ -16,10 +16,12 @@ dtypes = [
 ]
 
 # Device map to pass to Accelerate when loading the model.
+# Use "cpu" for CPU-only systems without GPU support.
 device_map = "auto"
 
 # Quantization method to use when loading the model.
 # Options: "none" (no quantization), "bnb_4bit" (4-bit quantization using bitsandbytes).
+# Note: 4-bit quantization requires bitsandbytes, which needs CUDA support.
 quantization = "none"
 
 # Memory limits to impose. 0 is usually your first graphics card.

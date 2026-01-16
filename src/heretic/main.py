@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+import datetime
+import hashlib
 import math
 import os
 import sys
 import time
 import warnings
+from dataclasses import asdict
 from importlib.metadata import version
 from os.path import commonprefix
 from pathlib import Path
@@ -26,6 +29,8 @@ from huggingface_hub import ModelCard, ModelCardData
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
 from optuna.study import StudyDirection
 from optuna.trial import TrialState
 from pydantic import ValidationError
@@ -341,6 +346,7 @@ def run():
     empty_cache()
 
     trial_index = 0
+    start_index = 0
     start_time = time.perf_counter()
 
     def objective(trial: Trial) -> tuple[float, float]:
@@ -412,7 +418,7 @@ def run():
             )
 
         trial.set_user_attr("direction_index", direction_index)
-        trial.set_user_attr("parameters", parameters)
+        trial.set_user_attr("parameters", {k: asdict(v) for k, v in parameters.items()})
 
         print()
         print(
@@ -429,7 +435,7 @@ def run():
         score, kl_divergence, refusals = evaluator.get_score()
 
         elapsed_time = time.perf_counter() - start_time
-        remaining_time = (elapsed_time / trial_index) * (
+        remaining_time = (elapsed_time / (trial_index - start_index)) * (
             settings.n_trials - trial_index
         )
         print()
@@ -452,17 +458,77 @@ def run():
             trial.study.stop()
             raise TrialPruned()
 
+    if settings.study_checkpoint_file is not None:
+        resume = os.path.exists(settings.study_checkpoint_file)
+        if not settings.study_autoresume and resume:
+            choice = prompt_select("Resume previous study?", ["yes", "no"])
+            if choice == "no":
+                print("Exiting (specify a different study checkpoint file)")
+                return
+    else:
+        settings.study_checkpoint_file = f"log/{settings.model.replace('/', '--')}_" + f"{datetime.datetime.now(datetime.UTC).isoformat(timespec='seconds')}.jsonl"
+
+    os.makedirs(os.path.dirname(settings.study_checkpoint_file), exist_ok=True)
+    backend = JournalFileBackend(settings.study_checkpoint_file)
+    storage = JournalStorage(backend)
+
+    # Hash the settings that matter to be able to resume a study.
+    study_components = [
+        f"model={settings.model}",
+        f"refusal_markers={hashlib.sha256(','.join(settings.refusal_markers).encode('utf-8')).hexdigest()}",
+        f"kl_divergence_target={settings.kl_divergence_target}",
+        f"kl_divergence_scale={settings.kl_divergence_scale}",
+        "good_prompts=" + hashlib.sha256(','.join([f"{x.system},{x.user}" for x in good_prompts]).encode("utf-8")).hexdigest(),
+        "bad_prompts=" + hashlib.sha256(','.join([f"{x.system},{x.user}" for x in bad_prompts]).encode("utf-8")).hexdigest(),
+        f"quantization={settings.quantization}",
+        f"dtype={model.model.dtype}",
+    ]
+
+    study_name = "heretic_study_" + "_".join(study_components)
+
     study = optuna.create_study(
+        study_name=study_name,
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
             multivariate=True,
         ),
+        storage=storage,
         directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
+        load_if_exists=True,
     )
 
+
+    start_index = len(study.trials)
+    trial_index = start_index
+    if start_index > 0:
+        print("Resuming existing study.")
+
+    previous_startup_trials = study.user_attrs.get("startup_trials", 0)
+
+    if previous_startup_trials < settings.n_startup_trials:
+        random_trials_to_run = settings.n_startup_trials - previous_startup_trials
+    else:
+        random_trials_to_run = 0
+
     try:
-        study.optimize(objective_wrapper, n_trials=settings.n_trials)
+        remaining_trials = settings.n_trials - start_index
+        if remaining_trials > 0 and random_trials_to_run > 0:
+            if start_index > 0:
+                print(f"Running additional {random_trials_to_run} random trials")
+            else:
+                print(f"Running initial {random_trials_to_run} random trials")
+            saved_sampler = study.sampler
+            study.sampler = optuna.samplers.RandomSampler()
+            study.optimize(objective_wrapper, n_trials=random_trials_to_run)
+            study.set_user_attr("startup_trials", random_trials_to_run + previous_startup_trials)
+            study.sampler = saved_sampler
+            remaining_trials -= random_trials_to_run
+
+        if remaining_trials > 0:
+            study.optimize(objective_wrapper, n_trials=remaining_trials)
+        elif remaining_trials < 0:
+            settings.n_trials = len(study.trials)
     except KeyboardInterrupt:
         # This additional handler takes care of the small chance that KeyboardInterrupt
         # is raised just between trials, which wouldn't be caught by the handler
@@ -570,7 +636,10 @@ def run():
             model.abliterate(
                 refusal_directions,
                 trial.user_attrs["direction_index"],
-                trial.user_attrs["parameters"],
+                {
+                    k: AbliterationParameters(**v)
+                    for k, v in trial.user_attrs["parameters"].items()
+                },
             )
 
             while True:

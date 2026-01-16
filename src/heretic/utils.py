@@ -29,6 +29,8 @@ from .config import DatasetSpecification, Settings
 
 print = Console(highlight=False).print
 
+T = TypeVar("T")
+
 
 def is_notebook() -> bool:
     # Check for specific environment variables (Colab, Kaggle).
@@ -203,9 +205,6 @@ def load_prompts(
     ]
 
 
-T = TypeVar("T")
-
-
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
@@ -251,9 +250,10 @@ def get_readme_intro(
     settings: Settings,
     trial: Trial,
     base_refusals: int,
-    bad_prompts: list[Prompt],
+    refusals_total: int | None,
 ) -> str:
     model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
+    total = refusals_total if refusals_total is not None else "?"
 
     return f"""# This is a decensored version of {
         model_link
@@ -277,9 +277,7 @@ def get_readme_intro(
 | Metric | This model | Original model ({model_link}) |
 | :----- | :--------: | :---------------------------: |
 | **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
-| **Refusals** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
-        len(bad_prompts)
-    } |
+| **Refusals** | {trial.user_attrs["refusals"]}/{total} | {base_refusals}/{total} |
 
 -----
 

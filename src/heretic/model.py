@@ -4,7 +4,7 @@
 import math
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Type, cast
 
 import bitsandbytes as bnb
 import torch
@@ -14,7 +14,11 @@ from peft.tuners.lora.layer import Linear
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
 from transformers import (
+    MODEL_FOR_CAUSAL_LM_MAPPING,
+    MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING,
+    AutoConfig,
     AutoModelForCausalLM,
+    AutoModelForImageTextToText,
     AutoTokenizer,
     BatchEncoding,
     BitsAndBytesConfig,
@@ -28,6 +32,33 @@ from transformers.generation import (
 
 from .config import QuantizationMethod, Settings
 from .utils import Prompt, batchify, empty_cache, print
+
+
+def get_model_class(
+    settings: Settings,
+) -> Type[AutoModelForImageTextToText] | Type[AutoModelForCausalLM]:
+    config = AutoConfig.from_pretrained(
+        settings.model, trust_remote_code=settings.trust_remote_code
+    )
+    config_type = type(config)
+
+    # If the model self-registered (register_for_auto_class), it should be in this mapping.
+    if config_type in MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING:
+        return AutoModelForImageTextToText
+    if config_type in MODEL_FOR_CAUSAL_LM_MAPPING:
+        return AutoModelForCausalLM
+
+    # If the model is not self registered, it may provide task class details, documented at
+    # https://huggingface.co/docs/transformers/en/custom_models#upload
+    maybe_auto_map = getattr(config, "auto_map", None)
+    if maybe_auto_map:
+        if "AutoModelForCausalLM" in maybe_auto_map:
+            return AutoModelForCausalLM
+        elif "AutoModelForImageTextToText" in maybe_auto_map:
+            return AutoModelForImageTextToText
+    raise ValueError(
+        f"Do not know how to get AutoModel* for {settings.model} (cfg type: {config_type})"
+    )
 
 
 @dataclass
@@ -87,7 +118,7 @@ class Model:
                 if quantization_config is not None:
                     extra_kwargs["quantization_config"] = quantization_config
 
-                self.model = AutoModelForCausalLM.from_pretrained(
+                self.model = get_model_class(settings).from_pretrained(
                     settings.model,
                     dtype=dtype,
                     device_map=settings.device_map,
@@ -159,6 +190,9 @@ class Model:
             lora_alpha=1,
             lora_dropout=0,
             bias="none",
+            # Even if we're using AutoModelForImageTextToText, this is still correct, as it is (post-vision)
+            # the same kind of model.
+            # https://github.com/huggingface/peft/blob/622c2821cb0d7897bee53aad7914d42b5fecbf61/src/peft/auto.py#L45
             task_type="CAUSAL_LM",
         )
 
@@ -212,7 +246,7 @@ class Model:
 
             # Load base model in full precision on CPU to avoid VRAM issues
             print("* Loading base model on CPU (this may take a while)...")
-            base_model = AutoModelForCausalLM.from_pretrained(
+            base_model = get_model_class(self.settings).from_pretrained(
                 self.settings.model,
                 torch_dtype=self.model.dtype,
                 device_map="cpu",
@@ -282,7 +316,7 @@ class Model:
         if quantization_config is not None:
             extra_kwargs["quantization_config"] = quantization_config
 
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = get_model_class(self.settings).from_pretrained(
             self.settings.model,
             dtype=dtype,
             device_map=self.settings.device_map,

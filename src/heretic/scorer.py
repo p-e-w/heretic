@@ -20,26 +20,6 @@ FinishReason = Literal["len", "eos", "unk", "empty"]
 
 
 @dataclass(frozen=True)
-class TextCompletion:
-    prompt: Prompt
-    response_text: str
-    finish_reason: FinishReason
-
-
-@dataclass(frozen=True)
-class ResponseTokenization:
-    input_ids: list[int]
-    response_ids: list[int]
-    response_tokens: list[str]
-
-
-@dataclass(frozen=True)
-class ResponseTokenScores:
-    token_logprobs: list[float]
-    token_logits: list[float]
-
-
-@dataclass(frozen=True)
 class Score:
     """
     Result of evaluating a scorer/metric.
@@ -57,53 +37,19 @@ class Score:
 
 @dataclass(frozen=True)
 class Response:
-    text: TextCompletion
-    tokenization: ResponseTokenization
-    token_scores: ResponseTokenScores
+    """
+    A single model response to a single prompt.
+    """
 
-    # Convenience accessors (non-optional, since groups are fully populated).
-    @property
-    def response_text(self) -> str:
-        return self.text.response_text
-
-    @property
-    def prompt_text(self) -> str:
-        # Convenience: most call sites treat "prompt text" as the user prompt.
-        return self.text.prompt.user
-
-    @property
-    def prompt(self) -> Prompt:
-        return self.text.prompt
-
-    @property
-    def finish_reason(self) -> FinishReason:
-        return self.text.finish_reason
-
-    @property
-    def input_ids(self) -> list[int]:
-        return self.tokenization.input_ids
-
-    @property
-    def response_ids(self) -> list[int]:
-        return self.tokenization.response_ids
-
-    @property
-    def response_tokens(self) -> list[str]:
-        return self.tokenization.response_tokens
-
-    @property
-    def token_logprobs(self) -> list[float]:
-        return self.token_scores.token_logprobs
-
-    @property
-    def token_logits(self) -> list[float]:
-        return self.token_scores.token_logits
+    prompt: Prompt
+    text: str
+    finish_reason: FinishReason
 
 
 @dataclass
-class EvaluationContext:
+class Context:
     """
-    Runtime context passed to scorers during evaluation.
+    Runtime context passed to scorers
 
     Provides access to settings, the model and some convenience functions.
     """
@@ -114,58 +60,16 @@ class EvaluationContext:
     _responses_cache: dict[tuple[tuple[str, str], ...], list[Response]] = field(
         default_factory=dict, init=False, repr=False
     )
-    _responses_cache_has_token_scores: set[tuple[tuple[str, str], ...]] = field(
-        default_factory=set, init=False, repr=False
-    )
 
     def _cache_key(self, prompts: list[Prompt]) -> tuple[tuple[str, str], ...]:
         return tuple((p.system, p.user) for p in prompts)
 
-    def get_responses(self, prompts: list[Prompt]) -> list[Response]:
-        """
-        Get model responses (text + tokenization). Token scores may be empty unless
-        `get_token_scores()` was used.
-        """
+    def responses(self, prompts: list[Prompt]) -> list[Response]:
+        """Get model responses (cached within this context)."""
         key = self._cache_key(prompts)
         if key not in self._responses_cache:
             self._responses_cache[key] = self.model.get_responses_batched(prompts)
         return self._responses_cache[key]
-
-    def get_responses_with_token_scores(self, prompts: list[Prompt]) -> list[Response]:
-        """Get model responses including per-token chosen logits/logprobs."""
-        key = self._cache_key(prompts)
-        if (
-            key not in self._responses_cache
-            or key not in self._responses_cache_has_token_scores
-        ):
-            self._responses_cache[key] = (
-                self.model.get_responses_batched_with_token_scores(prompts)
-            )
-            self._responses_cache_has_token_scores.add(key)
-        return self._responses_cache[key]
-
-    def get_response_text(self, prompts: list[Prompt]) -> list[TextCompletion]:
-        return [r.text for r in self.get_responses(prompts)]
-
-    def get_tokenization(self, prompts: list[Prompt]) -> list[ResponseTokenization]:
-        return [r.tokenization for r in self.get_responses(prompts)]
-
-    def get_token_scores(self, prompts: list[Prompt]) -> list[ResponseTokenScores]:
-        return [r.token_scores for r in self.get_responses_with_token_scores(prompts)]
-
-    def responses(self, prompts: list[Prompt]) -> list[Response]:
-        return self.get_responses(prompts)
-
-    def response_text(self, prompts: list[Prompt]) -> list[TextCompletion]:
-        return self.get_response_text(prompts)
-
-    def response_tokenization(
-        self, prompts: list[Prompt]
-    ) -> list[ResponseTokenization]:
-        return self.get_tokenization(prompts)
-
-    def response_token_scores(self, prompts: list[Prompt]) -> list[ResponseTokenScores]:
-        return self.get_token_scores(prompts)
 
 
 class Scorer(Plugin, ABC):
@@ -187,6 +91,19 @@ class Scorer(Plugin, ABC):
         instance_name: str | None = None,
     ):
         super().__init__(plugin_settings=plugin_settings)
+        # Scorers that define a nested `Settings` model should always receive
+        # validated plugin settings from the evaluator.
+        settings_model = getattr(self.__class__, "Settings", None)
+        if settings_model is not None:
+            if plugin_settings is None:
+                raise ValueError(
+                    f"{self.__class__.__name__} requires plugin settings to be validated"
+                )
+            if not isinstance(plugin_settings, settings_model):
+                raise TypeError(
+                    f"{self.__class__.__name__}.plugin_settings must be an instance of "
+                    f"{settings_model.__name__}"
+                )
         self.settings = settings
         self.model = model
         self.direction = direction
@@ -196,7 +113,7 @@ class Scorer(Plugin, ABC):
         else:
             self.instance_name = None
 
-    def evaluate(self, ctx: EvaluationContext) -> Score:
+    def evaluate(self, ctx: Context) -> Score:
         """
         Evaluate this scorer given the evaluation context.
 

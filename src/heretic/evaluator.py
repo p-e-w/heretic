@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from .config import ObjectiveDirection, Settings
 from .model import Model
 from .plugin import load_plugin
-from .scorer import EvaluationContext, Score, Scorer
+from .scorer import Context, Score, Scorer
 from .utils import print
 
 
@@ -175,7 +175,7 @@ class Evaluator:
         Returns:
             List of Score from each scorer.
         """
-        ctx = EvaluationContext(settings=self.settings, model=self.model)
+        ctx = Context(settings=self.settings, model=self.model)
         return [scorer.evaluate(ctx) for scorer in self.scorers]
 
     def get_objectives(self, metrics: list[Score]) -> list[Score]:

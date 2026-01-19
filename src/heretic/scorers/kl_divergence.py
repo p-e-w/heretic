@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from pydantic import BaseModel, Field
 
 from heretic.config import DatasetSpecification
-from heretic.scorer import EvaluationContext, Score, Scorer
+from heretic.scorer import Context, Score, Scorer
 from heretic.utils import load_prompts, print
 
 
@@ -31,11 +31,7 @@ class KLDivergence(Scorer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        ps = self.plugin_settings
-        if ps is None:
-            raise ValueError("KLDivergence requires plugin settings to be validated")
-        ps = cast(KLDivergence.Settings, ps)
+        ps = cast(KLDivergence.Settings, self.plugin_settings)
 
         print()
         print(
@@ -47,7 +43,7 @@ class KLDivergence(Scorer):
         print("* Obtaining baseline first-token probability distributions...")
         self._baseline_logprobs = self.model.get_logprobs_batched(self.prompts)
 
-    def evaluate(self, ctx: EvaluationContext) -> Score:
+    def evaluate(self, ctx: Context) -> Score:
         logprobs = ctx.model.get_logprobs_batched(self.prompts)
         kl = F.kl_div(
             logprobs,

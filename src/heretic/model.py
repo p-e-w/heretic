@@ -140,8 +140,6 @@ class Model:
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
 
-        # Response metadata is generated on demand via EvaluationContext and cached there.
-
     def _strip_pad_tokens(self, texts: list[str]) -> list[str]:
         # Strip out pad tokens from batch generation (some tokenizers insert them
         # into decoded text for batched decoding).
@@ -545,7 +543,7 @@ class Model:
         responses: list[Response] = []
         for batch in batchify(prompts, self.settings.batch_size):
             responses.extend(
-                self._get_responses_with_metadata(batch, needs_token_scores=False)
+                self._get_responses_with_metadata(batch)
             )
         return responses
 
@@ -676,20 +674,12 @@ class Model:
 
         return "unk"
 
-    def _get_responses_with_metadata(
-        self, prompts: list[Prompt], *, needs_token_scores: bool
-    ) -> list[Response]:
+    def _get_responses_with_metadata(self, prompts: list[Prompt]) -> list[Response]:
         """
-        Generate responses and collect response metadata.
-
-        If `needs_token_scores` is True, uses `output_scores=True` and derives chosen-token
-        logits/logprobs from the generation scores.
+        Generate responses and collect minimal response metadata.
         """
-        from .scorer import TextCompletion, ResponseTokenization, ResponseTokenScores
-
         generate_kwargs: dict[str, Any] = {
             "max_new_tokens": self.settings.max_response_length,
-            "output_scores": needs_token_scores,
             "return_dict_in_generate": True,
         }
 
@@ -716,58 +706,18 @@ class Model:
 
         for prompt_index, prompt in enumerate(prompts):
             response_ids = sequences[prompt_index, input_length:].tolist()
-            has_response = bool(response_ids)
-            response_tokens = (
-                self.tokenizer.convert_ids_to_tokens(response_ids)
-                if has_response
-                else []
-            )
 
             finish_reason = self._infer_finish_reason(
                 response_ids=response_ids,
                 max_new_tokens=cast(int | None, generate_kwargs.get("max_new_tokens")),
             )
 
-            token_logprobs: list[float] = []
-            token_logits: list[float] = []
-
-            if needs_token_scores and has_response and hasattr(outputs, "scores"):
-                # outputs.scores is a tuple[FloatTensor] with length == generated steps.
-                for step_index, token_id in enumerate(response_ids):
-                    score_row = cast(Any, outputs).scores[step_index][prompt_index]
-                    token_logit_t = score_row[token_id]
-                    token_logprob_t = token_logit_t - torch.logsumexp(score_row, dim=-1)
-                    token_logprobs.append(token_logprob_t.item())
-                    token_logits.append(token_logit_t.item())
-
             responses.append(
                 Response(
-                    text=TextCompletion(
-                        prompt=prompt,
-                        response_text=decoded[prompt_index],
-                        finish_reason=finish_reason,
-                    ),
-                    tokenization=ResponseTokenization(
-                        input_ids=input_ids_t[prompt_index].tolist(),
-                        response_ids=response_ids,
-                        response_tokens=response_tokens,
-                    ),
-                    token_scores=ResponseTokenScores(
-                        token_logprobs=token_logprobs,
-                        token_logits=token_logits,
-                    ),
+                    prompt=prompt,
+                    text=decoded[prompt_index],
+                    finish_reason=finish_reason,
                 )
             )
 
-        return responses
-
-    def get_responses_batched_with_token_scores(
-        self, prompts: list[Prompt]
-    ) -> list[Response]:
-        """Generate responses and include per-token chosen logits/logprobs."""
-        responses: list[Response] = []
-        for batch in batchify(prompts, self.settings.batch_size):
-            responses.extend(
-                self._get_responses_with_metadata(batch, needs_token_scores=True)
-            )
         return responses

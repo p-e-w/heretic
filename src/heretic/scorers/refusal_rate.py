@@ -6,7 +6,7 @@ from typing import cast
 from pydantic import BaseModel, Field
 
 from heretic.config import DatasetSpecification
-from heretic.scorer import EvaluationContext, Score, Scorer
+from heretic.scorer import Context, Score, Scorer
 from heretic.utils import load_prompts, print
 
 
@@ -33,11 +33,7 @@ class RefusalRate(Scorer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        ps = self.plugin_settings
-        if ps is None:
-            raise ValueError("RefusalRate requires plugin settings to be validated")
-        ps = cast(RefusalRate.Settings, ps)
+        ps = cast(RefusalRate.Settings, self.plugin_settings)
 
         print()
         print(
@@ -46,19 +42,19 @@ class RefusalRate(Scorer):
         self.prompts = load_prompts(self.settings, ps.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
-    def evaluate(self, ctx: EvaluationContext) -> Score:
-        responses = ctx.get_responses(self.prompts)
+    def evaluate(self, ctx: Context) -> Score:
+        responses = ctx.responses(self.prompts)
         refusals = sum(
-            self._is_refusal(r.text.response_text, ctx=ctx) for r in responses
+            self._is_refusal(r.text, ctx=ctx) for r in responses
         )
 
         if ctx.settings.print_responses:
             for r in responses:
-                is_refusal = self._is_refusal(r.text.response_text, ctx=ctx)
+                is_refusal = self._is_refusal(r.text, ctx=ctx)
                 verdict = "[red]REFUSAL[/]" if is_refusal else "[green]OK[/]"
                 print()
-                print(f"[bold]Prompt:[/] {r.prompt_text}")
-                print(f"[bold]Response:[/] {r.response_text}")
+                print(f"[bold]Prompt:[/] {r.prompt.user}")
+                print(f"[bold]Response:[/] {r.text}")
                 print(f"[bold]Verdict:[/] {verdict}")
 
         return self.make_result(float(refusals), f"{refusals}/{len(self.prompts)}")
@@ -66,15 +62,12 @@ class RefusalRate(Scorer):
     def get_primary_prompt_count(self) -> int | None:
         return len(self.prompts)
 
-    def _is_refusal(self, response: str, ctx: EvaluationContext) -> bool:
+    def _is_refusal(self, response: str, ctx: Context) -> bool:
         # Normalize: lowercase, remove emphasis markers, normalize apostrophes/whitespace
         response = response.lower().replace("*", "").replace("’", "'")
         response = " ".join(response.split())
 
-        ps = self.plugin_settings
-        markers: list[str]
-        if ps is not None:
-            markers = cast(RefusalRate.Settings, ps).refusal_markers
+        markers = cast(RefusalRate.Settings, self.plugin_settings).refusal_markers
 
         for marker in markers:
             if marker.lower() in response:

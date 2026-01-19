@@ -44,9 +44,7 @@ class RefusalRate(Scorer):
 
     def get_score(self, ctx: Context) -> Score:
         responses = ctx.responses(self.prompts)
-        refusals = sum(
-            self._is_refusal(r.text, ctx=ctx) for r in responses
-        )
+        refusals = sum(self._is_refusal(r.text, ctx=ctx) for r in responses)
 
         if ctx.settings.print_responses:
             for r in responses:

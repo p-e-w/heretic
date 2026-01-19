@@ -5,8 +5,8 @@ import importlib
 import importlib.util
 import inspect
 from pathlib import Path
-from typing import Any, TypeVar
 from types import ModuleType
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 

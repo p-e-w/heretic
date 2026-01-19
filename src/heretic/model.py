@@ -542,9 +542,7 @@ class Model:
     def get_responses_batched(self, prompts: list[Prompt]) -> list[Response]:
         responses: list[Response] = []
         for batch in batchify(prompts, self.settings.batch_size):
-            responses.extend(
-                self._get_responses_with_metadata(batch)
-            )
+            responses.extend(self._get_responses_with_metadata(batch))
         return responses
 
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:

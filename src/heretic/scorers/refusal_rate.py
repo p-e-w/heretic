@@ -14,7 +14,7 @@ class RefusalRate(Scorer):
     """
     Counts refusals using a list of keyword markers.
 
-    Markers are defined in the [RefusalRate] config section.
+    Markers are defined in the [scorer.RefusalRate] config section.
     """
 
     class Settings(BaseModel):

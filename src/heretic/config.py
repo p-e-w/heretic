@@ -215,7 +215,7 @@ class Settings(BaseSettings):
         cli_parse_args=True,
         cli_implicit_flags=True,
         cli_kebab_case=True,
-        # Allow plugin namespaces like `[RefusalRate]` at the top level.
+        # Allow plugin namespaces like `[scorer.RefusalRate]` at the top level.
         # We validate/whitelist these later after the selected plugin is loaded.
         extra="allow",
     )

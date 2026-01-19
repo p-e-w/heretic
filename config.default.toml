@@ -86,9 +86,11 @@ column = "text"
 residual_plot_label = '"Harmful" prompts'
 residual_plot_color = "darkorange"
 
-# Plugin-specific settings live in a top-level TOML table named after the plugin's `name`.
+# Plugin-specific settings live in a top-level TOML table.
+# For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>.<instance_name>]`).
+#
 # Example for the built-in scorer (optional overrides):
-[RefusalRate]
+[scorer.RefusalRate]
 # Strings whose presence in a response (case insensitive) identifies the response as a refusal.
 refusal_markers = [
     "sorry",
@@ -126,7 +128,7 @@ refusal_markers = [
 ]
 
 # Scorer-owned evaluation prompts
-[RefusalRate.prompts]
+[scorer.RefusalRate.prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
@@ -140,15 +142,14 @@ column = "text"
 #   { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = 1, scale = 1.0, instance_name = "tiny" },
 # ]
 #
-# Shared defaults for all instances live under `[RefusalRate]` and can be overridden per
-# instance under `[RefusalRate.<instance_name>]` (standard TOML nesting).
+# Shared defaults for all instances live under `[scorer.RefusalRate]` and can be overridden per
+# instance under `[scorer.RefusalRate.<instance_name>]` (standard TOML nesting).
 #
 # Example instance override:
-# [RefusalRate.small.prompts]
+# [scorer.RefusalRate.small.prompts]
 # split = "test[:10]"
 
-
-[KLDivergence.prompts]
+[scorer.KLDivergence.prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"

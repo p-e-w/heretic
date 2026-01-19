@@ -42,16 +42,23 @@ class Evaluator:
             print(f"* Baseline {m.name}: [bold]{m.display}[/]")
 
     def _get_plugin_namespace(self, namespace: str) -> dict[str, Any]:
-        """Returns the config dict from the `[<namespace>]` TOML table."""
+        """
+        Returns the config dict from the `[<namespace>]` TOML table.
+        """
         extra = self.settings.model_extra or {}
-        value = extra.get(namespace)
-        if value is None:
+        cur: Any = extra
+        for part in namespace.split("."):
+            if not isinstance(cur, dict):
+                return {}
+            cur = cur.get(part)
+
+        if cur is None:
             return {}
-        if not isinstance(value, dict):
+        if not isinstance(cur, dict):
             raise TypeError(
-                f"Plugin namespace [{namespace}] must be a table/object, got {type(value).__name__}"
+                f"Plugin namespace [{namespace}] must be a table/object, got {type(cur).__name__}"
             )
-        return value
+        return cur
 
     def _deep_merge_dicts(
         self, base: dict[str, Any], override: dict[str, Any]
@@ -81,7 +88,8 @@ class Evaluator:
         - Only merge/validate keys that exist in the scorer Settings schema
         """
         class_name = scorer_cls.__name__
-        raw_class_table = self._get_plugin_namespace(f"scorer.{class_name}")
+        canonical_ns = f"scorer.{class_name}"
+        raw_class_table = self._get_plugin_namespace(canonical_ns)
 
         if instance_name is not None and "." in instance_name:
             raise ValueError(
@@ -97,7 +105,8 @@ class Evaluator:
                 raw_instance_table = candidate
             else:
                 raise TypeError(
-                    f"Plugin namespace [{class_name}.{instance_name}] must be a table/object, got {type(candidate).__name__}"
+                    f"Plugin namespace [{canonical_ns}.{instance_name}] must be a table/object, "
+                    f"got {type(candidate).__name__}"
                 )
 
         settings_model = getattr(scorer_cls, "Settings", None)

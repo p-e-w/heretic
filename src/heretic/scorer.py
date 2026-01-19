@@ -113,7 +113,7 @@ class Scorer(Plugin, ABC):
         else:
             self.instance_name = None
 
-    def evaluate(self, ctx: Context) -> Score:
+    def get_score(self, ctx: Context) -> Score:
         """
         Evaluate this scorer given the evaluation context.
 
@@ -121,7 +121,7 @@ class Scorer(Plugin, ABC):
         the return value with settings-derived defaults.
         """
         raise NotImplementedError(
-            f"{self.__class__.__name__} must implement evaluate()"
+            f"{self.__class__.__name__} must implement get_score()"
         )
 
     def make_result(self, value: float, display: str | None = None) -> Score:

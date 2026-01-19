@@ -33,7 +33,7 @@ class Evaluator:
         self.scorers = self._load_scorers()
 
         # Establish baseline metrics (pre-abliteration)
-        self.baseline_metrics = self.evaluate()
+        self.baseline_metrics = self.get_score()
         self._print_baseline()
 
     def _print_baseline(self) -> None:
@@ -81,7 +81,7 @@ class Evaluator:
         - Only merge/validate keys that exist in the scorer Settings schema
         """
         class_name = scorer_cls.__name__
-        raw_class_table = self._get_plugin_namespace(class_name)
+        raw_class_table = self._get_plugin_namespace(f"scorer.{class_name}")
 
         if instance_name is not None and "." in instance_name:
             raise ValueError(
@@ -168,7 +168,7 @@ class Evaluator:
             scorers.append(scorer)
         return scorers
 
-    def evaluate(self) -> list[Score]:
+    def get_score(self) -> list[Score]:
         """
         Run all scorers and return their metrics.
 
@@ -176,7 +176,7 @@ class Evaluator:
             List of Score from each scorer.
         """
         ctx = Context(settings=self.settings, model=self.model)
-        return [scorer.evaluate(ctx) for scorer in self.scorers]
+        return [scorer.get_score(ctx) for scorer in self.scorers]
 
     def get_objectives(self, metrics: list[Score]) -> list[Score]:
         """Filter metrics to only those used in optimization."""

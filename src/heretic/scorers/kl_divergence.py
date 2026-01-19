@@ -43,7 +43,7 @@ class KLDivergence(Scorer):
         print("* Obtaining baseline first-token probability distributions...")
         self._baseline_logprobs = self.model.get_logprobs_batched(self.prompts)
 
-    def evaluate(self, ctx: Context) -> Score:
+    def get_score(self, ctx: Context) -> Score:
         logprobs = ctx.model.get_logprobs_batched(self.prompts)
         kl = F.kl_div(
             logprobs,

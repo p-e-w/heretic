@@ -42,7 +42,7 @@ class RefusalRate(Scorer):
         self.prompts = load_prompts(self.settings, ps.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
-    def evaluate(self, ctx: Context) -> Score:
+    def get_score(self, ctx: Context) -> Score:
         responses = ctx.responses(self.prompts)
         refusals = sum(
             self._is_refusal(r.text, ctx=ctx) for r in responses

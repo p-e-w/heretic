@@ -319,7 +319,7 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        metrics = evaluator.evaluate()
+        metrics = evaluator.get_score()
         print()
         print("[bold]Metrics:[/]")
         for m in metrics:
@@ -436,7 +436,7 @@ def run():
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
-        metrics = evaluator.evaluate()
+        metrics = evaluator.get_score()
         objective_values = evaluator.get_objective_values(metrics)
 
         print("  * Metrics:")

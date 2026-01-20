@@ -453,9 +453,10 @@ def run():
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
-        for scorer, m in zip(evaluator.scorers, metrics):
-            trial.set_user_attr(f"metric.{m.name}", m.value)
-            trial.set_user_attr(f"metric_display.{m.name}", m.display)
+        trial.set_user_attr(
+            "metrics",
+            [{"name": m.name, "value": m.value, "display": m.display} for m in metrics],
+        )
 
         return objective_values
 
@@ -706,20 +707,16 @@ def run():
                                 card.data.tags.append("uncensored")
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
-                                refusals_total = next(
-                                    (
-                                        s.get_primary_prompt_count()
-                                        for s in evaluator.scorers
-                                        if s.__class__.__name__ == "RefusalRate"
-                                    ),
-                                    None,
-                                )
+                                baseline_metric_displays = {
+                                    m.name: m.display for m in evaluator.baseline_metrics
+                                }
+                                metric_order = [m.name for m in evaluator.baseline_metrics]
                                 card.text = (
                                     get_readme_intro(
                                         settings,
                                         trial,
-                                        evaluator.get_baseline_refusals(),
-                                        refusals_total,
+                                        baseline_metric_displays,
+                                        metric_order,
                                     )
                                     + card.text
                                 )

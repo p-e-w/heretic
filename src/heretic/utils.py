@@ -249,11 +249,53 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
 def get_readme_intro(
     settings: Settings,
     trial: Trial,
-    base_refusals: int,
-    refusals_total: int | None,
+    baseline_metric_displays: dict[str, str] | None = None,
+    metric_order: list[str] | None = None,
 ) -> str:
     model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
-    total = refusals_total if refusals_total is not None else "?"
+
+    baseline_metric_displays = baseline_metric_displays or {}
+
+    metrics_raw = trial.user_attrs["metrics"]
+    if not isinstance(metrics_raw, list):
+        raise TypeError(
+            "trial.user_attrs['metrics'] must be a list of dicts like "
+            "{'name': str, 'value': float, 'display': str}"
+        )
+
+    metrics_by_name: dict[str, dict[str, object]] = {}
+    metrics_in_order: list[str] = []
+    for item in metrics_raw:
+        if not isinstance(item, dict):
+            raise TypeError(
+                "trial.user_attrs['metrics'] must be a list of dicts like "
+                "{'name': str, 'value': float, 'display': str}"
+            )
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            raise TypeError(
+                "trial.user_attrs['metrics'] entries must include a non-empty string 'name'"
+            )
+        metrics_by_name[name] = item
+        metrics_in_order.append(name)
+
+    if metric_order:
+        ordered = [n for n in metric_order if n in metrics_by_name]
+        remaining = [n for n in metrics_in_order if n not in set(ordered)]
+        metric_names = ordered + remaining
+    else:
+        metric_names = metrics_in_order
+
+    metric_rows = chr(10).join(
+        [
+            (
+                f"| **{name}** | "
+                f"{metrics_by_name.get(name, {}).get('display', '—')} | "
+                f"{baseline_metric_displays.get(name, '—')} |"
+            )
+            for name in metric_names
+        ]
+    )
 
     return f"""# This is a decensored version of {
         model_link
@@ -276,8 +318,7 @@ def get_readme_intro(
 
 | Metric | This model | Original model ({model_link}) |
 | :----- | :--------: | :---------------------------: |
-| **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
-| **Refusals** | {trial.user_attrs["refusals"]}/{total} | {base_refusals}/{total} |
+{metric_rows}
 
 -----
 

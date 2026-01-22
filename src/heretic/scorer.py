@@ -18,10 +18,10 @@ if TYPE_CHECKING:
 FinishReason = Literal["len", "eos", "unk", "empty"]
 
 
-@dataclass(frozen=True)
+@dataclass
 class Score:
     """
-    Result of evaluating a scorer/metric.
+    Result of evaluating a scorer.
 
     - `value`: scalar value used for optimization (if enabled)
     - `display`: string shown to the user in logs/console
@@ -100,7 +100,6 @@ class Scorer(Plugin, ABC):
         settings: "HereticSettings",
         model: "Model",
         plugin_settings: BaseModel | None = None,
-        instance_name: str | None = None,
     ):
         super().__init__(plugin_settings=plugin_settings)
 
@@ -120,11 +119,6 @@ class Scorer(Plugin, ABC):
 
         self.heretic_settings = settings
         self.model = model
-
-        if instance_name:
-            self.instance_name = f"{self.__class__.__name__}.{instance_name}"
-        else:
-            self.instance_name = None
 
         # if the plugin declares a `settings` field,
         # put the validated settings object there
@@ -153,14 +147,14 @@ class Scorer(Plugin, ABC):
         Helper to build Score with settings-derived defaults.
 
         Args:
-            value: The numeric metric value.
+            value: The numeric score value.
             display: Human-readable string. Defaults to str(value).
 
         Returns:
-            Score with scorer-derived name.
+            Score with the class name as default (pending further labelling in the evaluator)
         """
         return Score(
-            name=self.instance_name if self.instance_name else self.__class__.__name__,
+            name=self.__class__.__name__,
             value=value,
             display=display if display is not None else str(value),
         )

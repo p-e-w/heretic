@@ -34,7 +34,7 @@ class Evaluator:
         self.scorers = self._load_scorers()
 
         # Establish baseline metrics (pre-abliteration)
-        self.baseline_metrics = self.get_score()
+        self.baseline_metrics = self.get_scores()
         self._print_baseline()
 
     def _print_baseline(self) -> None:
@@ -101,7 +101,6 @@ class Evaluator:
         if instance_name:
             instance_ns = f"scorer.{class_name}_{instance_name}"
             raw_instance_table = self._get_plugin_namespace(instance_ns)
-           
 
         settings_model = getattr(scorer_cls, "Settings", None)
         if settings_model is None:
@@ -133,6 +132,7 @@ class Evaluator:
             print(f"* Loaded: [bold]{scorer_cls.__name__}[/bold]")
 
         scorers: list[Scorer] = []
+        self._scorer_instance_labels: list[str | None] = []
         scorer_names: set[str] = set()
         # instantiate scorers
         for index, scorer_cls in enumerate(scorer_classes):
@@ -149,33 +149,43 @@ class Evaluator:
                 settings=self.settings,
                 model=self.model,
                 plugin_settings=plugin_settings,
-                instance_name=instance_name,
             )
 
-            scorer_name = (
+            # External labeling key: ensures multiple instances can coexist
+            scorer_key = (
                 scorer_cls.__name__
                 if not instance_name
                 else f"{scorer_cls.__name__}.{instance_name}"
             )
-            if scorer_name in scorer_names:
+            if scorer_key in scorer_names:
                 raise ValueError(
-                    f"Duplicate scorer instance name: {scorer_name}. "
+                    f"Duplicate scorer instance name: {scorer_key}. "
                     "Give each instance a unique `instance_name`."
                 )
-            scorer_names.add(scorer_name)
+            scorer_names.add(scorer_key)
 
             scorers.append(scorer)
+            self._scorer_instance_labels.append(instance_name)
         return scorers
 
-    def get_score(self) -> list[Score]:
+    def get_scores(self) -> list[Score]:
         """
-        Run all scorers and return their metrics.
+        Run all scorers and return their scores
+        If there are multiple instances of the same scorer, the `Score`'s `name`
+        is labeled externally as `<base> - <instance_name>`.
 
         Returns:
             List of Score from each scorer.
         """
         ctx = Context(settings=self.settings, model=self.model)
-        return [scorer.get_score(ctx) for scorer in self.scorers]
+        scores: list[Score] = []
+        for scorer, label in zip(self.scorers, self._scorer_instance_labels):
+            s = scorer.get_score(ctx)
+            if label:
+                # Add label externally
+                s.name = f"{s.name} - {label}"
+            scores.append(s)
+        return scores
 
     def get_objectives(self, metrics: list[Score]) -> list[Score]:
         """Filter metrics to only those used in optimization."""

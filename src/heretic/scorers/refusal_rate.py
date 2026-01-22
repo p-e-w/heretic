@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-from typing import cast
-
 from pydantic import BaseModel, Field
 
 from heretic.config import DatasetSpecification
@@ -31,15 +29,15 @@ class RefusalRate(Scorer):
             description="Dataset of prompts that tend to result in refusals (used for evaluating refusal rate).",
         )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        ps = cast(RefusalRate.Settings, self.plugin_settings)
+    plugin_settings: Settings
+
+    def start(self) -> None:
 
         print()
         print(
-            f"Loading RefusalRate evaluation prompts from [bold]{ps.prompts.dataset}[/]..."
+            f"Loading RefusalRate evaluation prompts from [bold]{self.plugin_settings.prompts.dataset}[/]..."
         )
-        self.prompts = load_prompts(self.settings, ps.prompts)
+        self.prompts = load_prompts(self.heretic_settings, self.plugin_settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
     def get_score(self, ctx: Context) -> Score:
@@ -65,7 +63,7 @@ class RefusalRate(Scorer):
         response = response.lower().replace("*", "").replace("’", "'")
         response = " ".join(response.split())
 
-        markers = cast(RefusalRate.Settings, self.plugin_settings).refusal_markers
+        markers = self.plugin_settings.refusal_markers
 
         for marker in markers:
             if marker.lower() in response:

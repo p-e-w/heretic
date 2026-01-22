@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
-from typing import cast
 
 import torch.nn.functional as F
 from pydantic import BaseModel, Field
@@ -29,15 +28,15 @@ class KLDivergence(Scorer):
             description="Prompt set used to measure drift from baseline.",
         )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        ps = cast(KLDivergence.Settings, self.plugin_settings)
+    plugin_settings: Settings
+
+    def start(self) -> None:
 
         print()
         print(
-            f"Loading KLDivergence evaluation prompts from [bold]{ps.prompts.dataset}[/]..."
+            f"Loading KLDivergence evaluation prompts from [bold]{self.plugin_settings.prompts.dataset}[/]..."
         )
-        self.prompts = load_prompts(self.settings, ps.prompts)
+        self.prompts = load_prompts(self.heretic_settings, self.plugin_settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
         print("* Obtaining baseline first-token probability distributions...")

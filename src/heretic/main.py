@@ -514,11 +514,9 @@ def run():
         except KeyboardInterrupt:
             # Stop the study gracefully on Ctrl+C.
             trial.study.stop()
-
             raise TrialPruned()
 
     study = optuna.create_study(
-        study_name="heretic",
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
@@ -532,17 +530,17 @@ def run():
     study.set_user_attr("settings", settings.model_dump_json())
     study.set_user_attr("finished", False)
 
-    def get_trials_completed():
+    def count_completed_trials() -> int:
         # Count number of complete trials to compute trials to run.
         return sum([(1 if t.state == TrialState.COMPLETE else 0) for t in study.trials])
 
-    start_index = trial_index = get_trials_completed()
+    start_index = trial_index = count_completed_trials()
     if start_index > 0:
         print("Resuming existing study.")
 
     try:
         study.optimize(
-            objective_wrapper, n_trials=settings.n_trials - get_trials_completed()
+            objective_wrapper, n_trials=settings.n_trials - count_completed_trials()
         )
 
     except KeyboardInterrupt:
@@ -551,7 +549,7 @@ def run():
         # defined in objective_wrapper above.
         pass
 
-    if get_trials_completed() == settings.n_trials:
+    if count_completed_trials() == settings.n_trials:
         study.set_user_attr("finished", True)
 
     while True:
@@ -640,11 +638,11 @@ def run():
                 try:
                     study.optimize(
                         objective_wrapper,
-                        n_trials=settings.n_trials - get_trials_completed(),
+                        n_trials=settings.n_trials - count_completed_trials(),
                     )
                 except KeyboardInterrupt:
                     pass
-                if get_trials_completed() == settings.n_trials:
+                if count_completed_trials() == settings.n_trials:
                     study.set_user_attr("finished", True)
                 break
 

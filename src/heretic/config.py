@@ -171,7 +171,7 @@ class Settings(BaseSettings):
 
     study_checkpoint_dir: str = Field(
         default="checkpoints",
-        description="Directory to save and load study progress to/from",
+        description="Directory to save and load study progress to/from:",
     )
 
     refusal_markers: list[str] = Field(

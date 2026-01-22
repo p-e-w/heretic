@@ -6,7 +6,6 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
-from optuna.study import StudyDirection
 from pydantic import BaseModel
 
 from heretic.plugin import Plugin
@@ -26,13 +25,11 @@ class Score:
 
     - `value`: scalar value used for optimization (if enabled)
     - `display`: string shown to the user in logs/console
-    - `direction`: what Optuna should do with the score
     """
 
     name: str
     value: float
     display: str
-    direction: StudyDirection
 
 
 @dataclass(frozen=True)
@@ -103,8 +100,6 @@ class Scorer(Plugin, ABC):
         settings: "HereticSettings",
         model: "Model",
         plugin_settings: BaseModel | None = None,
-        direction: StudyDirection = StudyDirection.MINIMIZE,
-        scale: float = 1.0,
         instance_name: str | None = None,
     ):
         super().__init__(plugin_settings=plugin_settings)
@@ -126,8 +121,6 @@ class Scorer(Plugin, ABC):
         self.heretic_settings = settings
         self.model = model
 
-        self.direction = direction
-        self.scale = scale
         if instance_name:
             self.instance_name = f"{self.__class__.__name__}.{instance_name}"
         else:
@@ -164,13 +157,12 @@ class Scorer(Plugin, ABC):
             display: Human-readable string. Defaults to str(value).
 
         Returns:
-            Score with name/direction/use_in_optimizer from plugin_settings.
+            Score with scorer-derived name.
         """
         return Score(
             name=self.instance_name if self.instance_name else self.__class__.__name__,
             value=value,
             display=display if display is not None else str(value),
-            direction=self.direction,
         )
 
     def get_primary_prompt_count(self) -> int | None:

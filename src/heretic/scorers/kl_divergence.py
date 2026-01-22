@@ -31,7 +31,6 @@ class KLDivergence(Scorer):
     plugin_settings: Settings
 
     def start(self) -> None:
-
         print()
         print(
             f"Loading KLDivergence evaluation prompts from [bold]{self.plugin_settings.prompts.dataset}[/]..."

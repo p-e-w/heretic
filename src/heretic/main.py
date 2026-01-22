@@ -471,7 +471,7 @@ def run():
     # Derive objective info from baseline metrics
     objectives = evaluator.get_objectives(evaluator.baseline_metrics)
     objective_names = [m.name for m in objectives]
-    directions = [m.direction for m in objectives]
+    directions = evaluator.get_objective_directions()
 
     study = optuna.create_study(
         sampler=TPESampler(
@@ -708,9 +708,12 @@ def run():
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
                                 baseline_metric_displays = {
-                                    m.name: m.display for m in evaluator.baseline_metrics
+                                    m.name: m.display
+                                    for m in evaluator.baseline_metrics
                                 }
-                                metric_order = [m.name for m in evaluator.baseline_metrics]
+                                metric_order = [
+                                    m.name for m in evaluator.baseline_metrics
+                                ]
                                 card.text = (
                                     get_readme_intro(
                                         settings,

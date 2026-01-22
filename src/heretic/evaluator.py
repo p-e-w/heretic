@@ -8,7 +8,7 @@ from typing import Any
 from optuna.study import StudyDirection
 from pydantic import BaseModel
 
-from .config import ObjectiveDirection, Settings
+from .config import ScorerConfig, Settings
 from .model import Model
 from .plugin import load_plugin
 from .scorer import Context, Score, Scorer
@@ -27,6 +27,7 @@ class Evaluator:
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings
         self.model = model
+        self._scorer_configs: list[ScorerConfig] = list(settings.scorers)
 
         print()
         print("Loading scorers...")
@@ -123,7 +124,7 @@ class Evaluator:
 
     def _load_scorers(self) -> list[Scorer]:
         """Load and instantiate all configured scorer plugins."""
-        scorer_configs = self.settings.scorers
+        scorer_configs = self._scorer_configs
         # the scaling factor and optimization direction (maximize, minimize, none)
         # is set at the top level
         if not scorer_configs:
@@ -142,8 +143,6 @@ class Evaluator:
         scorer_names: set[str] = set()
         # instantiate scorers
         for index, scorer_cls in enumerate(scorer_classes):
-            direction: ObjectiveDirection = scorer_configs[index].direction
-            scale: float = float(scorer_configs[index].scale)
             instance_name = scorer_configs[index].instance_name or None
 
             raw_settings = self._get_scorer_settings_raw(
@@ -157,8 +156,6 @@ class Evaluator:
                 settings=self.settings,
                 model=self.model,
                 plugin_settings=plugin_settings,
-                direction=direction,
-                scale=scale,
                 instance_name=instance_name,
             )
 
@@ -189,23 +186,28 @@ class Evaluator:
 
     def get_objectives(self, metrics: list[Score]) -> list[Score]:
         """Filter metrics to only those used in optimization."""
-        return [m for m in metrics if m.direction != StudyDirection.NOT_SET]
+        return [
+            m
+            for cfg, m in zip(self._scorer_configs, metrics)
+            if cfg.direction != StudyDirection.NOT_SET
+        ]
 
     def get_objective_values(self, metrics: list[Score]) -> tuple[float, ...]:
         """Extract objective values as a tuple for Optuna."""
         values: list[float] = []
-        for scorer, m in zip(self.scorers, metrics):
-            if m.direction == StudyDirection.NOT_SET:
+        for cfg, m in zip(self._scorer_configs, metrics):
+            if cfg.direction == StudyDirection.NOT_SET:
                 continue
-            values.append(float(m.value) * float(getattr(scorer, "scale", 1.0)))
+            values.append(float(m.value) * float(cfg.scale))
         return tuple(values)
 
-    def get_objective_directions(self, metrics: list[Score]) -> list[StudyDirection]:
+    def get_objective_directions(self) -> list[StudyDirection]:
         """Get optimization directions for objectives."""
-        directions: list[StudyDirection] = []
-        for m in self.get_objectives(metrics):
-            directions.append(m.direction)
-        return directions
+        return [
+            cfg.direction
+            for cfg in self._scorer_configs
+            if cfg.direction != StudyDirection.NOT_SET
+        ]
 
     def get_baseline_refusals(self) -> int:
         """Get baseline refusal count (for backwards compat in main.py)."""

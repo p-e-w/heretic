@@ -87,7 +87,7 @@ residual_plot_label = '"Harmful" prompts'
 residual_plot_color = "darkorange"
 
 # Plugin-specific settings live in a top-level TOML table.
-# For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>.<instance_name>]`).
+# For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>_<instance_name>] for instance-related config`).
 #
 # Example for the built-in scorer (optional overrides):
 [scorer.RefusalRate]
@@ -134,7 +134,8 @@ split = "test[:100]"
 column = "text"
 
 # You can also load multiple instances of the same scorer class by setting `instance_name`
-# in the `scorers = [...]` list. The instance name becomes `ClassName.instanceName`.
+# in the `scorers = [...]` list. Each instance is still identified as `ClassName.instanceName`
+# internally, but its config overrides live under `[scorer.ClassName_<instance_name>]`.
 #
 # Example:
 # scorers = [
@@ -143,10 +144,10 @@ column = "text"
 # ]
 #
 # Shared defaults for all instances live under `[scorer.RefusalRate]` and can be overridden per
-# instance under `[scorer.RefusalRate.<instance_name>]` (standard TOML nesting).
+# instance under `[scorer.RefusalRate_<instance_name>]`.
 #
 # Example instance override:
-# [scorer.RefusalRate.small.prompts]
+# [scorer.RefusalRate_small.prompts]
 # split = "test[:10]"
 
 [scorer.KLDivergence.prompts]

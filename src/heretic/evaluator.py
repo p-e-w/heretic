@@ -84,8 +84,8 @@ class Evaluator:
         Build the raw settings dict for a scorer class and optional instance.
 
         Config rules:
-        - Base settings live in `[ClassName]` (applies to all instances)
-        - Instance overrides live in `[ClassName.<instance_name>]`
+        - Base settings live in `[scorer.ClassName]` (applies to all instances)
+        - Instance overrides live in `[scorer.ClassName_<instance_name>]` (preferred)
         - Only merge/validate keys that exist in the scorer Settings schema
         """
         class_name = scorer_cls.__name__
@@ -99,16 +99,9 @@ class Evaluator:
 
         raw_instance_table: dict[str, Any] = {}
         if instance_name:
-            candidate = raw_class_table.get(instance_name)
-            if candidate is None:
-                raw_instance_table = {}
-            elif isinstance(candidate, dict):
-                raw_instance_table = candidate
-            else:
-                raise TypeError(
-                    f"Plugin namespace [{canonical_ns}.{instance_name}] must be a table/object, "
-                    f"got {type(candidate).__name__}"
-                )
+            instance_ns = f"scorer.{class_name}_{instance_name}"
+            raw_instance_table = self._get_plugin_namespace(instance_ns)
+           
 
         settings_model = getattr(scorer_cls, "Settings", None)
         if settings_model is None:

@@ -4,6 +4,8 @@
 import importlib
 import importlib.util
 import inspect
+import sys
+from hashlib import sha256
 from pathlib import Path
 from types import ModuleType
 from typing import Any, TypeVar
@@ -33,6 +35,13 @@ def load_plugin(
         except ImportError as e:
             raise ImportError(f"Error loading plugin '{name}': {e}") from e
 
+    def stable_module_name_for_path(plugin_path: Path) -> str:
+        # Module names can't contain path characters and we want to
+        # prevent clashes between two different files with the same name,
+        # so a hash of the path is the safest here
+        digest = sha256(str(plugin_path).encode("utf-8")).hexdigest()[:12]
+        return f"_heretic_plugin_{plugin_path.stem}_{digest}"
+
     # file path with explicit class name, e.g "C:\\path\\plugin.py:MyPlugin"
     if ":" in name:
         file_path, class_name = name.rsplit(":", 1)
@@ -49,14 +58,27 @@ def load_plugin(
         if not plugin_path.is_file():
             raise ImportError(f"Plugin file '{plugin_path}' does not exist")
 
-        # Use a unique, stable module name to avoid clashes on repeated loads.
-        module_name = f"_heretic_plugin_{plugin_path.stem}_{abs(hash(plugin_path))}"
-        spec = importlib.util.spec_from_file_location(module_name, plugin_path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Could not load plugin '{name}' (invalid module spec)")
+        module_name = stable_module_name_for_path(plugin_path)
 
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        # Reuse already-loaded modules to avoid re-executing the plugin on repeated loads.
+        module = sys.modules.get(module_name)
+        if module is None:
+            spec = importlib.util.spec_from_file_location(module_name, plugin_path)
+            if spec is None or spec.loader is None:
+                raise ImportError(
+                    f"Could not load plugin '{name}' (invalid module spec)"
+                )
+
+            module = importlib.util.module_from_spec(spec)
+
+            # Cache before executing to match normal import semantics and allow
+            # circular imports. If execution fails, remove the entry.
+            sys.modules[module_name] = module
+            try:
+                spec.loader.exec_module(module)
+            except Exception:
+                sys.modules.pop(module_name, None)
+                raise
 
         obj = getattr(module, class_name, None)
         if not inspect.isclass(obj):

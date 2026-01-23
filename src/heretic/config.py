@@ -12,6 +12,7 @@ from pydantic_settings import (
     CliSettingsSource,
     EnvSettingsSource,
     PydanticBaseSettingsSource,
+    SettingsConfigDict,
     TomlConfigSettingsSource,
 )
 
@@ -75,6 +76,11 @@ class ScorerConfig:
 
 
 class Settings(BaseSettings):
+    # We intentionally allow extra keys so users can provide plugin-specific
+    # configuration in TOML tables like `[scorer.RefusalRate]` which are later
+    # consumed via `settings.model_extra` (see `Evaluator._get_plugin_namespace`).
+    model_config = SettingsConfigDict(extra="allow")
+
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
     scorers: list[ScorerConfig] = Field(
         default_factory=list,
@@ -211,14 +217,6 @@ class Settings(BaseSettings):
         ),
         description="Dataset of prompts that tend to result in refusals (used for calculating refusal directions).",
     )
-
-    # "Model" refers to the Pydantic model of the settings class here,
-    # not to the language model. The field must have this exact name.
-    model_config = {
-        # Allow plugin namespaces like `[scorer.RefusalRate]` at the top level.
-        # We validate/whitelist these later after the selected plugin is loaded.
-        "extra": "allow",
-    }
 
     @classmethod
     def settings_customise_sources(

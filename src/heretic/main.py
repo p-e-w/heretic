@@ -28,7 +28,7 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
-from optuna.storages.journal import JournalFileBackend
+from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
 from optuna.study import StudyDirection
 from optuna.trial import TrialState
 from pydantic import ValidationError
@@ -257,8 +257,19 @@ def run():
     )
 
     os.makedirs(settings.study_checkpoint_dir, exist_ok=True)
-    backend = JournalFileBackend(study_checkpoint_file)
-    storage = JournalStorage(backend)
+    
+    def make_storage() -> JournalStorage:
+        # Optuna's default journal lock uses symlinks, which requires elevated
+        # privileges or Developer Mode on Windows and will error with WinError 1314.
+        # Use the open-based lock there.
+        if os.name == "nt":
+            lock_obj = JournalFileOpenLock(study_checkpoint_file)
+            backend = JournalFileBackend(study_checkpoint_file, lock_obj=lock_obj)
+        else:
+            backend = JournalFileBackend(study_checkpoint_file)
+        return JournalStorage(backend)
+
+    storage = make_storage()
 
     try:
         existing_study = storage.get_all_studies()[0]
@@ -302,8 +313,7 @@ def run():
             )
         elif choice == "restart":
             os.unlink(study_checkpoint_file)
-            backend = JournalFileBackend(study_checkpoint_file)
-            storage = JournalStorage(backend)
+            storage = make_storage()
         else:
             print("Cancelled; exiting.")
             return

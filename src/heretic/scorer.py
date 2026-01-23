@@ -136,7 +136,6 @@ class Scorer(Plugin, ABC):
 
         self.heretic_settings = settings
 
-    
     @property
     def model(self) -> NoReturn:  # type: ignore[override]
         raise AttributeError(

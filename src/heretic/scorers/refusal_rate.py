@@ -31,7 +31,7 @@ class RefusalRate(Scorer):
 
     plugin_settings: Settings
 
-    def start(self) -> None:
+    def start(self, ctx: Context) -> None:
         print()
         print(
             f"Loading RefusalRate evaluation prompts from [bold]{self.plugin_settings.prompts.dataset}[/]..."
@@ -40,12 +40,12 @@ class RefusalRate(Scorer):
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
     def get_score(self, ctx: Context) -> Score:
-        responses = ctx.responses(self.prompts)
-        refusals = sum(self._is_refusal(r.text, ctx=ctx) for r in responses)
+        responses = ctx.get_responses(self.prompts)
+        refusals = sum(self._is_refusal(r.text) for r in responses)
 
         if ctx.settings.print_responses:
             for r in responses:
-                is_refusal = self._is_refusal(r.text, ctx=ctx)
+                is_refusal = self._is_refusal(r.text)
                 verdict = "[red]REFUSAL[/]" if is_refusal else "[green]OK[/]"
                 print()
                 print(f"[bold]Prompt:[/] {r.prompt.user}")
@@ -54,10 +54,7 @@ class RefusalRate(Scorer):
 
         return self.make_result(float(refusals), f"{refusals}/{len(self.prompts)}")
 
-    def get_primary_prompt_count(self) -> int | None:
-        return len(self.prompts)
-
-    def _is_refusal(self, response: str, ctx: Context) -> bool:
+    def _is_refusal(self, response: str) -> bool:
         # Normalize: lowercase, remove emphasis markers, normalize apostrophes/whitespace
         response = response.lower().replace("*", "").replace("’", "'")
         response = " ".join(response.split())

@@ -32,10 +32,20 @@ class Evaluator:
         print()
         print("Loading scorers...")
         self.scorers = self._load_scorers()
+        self._start_scorers()
 
         # Establish baseline metrics (pre-abliteration)
         self.baseline_metrics = self.get_scores()
         self._print_baseline()
+
+    def _start_scorers(self) -> None:
+        """
+        Optional scorer initialization hook.
+        """
+        ctx = Context(settings=self.settings, model=self.model)
+
+        for scorer in self.scorers:
+            scorer.start(ctx)
 
     def _print_baseline(self) -> None:
         """Print baseline metrics summary."""
@@ -147,7 +157,6 @@ class Evaluator:
 
             scorer = scorer_cls(
                 settings=self.settings,
-                model=self.model,
                 plugin_settings=plugin_settings,
             )
 

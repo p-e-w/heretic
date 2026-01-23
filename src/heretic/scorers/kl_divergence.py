@@ -30,7 +30,7 @@ class KLDivergence(Scorer):
 
     plugin_settings: Settings
 
-    def start(self) -> None:
+    def start(self, ctx: Context) -> None:
         print()
         print(
             f"Loading KLDivergence evaluation prompts from [bold]{self.plugin_settings.prompts.dataset}[/]..."
@@ -39,10 +39,13 @@ class KLDivergence(Scorer):
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
         print("* Obtaining baseline first-token probability distributions...")
-        self._baseline_logprobs = self.model.get_logprobs_batched(self.prompts)
+        baseline_logits = ctx.get_logits(self.prompts)
+
+        self._baseline_logprobs = F.log_softmax(baseline_logits, dim=-1)
 
     def get_score(self, ctx: Context) -> Score:
-        logprobs = ctx.model.get_logprobs_batched(self.prompts)
+        logits = ctx.get_logits(self.prompts)
+        logprobs = F.log_softmax(logits, dim=-1)
         kl = F.kl_div(
             logprobs,
             self._baseline_logprobs,

@@ -586,7 +586,7 @@ class Model:
 
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.
-    def get_logprobs(self, prompts: list[Prompt]) -> Tensor:
+    def get_logits(self, prompts: list[Prompt]) -> Tensor:
         # We only generate one token, and we return the (log) probability distributions
         # over the vocabulary at that token position, for each prompt.
         _, outputs = self.generate(
@@ -604,14 +604,13 @@ class Model:
         # This cast is valid because we passed output_scores=True above.
         logits = cast(tuple[FloatTensor], outputs.scores)[0]
 
-        # The returned tensor has shape (prompt, token).
-        return F.log_softmax(logits, dim=-1)
+        return logits
 
-    def get_logprobs_batched(self, prompts: list[Prompt]) -> Tensor:
+    def get_logits_batched(self, prompts: list[Prompt]) -> Tensor:
         logprobs = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            logprobs.append(self.get_logprobs(batch))
+            logprobs.append(self.get_logits(batch))
 
         return torch.cat(logprobs, dim=0)
 

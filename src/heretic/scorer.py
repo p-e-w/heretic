@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
+from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from dataclasses import InitVar, dataclass, field
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 from pydantic import BaseModel
 
@@ -12,6 +13,8 @@ from heretic.plugin import Plugin
 from heretic.utils import Prompt
 
 if TYPE_CHECKING:
+    from torch import Tensor
+
     from .config import Settings as HereticSettings
     from .model import Model
 
@@ -41,6 +44,7 @@ class Response:
     prompt: Prompt
     text: str
     finish_reason: FinishReason
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -48,25 +52,39 @@ class Context:
     """
     Runtime context passed to scorers
 
-    Provides access to settings, the model and some convenience functions.
+    Provides scorer-safe access to the model.
+
+    Scorers must use `get_responses(...)`, `get_logits(...)`, etc.
+    Direct access to the underlying Model is intentionally not exposed.
     """
 
     settings: "HereticSettings"
-    model: "Model"
+    model: InitVar["Model"]
+
+    _model: "Model" = field(init=False, repr=False)
 
     _responses_cache: dict[tuple[tuple[str, str], ...], list[Response]] = field(
         default_factory=dict, init=False, repr=False
     )
 
+    def __post_init__(self, model: "Model") -> None:
+        self._model = model
+
     def _cache_key(self, prompts: list[Prompt]) -> tuple[tuple[str, str], ...]:
         return tuple((p.system, p.user) for p in prompts)
 
-    def responses(self, prompts: list[Prompt]) -> list[Response]:
+    def get_responses(self, prompts: list[Prompt]) -> list[Response]:
         """Get model responses (cached within this context)."""
         key = self._cache_key(prompts)
         if key not in self._responses_cache:
-            self._responses_cache[key] = self.model.get_responses_batched(prompts)
+            self._responses_cache[key] = self._model.get_responses_batched(prompts)
         return self._responses_cache[key]
+
+    def get_logits(self, prompts: list[Prompt]) -> "Tensor":
+        return self._model.get_logits_batched(prompts)
+
+    def get_residuals(self, prompts: list[Prompt]) -> "Tensor":
+        return self._model.get_residuals_batched(prompts)
 
 
 class Scorer(Plugin, ABC):
@@ -84,7 +102,7 @@ class Scorer(Plugin, ABC):
         Validate the scorer contract.
 
         - Scorer plugins must not define a constructor (`__init__`). Initialization is
-          handled by `Scorer.__init__` and optional `start()` hook.
+          handled by `Scorer.__init__` and an optional `start(ctx)` hook.
         - Scorer plugins may define a nested `Settings` model (pydantic.BaseModel).
         """
         super().validate_contract()
@@ -92,13 +110,12 @@ class Scorer(Plugin, ABC):
         if "__init__" in cls.__dict__:
             raise TypeError(
                 f"{cls.__name__} must not define __init__(). "
-                "Use an optional start() method for scorer-specific initialization."
+                "Use an optional start(ctx) method for scorer-specific initialization."
             )
 
     def __init__(
         self,
         settings: "HereticSettings",
-        model: "Model",
         plugin_settings: BaseModel | None = None,
     ):
         super().__init__(plugin_settings=plugin_settings)
@@ -118,7 +135,6 @@ class Scorer(Plugin, ABC):
                 )
 
         self.heretic_settings = settings
-        self.model = model
 
         # if the plugin declares a `settings` field,
         # put the validated settings object there
@@ -126,10 +142,22 @@ class Scorer(Plugin, ABC):
         if "settings" in annotations:
             setattr(self, "settings", plugin_settings)
 
-        # Optional scorer-specific initialization hook
-        start = getattr(self, "start", None)
-        if callable(start):
-            start()
+    
+    @property
+    def model(self) -> NoReturn:  # type: ignore[override]
+        raise AttributeError(
+            "Direct access to the underlying Model is intentionally not exposed to scorers. "
+            "Use the passed Context (e.g. `ctx.get_responses(...)`) inside `get_score(...)` / `start(ctx)`."
+        )
+
+    def start(self, ctx: Context) -> None:
+        """
+        Optional scorer initialization hook.
+
+        Override this in subclasses to do one-time setup (e.g. load prompts, compute
+        baselines).
+        """
+        return None
 
     def get_score(self, ctx: Context) -> Score:
         """
@@ -158,12 +186,3 @@ class Scorer(Plugin, ABC):
             value=value,
             display=display if display is not None else str(value),
         )
-
-    def get_primary_prompt_count(self) -> int | None:
-        """
-        Optional helper for UIs/README generation.
-
-        If this scorer evaluates on a primary prompt set (e.g. refusal-count on
-        "bad evaluation prompts"), return its size. Otherwise return None.
-        """
-        return None

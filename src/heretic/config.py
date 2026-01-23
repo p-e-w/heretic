@@ -9,8 +9,9 @@ from pydantic import BaseModel, Field
 from pydantic.dataclasses import dataclass
 from pydantic_settings import (
     BaseSettings,
+    CliSettingsSource,
+    EnvSettingsSource,
     PydanticBaseSettingsSource,
-    SettingsConfigDict,
     TomlConfigSettingsSource,
 )
 
@@ -180,6 +181,10 @@ class Settings(BaseSettings):
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 
+    study_checkpoint_dir: str = Field(
+        default="checkpoints",
+        description="Directory to save and load study progress to/from:",
+    )
     system_prompt: str = Field(
         default="You are a helpful assistant.",
         description="System prompt to use when prompting the model.",
@@ -209,16 +214,11 @@ class Settings(BaseSettings):
 
     # "Model" refers to the Pydantic model of the settings class here,
     # not to the language model. The field must have this exact name.
-    model_config = SettingsConfigDict(
-        toml_file="config.toml",
-        env_prefix="HERETIC_",
-        cli_parse_args=True,
-        cli_implicit_flags=True,
-        cli_kebab_case=True,
+    model_config = {
         # Allow plugin namespaces like `[scorer.RefusalRate]` at the top level.
         # We validate/whitelist these later after the selected plugin is loaded.
-        extra="allow",
-    )
+        "extra": "allow",
+    }
 
     @classmethod
     def settings_customise_sources(
@@ -230,9 +230,15 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
-            init_settings,
-            env_settings,
+            init_settings,  # Used during resume - should override *all* other sources.
+            CliSettingsSource(
+                settings_cls,
+                cli_parse_args=True,
+                cli_implicit_flags=True,
+                cli_kebab_case=True,
+            ),
+            EnvSettingsSource(settings_cls, env_prefix="HERETIC_"),
             dotenv_settings,
             file_secret_settings,
-            TomlConfigSettingsSource(settings_cls),
+            TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )

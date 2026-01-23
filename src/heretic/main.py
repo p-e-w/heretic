@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import warnings
+from dataclasses import asdict
 from importlib.metadata import version
 from os.path import commonprefix
 from pathlib import Path
@@ -26,16 +27,17 @@ from huggingface_hub import ModelCard, ModelCardData
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
 from optuna.trial import FrozenTrial, TrialState
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
-from transformers import AutoModelForCausalLM
 
 from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
-from .model import AbliterationParameters, Model
+from .model import AbliterationParameters, Model, get_model_class
 from .utils import (
     empty_cache,
     format_duration,
@@ -52,9 +54,11 @@ from .utils import (
 
 def obtain_merge_strategy(settings: Settings) -> str | None:
     """
-    Prompts the user for how to proceed with quantized models.
+    Prompts the user for how to proceed with saving the model.
+    Provides info to the user if the model is quantized on memory use.
     Returns "merge", "adapter", or None (if cancelled/invalid).
     """
+
     # Prompt for all PEFT models to ensure user is aware of merge implications
     if settings.quantization == QuantizationMethod.BNB_4BIT:
         # Quantized models need special handling - we must reload the base model
@@ -79,7 +83,7 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
             # These are expected and harmless since we're only inspecting model structure, not running inference.
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                meta_model = AutoModelForCausalLM.from_pretrained(
+                meta_model = get_model_class(settings.model).from_pretrained(
                     settings.model,
                     device_map="meta",
                     torch_dtype=torch.bfloat16,
@@ -98,23 +102,51 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
             )
         print()
 
-        merge_choice = prompt_select(
-            "How do you want to proceed?",
-            choices=[
-                Choice(
-                    title="Merge full model (reload base model on CPU - requires high RAM)",
-                    value="merge",
+    merge_choice = prompt_select(
+        "How do you want to proceed?",
+        choices=[
+            Choice(
+                title="Merge full model"
+                + (
+                    ""
+                    if settings.quantization == QuantizationMethod.NONE
+                    else " (reload base model on CPU - requires high RAM)"
                 ),
-                Choice(
-                    title="Save LoRA adapter only (can be merged later with llama.cpp or more RAM)",
-                    value="adapter",
-                ),
-            ],
-        )
-        return merge_choice
+                value="merge",
+            ),
+            Choice(
+                title="Save LoRA adapter only (can be merged later with llama.cpp or more RAM)",
+                value="adapter",
+            ),
+        ],
+    )
+    return merge_choice
 
-    # Default for non-quantized models
-    return "merge"
+
+def save_model(
+    model: Model,
+    save_directory: str,
+    settings: Settings,
+    strategy: str | None = None,
+) -> None:
+    print("Saving model...")
+    if strategy is None:
+        strategy = obtain_merge_strategy(settings)
+        if strategy is None:
+            print("[yellow]Action cancelled.[/]")
+            return
+
+    if strategy == "adapter":
+        model.model.save_pretrained(save_directory)
+    else:
+        merged_model = model.get_merged_model()
+        merged_model.save_pretrained(save_directory)
+        del merged_model
+        empty_cache()
+
+    model.tokenizer.save_pretrained(save_directory)
+
+    print(f"Model saved to [bold]{save_directory}[/].")
 
 
 def run():
@@ -214,6 +246,66 @@ def run():
 
     # Silence the warning about multivariate TPE being experimental.
     warnings.filterwarnings("ignore", category=ExperimentalWarning)
+
+    study_checkpoint_file = os.path.join(
+        settings.study_checkpoint_dir,
+        "".join(
+            [(c if (c.isalnum() or c in ["_", "-"]) else "--") for c in settings.model]
+        )
+        + ".jsonl",
+    )
+
+    os.makedirs(settings.study_checkpoint_dir, exist_ok=True)
+    backend = JournalFileBackend(study_checkpoint_file)
+    storage = JournalStorage(backend)
+
+    try:
+        existing_study = storage.get_all_studies()[0]
+    except IndexError:
+        existing_study = None
+
+    if existing_study is not None:
+        # A study is in here. Check if it's finished.
+        choices = []
+        if existing_study.user_attrs["finished"]:
+            print(
+                "[green]You have already processed this model. How would you like to proceed?[/]"
+            )
+            choices.append(
+                Choice(
+                    title="Show the results from the previous run, allowing you to export models, or to run additional trials.",
+                    value="continue",
+                )
+            )
+        else:
+            print(
+                "[yellow]You have already processed this model, but the run was interrupted. How would you like to proceed?[/]",
+            )
+            choices.append(
+                Choice(
+                    title="Continue the previous run from where it stopped (will override all specified settings).",
+                    value="continue",
+                )
+            )
+        choices.append(
+            Choice(
+                title="Ignore the previous run and start from scratch. This will delete the checkpoint file and all results from the previous run.",
+                value="restart",
+            )
+        )
+        choice = prompt_select("", choices)
+
+        if choice == "continue":
+            settings = Settings.model_validate_json(
+                existing_study.user_attrs["settings"]
+            )
+        elif choice == "restart":
+            os.unlink(study_checkpoint_file)
+            backend = JournalFileBackend(study_checkpoint_file)
+            storage = JournalStorage(backend)
+        else:
+            print("Cancelled; exiting.")
+            return
 
     model = Model(settings)
 
@@ -351,6 +443,7 @@ def run():
     empty_cache()
 
     trial_index = 0
+    start_index = 0
     start_time = time.perf_counter()
 
     def objective(trial: Trial) -> tuple[float, ...]:
@@ -422,7 +515,7 @@ def run():
             )
 
         trial.set_user_attr("direction_index", direction_index)
-        trial.set_user_attr("parameters", parameters)
+        trial.set_user_attr("parameters", {k: asdict(v) for k, v in parameters.items()})
 
         print()
         print(
@@ -444,7 +537,7 @@ def run():
             print(f"    * {m.name}: [bold]{m.display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
-        remaining_time = (elapsed_time / trial_index) * (
+        remaining_time = (elapsed_time / (trial_index - start_index)) * (
             settings.n_trials - trial_index
         )
         print()
@@ -479,16 +572,36 @@ def run():
             n_ei_candidates=128,
             multivariate=True,
         ),
+        storage=storage,
         directions=directions,
+        load_if_exists=True,
     )
 
+    study.set_user_attr("settings", settings.model_dump_json())
+    study.set_user_attr("finished", False)
+
+    def count_completed_trials() -> int:
+        # Count number of complete trials to compute trials to run.
+        return sum([(1 if t.state == TrialState.COMPLETE else 0) for t in study.trials])
+
+    start_index = trial_index = count_completed_trials()
+    if start_index > 0:
+        print("Resuming existing study.")
+
     try:
-        study.optimize(objective_wrapper, n_trials=settings.n_trials)
+        study.optimize(
+            objective_wrapper, n_trials=settings.n_trials - count_completed_trials()
+        )
+
     except KeyboardInterrupt:
         # This additional handler takes care of the small chance that KeyboardInterrupt
         # is raised just between trials, which wouldn't be caught by the handler
         # defined in objective_wrapper above.
         pass
+
+    if count_completed_trials() == settings.n_trials:
+        study.set_user_attr("finished", True)
+
     while True:
         # If no trials at all have been evaluated, the study must have been stopped
         # by pressing Ctrl+C while the first trial was running. In this case, we just
@@ -565,10 +678,17 @@ def run():
                         print("[red]Invalid input. Please enter a number.[/]")
 
                 settings.n_trials += n_more_trials
+                study.set_user_attr("settings", settings.model_dump_json())
+                study.set_user_attr("finished", False)
                 try:
-                    study.optimize(objective_wrapper, n_trials=n_more_trials)
+                    study.optimize(
+                        objective_wrapper,
+                        n_trials=settings.n_trials - count_completed_trials(),
+                    )
                 except KeyboardInterrupt:
                     pass
+                if count_completed_trials() == settings.n_trials:
+                    study.set_user_attr("finished", True)
                 break
 
             elif trial is None or trial == "":
@@ -585,7 +705,10 @@ def run():
             model.abliterate(
                 refusal_directions,
                 trial.user_attrs["direction_index"],
-                trial.user_attrs["parameters"],
+                {
+                    k: AbliterationParameters(**v)
+                    for k, v in trial.user_attrs["parameters"].items()
+                },
             )
 
             while True:
@@ -616,22 +739,11 @@ def run():
                             if not save_directory:
                                 continue
 
-                            print("Saving model...")
-                            strategy = obtain_merge_strategy(settings)
-                            if strategy is None:
-                                print("[yellow]Action cancelled.[/]")
-                                continue
-
-                            if strategy == "adapter":
-                                model.model.save_pretrained(save_directory)
-                            else:
-                                merged_model = model.get_merged_model()
-                                merged_model.save_pretrained(save_directory)
-                                del merged_model
-                                empty_cache()
-
-                            model.tokenizer.save_pretrained(save_directory)
-                            print(f"Model saved to [bold]{save_directory}[/].")
+                            save_model(
+                                model,
+                                save_directory,
+                                settings,
+                            )
 
                         case "Upload the model to Hugging Face":
                             # We don't use huggingface_hub.login() because that stores the token on disk,

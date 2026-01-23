@@ -31,12 +31,11 @@ from optuna.trial import TrialState
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
-from transformers import AutoModelForCausalLM
 
 from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
-from .model import AbliterationParameters, Model
+from .model import AbliterationParameters, Model, get_model_class
 from .utils import (
     empty_cache,
     format_duration,
@@ -82,7 +81,7 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
             # These are expected and harmless since we're only inspecting model structure, not running inference.
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                meta_model = AutoModelForCausalLM.from_pretrained(
+                meta_model = get_model_class(settings.model).from_pretrained(
                     settings.model,
                     device_map="meta",
                     torch_dtype=torch.bfloat16,

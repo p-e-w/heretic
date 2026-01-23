@@ -28,7 +28,7 @@ from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
-from optuna.storages.journal import JournalFileBackend
+from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
 from optuna.study import StudyDirection
 from optuna.trial import TrialState
 from pydantic import ValidationError
@@ -257,7 +257,8 @@ def run():
     )
 
     os.makedirs(settings.study_checkpoint_dir, exist_ok=True)
-    backend = JournalFileBackend(study_checkpoint_file)
+    lock_obj = JournalFileOpenLock(study_checkpoint_file)
+    backend = JournalFileBackend(study_checkpoint_file, lock_obj=lock_obj)
     storage = JournalStorage(backend)
 
     try:
@@ -302,7 +303,7 @@ def run():
             )
         elif choice == "restart":
             os.unlink(study_checkpoint_file)
-            backend = JournalFileBackend(study_checkpoint_file)
+            backend = JournalFileBackend(study_checkpoint_file, lock_obj=lock_obj)
             storage = JournalStorage(backend)
         else:
             print("Cancelled; exiting.")

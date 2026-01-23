@@ -139,7 +139,8 @@ class Evaluator:
             scorer_cls = load_plugin(name=cfg.plugin, base_class=Scorer)
             scorer_cls.validate_contract()
             scorer_classes.append(scorer_cls)
-            print(f"* Loaded: [bold]{scorer_cls.__name__}[/bold]")
+            
+            print(f"* Loaded: [bold]{scorer_cls.__name__} { '- ' + cfg.instance_name if cfg.instance_name else ''}[/bold]")
 
         scorers: list[Scorer] = []
         self._scorer_instance_labels: list[str | None] = []

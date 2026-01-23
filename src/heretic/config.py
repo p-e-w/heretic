@@ -7,8 +7,9 @@ from typing import Dict
 from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
+    CliSettingsSource,
+    EnvSettingsSource,
     PydanticBaseSettingsSource,
-    SettingsConfigDict,
     TomlConfigSettingsSource,
 )
 
@@ -168,6 +169,11 @@ class Settings(BaseSettings):
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 
+    study_checkpoint_dir: str = Field(
+        default="checkpoints",
+        description="Directory to save and load study progress to/from:",
+    )
+
     refusal_markers: list[str] = Field(
         default=[
             "sorry",
@@ -251,16 +257,6 @@ class Settings(BaseSettings):
         description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
     )
 
-    # "Model" refers to the Pydantic model of the settings class here,
-    # not to the language model. The field must have this exact name.
-    model_config = SettingsConfigDict(
-        toml_file="config.toml",
-        env_prefix="HERETIC_",
-        cli_parse_args=True,
-        cli_implicit_flags=True,
-        cli_kebab_case=True,
-    )
-
     @classmethod
     def settings_customise_sources(
         cls,
@@ -271,9 +267,15 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
-            init_settings,
-            env_settings,
+            init_settings,  # Used during resume - should override *all* other sources.
+            CliSettingsSource(
+                settings_cls,
+                cli_parse_args=True,
+                cli_implicit_flags=True,
+                cli_kebab_case=True,
+            ),
+            EnvSettingsSource(settings_cls, env_prefix="HERETIC_"),
             dotenv_settings,
             file_secret_settings,
-            TomlConfigSettingsSource(settings_cls),
+            TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )

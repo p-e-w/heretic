@@ -112,7 +112,7 @@ class Evaluator:
             instance_ns = f"scorer.{class_name}_{instance_name}"
             raw_instance_table = self._get_plugin_namespace(instance_ns)
 
-        settings_model = getattr(scorer_cls, "Settings", None)
+        settings_model = getattr(scorer_cls, "PluginSettings", None)
         if settings_model is None:
             # No settings schema: nothing to merge/validate.
             return {}

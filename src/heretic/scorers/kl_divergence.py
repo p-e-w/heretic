@@ -18,7 +18,7 @@ class KLDivergence(Scorer):
     Lower is better (less damage).
     """
 
-    class Settings(BaseModel):
+    class PluginSettings(BaseModel):
         prompts: DatasetSpecification = Field(
             default=DatasetSpecification(
                 dataset="mlabonne/harmless_alpaca",
@@ -28,7 +28,7 @@ class KLDivergence(Scorer):
             description="Prompt set used to measure drift from baseline.",
         )
 
-    plugin_settings: Settings
+    plugin_settings: PluginSettings
 
     def start(self, ctx: Context) -> None:
         print()

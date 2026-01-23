@@ -15,7 +15,7 @@ class RefusalRate(Scorer):
     Markers are defined in the [scorer.RefusalRate] config section.
     """
 
-    class Settings(BaseModel):
+    class PluginSettings(BaseModel):
         refusal_markers: list[str] = Field(
             description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
         )
@@ -29,7 +29,7 @@ class RefusalRate(Scorer):
             description="Dataset of prompts that tend to result in refusals (used for evaluating refusal rate).",
         )
 
-    plugin_settings: Settings
+    plugin_settings: PluginSettings
 
     def start(self, ctx: Context) -> None:
         print()

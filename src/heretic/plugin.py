@@ -90,7 +90,7 @@ class Plugin:
     Base class for Heretic plugins.
 
     Plugins may define:
-    - nested `Settings` model (subclass of pydantic.BaseModel)
+    - nested `PluginSettings` model (subclass of pydantic.BaseModel)
       Heretic will validate `[<name>]` against it and pass an instance as `plugin_settings`.
     """
 
@@ -99,7 +99,7 @@ class Plugin:
 
     @classmethod
     def validate_contract(cls) -> None:
-        settings_model = getattr(cls, "Settings", None)
+        settings_model = getattr(cls, "PluginSettings", None)
         if settings_model is None:
             return
 
@@ -107,7 +107,7 @@ class Plugin:
             settings_model, BaseModel
         ):
             raise TypeError(
-                f"{cls.__name__}.Settings must be a subclass of pydantic.BaseModel"
+                f"{cls.__name__}.PluginSettings must be a subclass of pydantic.BaseModel"
             )
 
     @classmethod
@@ -117,10 +117,10 @@ class Plugin:
         """
         Validates plugin settings for this plugin class.
 
-        - If `Settings` is present: returns an instance of that model
+        - If `PluginSettings` is present: returns an instance of that model
         - Otherwise returns None
         """
-        settings_model = getattr(cls, "Settings", None)
+        settings_model = getattr(cls, "PluginSettings", None)
         if settings_model is None:
             return None
         return settings_model.model_validate(raw_namespace or {})

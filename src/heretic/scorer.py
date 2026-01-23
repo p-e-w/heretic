@@ -103,7 +103,7 @@ class Scorer(Plugin, ABC):
 
         - Scorer plugins must not define a constructor (`__init__`). Initialization is
           handled by `Scorer.__init__` and an optional `start(ctx)` hook.
-        - Scorer plugins may define a nested `Settings` model (pydantic.BaseModel).
+        - Scorer plugins may define a nested `PluginSettings` model (pydantic.BaseModel).
         """
         super().validate_contract()
 
@@ -120,9 +120,9 @@ class Scorer(Plugin, ABC):
     ):
         super().__init__(plugin_settings=plugin_settings)
 
-        # Scorers that define a nested `Settings` model should always receive
+        # Scorers that define a nested `PluginSettings` model should always receive
         # validated plugin settings from the evaluator.
-        settings_model = getattr(self.__class__, "Settings", None)
+        settings_model = getattr(self.__class__, "PluginSettings", None)
         if settings_model is not None:
             if plugin_settings is None:
                 raise ValueError(
@@ -135,12 +135,6 @@ class Scorer(Plugin, ABC):
                 )
 
         self.heretic_settings = settings
-
-        # if the plugin declares a `settings` field,
-        # put the validated settings object there
-        annotations = getattr(self.__class__, "__annotations__", {}) or {}
-        if "settings" in annotations:
-            setattr(self, "settings", plugin_settings)
 
     
     @property

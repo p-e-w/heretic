@@ -546,6 +546,7 @@ def run():
             raise TrialPruned()
 
     study = optuna.create_study(
+        study_name="heretic",
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,

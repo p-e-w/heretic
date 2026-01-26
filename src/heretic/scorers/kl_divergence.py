@@ -12,7 +12,7 @@ from heretic.utils import load_prompts, print
 
 class KLDivergence(Scorer):
     """
-    KL divergence between current model and baseline on "good" prompts.
+    KL divergence between current model and baseline.
 
     Measures how much the model's behavior has drifted from baseline.
     Lower is better (less damage).

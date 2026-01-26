@@ -398,7 +398,7 @@ def run():
         print("* None found")
 
     evaluator = Evaluator(settings, model)
-    
+
     if settings.evaluate_model is not None:
         print()
         print(f"Loading model [bold]{settings.evaluate_model}[/]...")

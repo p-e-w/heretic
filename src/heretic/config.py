@@ -56,6 +56,7 @@ class DatasetSpecification(BaseModel):
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
     )
 
+
 @dataclass(frozen=True)
 class ScorerConfig:
     """
@@ -84,7 +85,9 @@ class ScorerConfig:
             except KeyError as e:
                 raise ValueError(f"Unknown direction, error: {e}")
         else:
-            raise ValueError("Direction must be one of \"minimize\", \"maximize\", \"not_set\"")
+            raise ValueError(
+                'Direction must be one of "minimize", "maximize", "not_set"'
+            )
 
 
 class Settings(BaseSettings):

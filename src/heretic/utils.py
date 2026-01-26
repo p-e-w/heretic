@@ -278,7 +278,6 @@ def get_readme_intro(
         scores_by_name[name] = item
         score_names.append(name)
 
-
     score_rows = chr(10).join(
         [
             (

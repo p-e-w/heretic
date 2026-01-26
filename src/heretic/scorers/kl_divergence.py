@@ -57,5 +57,5 @@ class KLDivergence(Scorer):
             name=self.__class__.__name__,
             value=kl,
             cli_display=f"{kl:.4f}",
-            hf_display=f"{kl:.4f}"
+            hf_display=f"{kl:.4f}",
         )

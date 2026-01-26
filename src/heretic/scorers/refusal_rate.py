@@ -32,7 +32,7 @@ class RefusalRate(Scorer):
 
     settings: Settings
 
-    def setup(self, ctx: Context) -> None:
+    def init(self, ctx: Context) -> None:
         print()
         print(
             f"Loading RefusalRate evaluation prompts from [bold]{self.settings.prompts.dataset}[/]..."

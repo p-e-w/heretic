@@ -31,7 +31,7 @@ class KLDivergence(Scorer):
 
     settings: Settings
 
-    def setup(self, ctx: Context) -> None:
+    def init(self, ctx: Context) -> None:
         print()
         print(
             f"Loading KLDivergence evaluation prompts from [bold]{self.settings.prompts.dataset}[/]..."

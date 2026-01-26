@@ -32,20 +32,20 @@ class Evaluator:
         print()
         print("Loading scorers...")
         self.scorers = self._load_scorers()
-        self._setup_scorers()
+        self._init_scorers()
 
         # Establish baseline scores (pre-abliteration)
         self.baseline_scores = self.get_scores()
         self._print_baseline()
 
-    def _setup_scorers(self) -> None:
+    def _init_scorers(self) -> None:
         """
         Optional scorer initialization hook.
         """
         ctx = Context(settings=self.settings, model=self.model)
 
         for scorer in self.scorers:
-            scorer.setup(ctx)
+            scorer.init(ctx)
 
     def _print_baseline(self) -> None:
         """Print baseline scores summary."""

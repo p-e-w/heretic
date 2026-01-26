@@ -405,11 +405,11 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        metrics = evaluator.get_scores()
+        scores = evaluator.get_scores()
         print()
         print("[bold]Metrics:[/]")
-        for m in metrics:
-            print(f"  * {m.name}: [bold]{m.display}[/]")
+        for s in scores:
+            print(f"  * {s.name}: [bold]{s.display}[/]")
         return
 
     print()
@@ -523,12 +523,12 @@ def run():
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
-        metrics = evaluator.get_scores()
-        objective_values = evaluator.get_objective_values(metrics)
+        scores = evaluator.get_scores()
+        objective_values = evaluator.get_objective_values(scores)
 
         print("  * Metrics:")
-        for m in metrics:
-            print(f"    * {m.name}: [bold]{m.display}[/]")
+        for s in scores:
+            print(f"    * {s.name}: [bold]{s.display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / (trial_index - start_index)) * (
@@ -541,8 +541,8 @@ def run():
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
         trial.set_user_attr(
-            "metrics",
-            [{"name": m.name, "value": m.value, "display": m.display} for m in metrics],
+            "scores",
+            [{"name": s.name, "value": s.value, "display": s.display} for s in scores],
         )
 
         return objective_values
@@ -555,9 +555,9 @@ def run():
             trial.study.stop()
             raise TrialPruned()
 
-    # Derive objective info from baseline metrics
-    objectives = evaluator.get_objectives(evaluator.baseline_metrics)
-    objective_names = [m.name for m in objectives]
+    # Derive objective info from baseline scores
+    objectives = evaluator.get_objectives(evaluator.baseline_scores)
+    objective_names = [s.name for s in objectives]
     directions = evaluator.get_objective_directions()
 
     study = optuna.create_study(
@@ -814,19 +814,19 @@ def run():
                                 card.data.tags.append("uncensored")
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
-                                baseline_metric_displays = {
-                                    m.name: m.display
-                                    for m in evaluator.baseline_metrics
+                                baseline_score_displays = {
+                                    s.name: s.display
+                                    for s in evaluator.baseline_scores
                                 }
-                                metric_order = [
-                                    m.name for m in evaluator.baseline_metrics
+                                score_order = [
+                                    s.name for s in evaluator.baseline_scores
                                 ]
                                 card.text = (
                                     get_readme_intro(
                                         settings,
                                         trial,
-                                        baseline_metric_displays,
-                                        metric_order,
+                                        baseline_score_displays,
+                                        score_order,
                                     )
                                     + card.text
                                 )

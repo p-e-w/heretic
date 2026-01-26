@@ -21,7 +21,7 @@ class Evaluator:
     """
     Manages evaluation of the model using configured scorer plugins.
 
-    Loads scorers, establishes baseline metrics, and runs scorers during optimization.
+    Loads scorers, establishes baseline scores, and runs scorers during optimization.
     """
 
     def __init__(self, settings: Settings, model: Model):
@@ -34,8 +34,8 @@ class Evaluator:
         self.scorers = self._load_scorers()
         self._start_scorers()
 
-        # Establish baseline metrics (pre-abliteration)
-        self.baseline_metrics = self.get_scores()
+        # Establish baseline scores (pre-abliteration)
+        self.baseline_scores = self.get_scores()
         self._print_baseline()
 
     def _start_scorers(self) -> None:
@@ -48,9 +48,9 @@ class Evaluator:
             scorer.start(ctx)
 
     def _print_baseline(self) -> None:
-        """Print baseline metrics summary."""
-        for m in self.baseline_metrics:
-            print(f"* Baseline {m.name}: [bold]{m.display}[/]")
+        """Print baseline scores summary."""
+        for s in self.baseline_scores:
+            print(f"* Baseline {s.name}: [bold]{s.display}[/]")
 
     def _get_scorer_settings_raw(
         self, *, scorer_cls: type[Scorer], instance_name: str | None
@@ -166,21 +166,21 @@ class Evaluator:
             scores.append(s)
         return scores
 
-    def get_objectives(self, metrics: list[Score]) -> list[Score]:
-        """Filter metrics to only those used in optimization."""
+    def get_objectives(self, scores: list[Score]) -> list[Score]:
+        """Filter scores to only those used in optimization."""
         return [
-            m
-            for cfg, m in zip(self._scorer_configs, metrics)
+            s
+            for cfg, s in zip(self._scorer_configs, scores)
             if cfg.direction != StudyDirection.NOT_SET
         ]
 
-    def get_objective_values(self, metrics: list[Score]) -> tuple[float, ...]:
+    def get_objective_values(self, scores: list[Score]) -> tuple[float, ...]:
         """Extract objective values as a tuple for Optuna."""
         values: list[float] = []
-        for cfg, m in zip(self._scorer_configs, metrics):
+        for cfg, s in zip(self._scorer_configs, scores):
             if cfg.direction == StudyDirection.NOT_SET:
                 continue
-            values.append(float(m.value) * float(cfg.scale))
+            values.append(float(s.value) * float(cfg.scale))
         return tuple(values)
 
     def get_objective_directions(self) -> list[StudyDirection]:

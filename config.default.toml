@@ -1,6 +1,6 @@
 # Copy this file to config.toml and edit the configuration to your liking.
 
-# List of scorers/metrics to evaluate.
+# List of scorers to evaluate.
 # Each entry is an object:
 # { plugin = <plugin>, direction = <direction>, scale = <scale>, instance_name = <optional> }
 # where <direction> is one of "minimize", "maximize", "not_set" (aka do not optimize)

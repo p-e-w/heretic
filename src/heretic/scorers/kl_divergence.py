@@ -10,6 +10,17 @@ from heretic.scorer import Context, Score, Scorer
 from heretic.utils import load_prompts, print
 
 
+class Settings(BaseModel):
+    prompts: DatasetSpecification = Field(
+        default=DatasetSpecification(
+            dataset="mlabonne/harmless_alpaca",
+            split="test[:100]",
+            column="text",
+        ),
+        description="Prompt set used to measure drift from baseline.",
+    )
+
+
 class KLDivergence(Scorer):
     """
     KL divergence between current model and baseline.
@@ -18,24 +29,14 @@ class KLDivergence(Scorer):
     Lower is better (less damage).
     """
 
-    class PluginSettings(BaseModel):
-        prompts: DatasetSpecification = Field(
-            default=DatasetSpecification(
-                dataset="mlabonne/harmless_alpaca",
-                split="test[:100]",
-                column="text",
-            ),
-            description="Prompt set used to measure drift from baseline.",
-        )
-
-    plugin_settings: PluginSettings
+    settings: Settings
 
     def start(self, ctx: Context) -> None:
         print()
         print(
-            f"Loading KLDivergence evaluation prompts from [bold]{self.plugin_settings.prompts.dataset}[/]..."
+            f"Loading KLDivergence evaluation prompts from [bold]{self.settings.prompts.dataset}[/]..."
         )
-        self.prompts = load_prompts(self.heretic_settings, self.plugin_settings.prompts)
+        self.prompts = load_prompts(self.heretic_settings, self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
         print("* Obtaining baseline first-token probability distributions...")

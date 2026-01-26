@@ -112,7 +112,7 @@ class Evaluator:
             instance_ns = f"scorer.{class_name}_{instance_name}"
             raw_instance_table = self._get_plugin_namespace(instance_ns)
 
-        settings_model = getattr(scorer_cls, "PluginSettings", None)
+        settings_model = scorer_cls.get_settings_model()
         if settings_model is None:
             # No settings schema: nothing to merge/validate.
             return {}
@@ -154,13 +154,11 @@ class Evaluator:
             raw_settings = self._get_scorer_settings_raw(
                 scorer_cls=scorer_cls, instance_name=instance_name
             )
-            plugin_settings: BaseModel | None = scorer_cls.validate_settings(
-                raw_settings
-            )
+            scorer_settings: BaseModel | None = scorer_cls.validate_settings(raw_settings)
 
             scorer = scorer_cls(
-                settings=self.settings,
-                plugin_settings=plugin_settings,
+                heretic_settings=self.settings,
+                settings=scorer_settings,
             )
 
             # External labeling key: ensures multiple instances can coexist

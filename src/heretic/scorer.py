@@ -103,10 +103,8 @@ class Scorer(Plugin, ABC):
 
         - Scorer plugins must not define a constructor (`__init__`). Initialization is
           handled by `Scorer.__init__` and an optional `start(ctx)` hook.
-        - Scorer plugins may define a nested `PluginSettings` model (pydantic.BaseModel).
+        - Scorer plugins may define `settings: <BaseModelSubclass>` to declare a settings schema.
         """
-        super().validate_contract()
-
         if "__init__" in cls.__dict__:
             raise TypeError(
                 f"{cls.__name__} must not define __init__(). "
@@ -115,26 +113,26 @@ class Scorer(Plugin, ABC):
 
     def __init__(
         self,
-        settings: "HereticSettings",
-        plugin_settings: BaseModel | None = None,
+        heretic_settings: "HereticSettings",
+        settings: BaseModel | None = None,
     ):
-        super().__init__(plugin_settings=plugin_settings)
+        super().__init__(settings=settings)
 
-        # Scorers that define a nested `PluginSettings` model should always receive
+        # Scorers that declare a settings schema should always receive
         # validated plugin settings from the evaluator.
-        settings_model = getattr(self.__class__, "PluginSettings", None)
+        settings_model = self.__class__.get_settings_model()
         if settings_model is not None:
-            if plugin_settings is None:
+            if settings is None:
                 raise ValueError(
-                    f"{self.__class__.__name__} requires plugin settings to be validated"
+                    f"{self.__class__.__name__} requires settings to be validated"
                 )
-            if not isinstance(plugin_settings, settings_model):
+            if not isinstance(settings, settings_model):
                 raise TypeError(
-                    f"{self.__class__.__name__}.plugin_settings must be an instance of "
+                    f"{self.__class__.__name__}.settings must be an instance of "
                     f"{settings_model.__name__}"
                 )
 
-        self.heretic_settings = settings
+        self.heretic_settings = heretic_settings
 
     @property
     def model(self) -> NoReturn:  # type: ignore[override]

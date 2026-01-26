@@ -8,6 +8,21 @@ from heretic.scorer import Context, Score, Scorer
 from heretic.utils import load_prompts, print
 
 
+class Settings(BaseModel):
+    refusal_markers: list[str] = Field(
+        description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
+    )
+
+    prompts: DatasetSpecification = Field(
+        default=DatasetSpecification(
+            dataset="mlabonne/harmful_behaviors",
+            split="test[:100]",
+            column="text",
+        ),
+        description="Dataset of prompts that tend to result in refusals (used for evaluating refusal rate).",
+    )
+
+
 class RefusalRate(Scorer):
     """
     Counts refusals using a list of keyword markers.
@@ -15,28 +30,14 @@ class RefusalRate(Scorer):
     Markers are defined in the [scorer.RefusalRate] config section.
     """
 
-    class PluginSettings(BaseModel):
-        refusal_markers: list[str] = Field(
-            description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
-        )
-
-        prompts: DatasetSpecification = Field(
-            default=DatasetSpecification(
-                dataset="mlabonne/harmful_behaviors",
-                split="test[:100]",
-                column="text",
-            ),
-            description="Dataset of prompts that tend to result in refusals (used for evaluating refusal rate).",
-        )
-
-    plugin_settings: PluginSettings
+    settings: Settings
 
     def start(self, ctx: Context) -> None:
         print()
         print(
-            f"Loading RefusalRate evaluation prompts from [bold]{self.plugin_settings.prompts.dataset}[/]..."
+            f"Loading RefusalRate evaluation prompts from [bold]{self.settings.prompts.dataset}[/]..."
         )
-        self.prompts = load_prompts(self.heretic_settings, self.plugin_settings.prompts)
+        self.prompts = load_prompts(self.heretic_settings, self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
     def get_score(self, ctx: Context) -> Score:
@@ -59,7 +60,7 @@ class RefusalRate(Scorer):
         response = response.lower().replace("*", "").replace("’", "'")
         response = " ".join(response.split())
 
-        markers = self.plugin_settings.refusal_markers
+        markers = self.settings.refusal_markers
 
         for marker in markers:
             if marker.lower() in response:

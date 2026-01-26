@@ -5,10 +5,11 @@ import importlib
 import importlib.util
 import inspect
 import sys
+import types
 from hashlib import sha256
 from pathlib import Path
 from types import ModuleType
-from typing import Any, TypeVar
+from typing import Annotated, Any, TypeVar, Union, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel
 
@@ -112,25 +113,49 @@ class Plugin:
     Base class for Heretic plugins.
 
     Plugins may define:
-    - nested `PluginSettings` model (subclass of pydantic.BaseModel)
-      Heretic will validate `[<name>]` against it and pass an instance as `plugin_settings`.
+    - `settings: <BaseModelSubclass>` type annotation (recommended)
+      Heretic will validate the corresponding config table against it and pass
+      an instance as `settings`.
     """
 
-    def __init__(self, *, plugin_settings: BaseModel | None = None):
-        self.plugin_settings = plugin_settings
+    def __init__(self, *, settings: BaseModel | None = None):
+        self.settings = settings
 
     @classmethod
-    def validate_contract(cls) -> None:
-        settings_model = getattr(cls, "PluginSettings", None)
-        if settings_model is None:
-            return
+    def get_settings_model(cls) -> type[BaseModel] | None:
+        """
+        Return the plugin settings model, if present.
+        - If the plugin has a `settings: <BaseModelSubclass>` type annotation,
+          that type is used as the settings schema.
+        - Otherwise: no settings schema.
+        """
 
-        if not isinstance(settings_model, type) or not issubclass(
-            settings_model, BaseModel
-        ):
+        def unwrap_settings_type(tp: Any) -> Any:
+            """Unwrap `Annotated[T, ...]`."""
+            while True:
+                origin = get_origin(tp)
+                if origin is Annotated:
+                    tp = get_args(tp)[0]
+                    continue
+                return tp
+
+        hints = get_type_hints(cls, include_extras=True)
+        annotated = hints.get("settings")
+        if annotated is None:
+            return None
+
+        model = unwrap_settings_type(annotated)
+        origin = get_origin(model)
+        if origin in (Union, types.UnionType) and type(None) in get_args(model):
             raise TypeError(
-                f"{cls.__name__}.PluginSettings must be a subclass of pydantic.BaseModel"
+                f"{cls.__name__}.settings must not be Optional; "
+                "use a non-optional pydantic.BaseModel subclass (e.g. `settings: Settings`)."
             )
+        if not isinstance(model, type) or not issubclass(model, BaseModel):
+            raise TypeError(
+                f"{cls.__name__}.settings must be annotated with a pydantic.BaseModel subclass"
+            )
+        return model
 
     @classmethod
     def validate_settings(
@@ -139,10 +164,10 @@ class Plugin:
         """
         Validates plugin settings for this plugin class.
 
-        - If `PluginSettings` is present: returns an instance of that model
+        - If a settings model is present: returns an instance of that model
         - Otherwise returns None
         """
-        settings_model = getattr(cls, "PluginSettings", None)
+        settings_model = cls.get_settings_model()
         if settings_model is None:
             return None
         return settings_model.model_validate(raw_namespace or {})

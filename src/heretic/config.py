@@ -73,6 +73,10 @@ class ScorerConfig:
     @field_validator("direction", mode="before")
     @classmethod
     def parse_direction(cls, v):
+        if isinstance(v, StudyDirection):
+            return v
+        if isinstance(v, int):
+            return StudyDirection(v)
         if isinstance(v, str):
             key = v.strip().upper()
             try:

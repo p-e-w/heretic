@@ -34,19 +34,6 @@ class Score:
     value: float
     display: str
 
-
-@dataclass(frozen=True)
-class Response:
-    """
-    A single model response to a single prompt.
-    """
-
-    prompt: Prompt
-    text: str
-    finish_reason: FinishReason
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
 @dataclass
 class Context:
     """
@@ -63,7 +50,7 @@ class Context:
 
     _model: "Model" = field(init=False, repr=False)
 
-    _responses_cache: dict[tuple[tuple[str, str], ...], list[Response]] = field(
+    _responses_cache: dict[tuple[tuple[str, str], ...], list[str]] = field(
         default_factory=dict, init=False, repr=False
     )
 
@@ -73,7 +60,7 @@ class Context:
     def _cache_key(self, prompts: list[Prompt]) -> tuple[tuple[str, str], ...]:
         return tuple((p.system, p.user) for p in prompts)
 
-    def get_responses(self, prompts: list[Prompt]) -> list[Response]:
+    def get_responses(self, prompts: list[Prompt]) -> list[str]:
         """Get model responses (cached within this context)."""
         key = self._cache_key(prompts)
         if key not in self._responses_cache:

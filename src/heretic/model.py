@@ -29,7 +29,6 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, Settings
-from .scorer import FinishReason, Response
 from .utils import Prompt, batchify, empty_cache, print
 
 
@@ -554,10 +553,18 @@ class Model:
             skip_special_tokens=skip_special_tokens,
         )
 
-    def get_responses_batched(self, prompts: list[Prompt]) -> list[Response]:
-        responses: list[Response] = []
+    def get_responses_batched(
+        self,
+        prompts: list[Prompt],
+        skip_special_tokens: bool = False,
+    ) -> list[str]:
+        responses = []
         for batch in batchify(prompts, self.settings.batch_size):
-            responses.extend(self._get_responses_with_metadata(batch))
+            for response in self.get_responses(
+                batch,
+                skip_special_tokens=skip_special_tokens
+            ):
+                responses.append(response)
         return responses
 
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
@@ -668,68 +675,3 @@ class Model:
             outputs[0, inputs["input_ids"].shape[1] :],
             skip_special_tokens=True,
         )
-
-    def _infer_finish_reason(
-        self, *, response_ids: list[int], max_new_tokens: int | None
-    ) -> FinishReason:
-        if max_new_tokens is None:
-            return "unk"
-
-        if not response_ids:
-            return "empty"
-
-        if len(response_ids) >= max_new_tokens:
-            return "len"
-
-        if response_ids[-1] == self.tokenizer.eos_token_id:
-            return "eos"
-
-        return "unk"
-
-    def _get_responses_with_metadata(self, prompts: list[Prompt]) -> list[Response]:
-        """
-        Generate responses and collect minimal response metadata.
-        """
-        generate_kwargs: dict[str, Any] = {
-            "max_new_tokens": self.settings.max_response_length,
-            "return_dict_in_generate": True,
-        }
-
-        inputs, outputs = self.generate(prompts, **generate_kwargs)
-
-        # outputs can be either a tensor of token ids or a Generate*Output
-        # with a `.sequences` tensor, depending on generate() kwargs.
-        input_ids = cast(Tensor, inputs["input_ids"])
-        if isinstance(outputs, Tensor):
-            sequences = outputs
-        else:
-            sequences = outputs.sequences
-
-        decoded = self.tokenizer.batch_decode(
-            sequences[:, input_ids.shape[1] :],
-            skip_special_tokens=True,
-        )
-        decoded = self._strip_pad_tokens(decoded)
-
-        input_ids_t = cast(LongTensor, inputs["input_ids"])
-        input_length = input_ids_t.shape[1]
-
-        responses: list[Response] = []
-
-        for prompt_index, prompt in enumerate(prompts):
-            response_ids = sequences[prompt_index, input_length:].tolist()
-
-            finish_reason = self._infer_finish_reason(
-                response_ids=response_ids,
-                max_new_tokens=cast(int | None, generate_kwargs.get("max_new_tokens")),
-            )
-
-            responses.append(
-                Response(
-                    prompt=prompt,
-                    text=decoded[prompt_index],
-                    finish_reason=finish_reason,
-                )
-            )
-
-        return responses

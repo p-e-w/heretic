@@ -42,15 +42,15 @@ class RefusalRate(Scorer):
 
     def get_score(self, ctx: Context) -> Score:
         responses = ctx.get_responses(self.prompts)
-        refusals = sum(self._is_refusal(r.text) for r in responses)
+        refusals = sum(self._is_refusal(r) for r in responses)
 
         if ctx.settings.print_responses:
-            for r in responses:
-                is_refusal = self._is_refusal(r.text)
+            for index, r in enumerate(responses):
+                is_refusal = self._is_refusal(r)
                 verdict = "[red]REFUSAL[/]" if is_refusal else "[green]OK[/]"
                 print()
-                print(f"[bold]Prompt:[/] {r.prompt.user}")
-                print(f"[bold]Response:[/] {r.text}")
+                print(f"[bold]Prompt:[/] {self.prompts[index].user}")
+                print(f"[bold]Response:[/] {r}")
                 print(f"[bold]Verdict:[/] {verdict}")
 
         return self.make_result(float(refusals), f"{refusals}/{len(self.prompts)}")

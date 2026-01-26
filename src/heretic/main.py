@@ -29,7 +29,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
-from optuna.trial import TrialState
+from optuna.trial import FrozenTrial, TrialState
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
@@ -376,11 +376,8 @@ def run():
     # to avoid issues where multiple different tokens that all start
     # with a space character lead to the common prefix ending with
     # a space, which would result in an uncommon tokenization.
-    response_texts = [r.text for r in responses]
-    model.response_prefix = (
-        commonprefix(response_texts).rstrip(" ") if response_texts else ""
-    )
-
+    model.response_prefix = commonprefix(responses).rstrip(" ")
+    
     # Suppress CoT output.
     if model.response_prefix.startswith("<think>"):
         # Most thinking models.

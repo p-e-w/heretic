@@ -131,9 +131,9 @@ class Scorer(Plugin, ABC):
             "Use the passed Context (e.g. `ctx.get_responses(...)`) inside `get_score(...)` / `start(ctx)`."
         )
 
-    def start(self, ctx: Context) -> None:
+    def setup(self, ctx: Context) -> None:
         """
-        Optional scorer initialization hook.
+        Runs before the scorer starts scoring responses.
 
         Override this in subclasses to do one-time setup (e.g. load prompts, compute
         baselines).

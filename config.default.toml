@@ -3,10 +3,10 @@
 # List of scorers/metrics to evaluate.
 # Each entry is an object:
 # { plugin = <plugin>, direction = <direction>, scale = <scale>, instance_name = <optional> }
-# where <direction> is one of {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}
+# where <direction> is one of "minimize", "maximize", "not_set" (aka do not optimize)
 scorers = [
-    { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = 1, scale = 1.0 },
-    { plugin = "heretic.scorers.kl_divergence.KLDivergence", direction = 1, scale = 1.0 },
+    { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = "minimize", scale = 1.0 },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", direction = "minimize", scale = 1.0 },
 ]
 
 # List of PyTorch dtypes to try when loading model tensors.

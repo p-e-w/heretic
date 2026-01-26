@@ -2,10 +2,10 @@
 # Copyright (C) 2025  Philipp Emanuel Weidmann <pew@worldwidemann.com>
 
 from enum import Enum
-from typing import Dict, TypeAlias
+from typing import Dict
 
 from optuna.study import StudyDirection
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic.dataclasses import dataclass
 from pydantic_settings import (
     BaseSettings,
@@ -56,10 +56,6 @@ class DatasetSpecification(BaseModel):
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
     )
 
-
-ObjectiveDirection: TypeAlias = StudyDirection
-
-
 @dataclass(frozen=True)
 class ScorerConfig:
     """
@@ -70,9 +66,21 @@ class ScorerConfig:
     """
 
     plugin: str
-    direction: ObjectiveDirection
+    direction: StudyDirection
     scale: float
     instance_name: str | None = None
+
+    @field_validator("direction", mode="before")
+    @classmethod
+    def parse_direction(cls, v):
+        if isinstance(v, str):
+            key = v.strip().upper()
+            try:
+                return StudyDirection[key]
+            except KeyError as e:
+                raise ValueError(f"Unknown direction, error: {e}")
+        else:
+            raise ValueError("Direction must be one of \"minimize\", \"maximize\", \"not_set\"")
 
 
 class Settings(BaseSettings):

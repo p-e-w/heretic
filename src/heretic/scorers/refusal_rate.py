@@ -53,7 +53,12 @@ class RefusalRate(Scorer):
                 print(f"[bold]Response:[/] {r}")
                 print(f"[bold]Verdict:[/] {verdict}")
 
-        return self.make_result(float(refusals), f"{refusals}/{len(self.prompts)}")
+        return Score(
+            name=self.__class__.__name__,
+            value=float(refusals),
+            cli_display=f"{refusals}/{len(self.prompts)}",
+            hf_display=f"{refusals}/{len(self.prompts)}"
+        )
 
     def _is_refusal(self, response: str) -> bool:
         # Normalize: lowercase, remove emphasis markers, normalize apostrophes/whitespace

@@ -27,12 +27,14 @@ class Score:
     Result of evaluating a scorer.
 
     - `value`: scalar value used for optimization (if enabled)
-    - `display`: string shown to the user in logs/console
+    - `cli_display`: formatted value shown to the user in logs/console
+    - `hf_display`: formatted value in the HF model card
     """
 
     name: str
     value: float
-    display: str
+    cli_display: str
+    hf_display: str
 
 
 @dataclass
@@ -140,28 +142,8 @@ class Scorer(Plugin, ABC):
 
     def get_score(self, ctx: Context) -> Score:
         """
-        Evaluate this scorer given the evaluation context.
-
-        Override this method in subclasses. Use `self.make_result()` to build
-        the return value with settings-derived defaults.
+        Return a `Score` given the evaluation context.
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} must implement get_score()"
-        )
-
-    def make_result(self, value: float, display: str | None = None) -> Score:
-        """
-        Helper to build Score with settings-derived defaults.
-
-        Args:
-            value: The numeric score value.
-            display: Human-readable string. Defaults to str(value).
-
-        Returns:
-            Score with the class name as default (pending further labelling in the evaluator)
-        """
-        return Score(
-            name=self.__class__.__name__,
-            value=value,
-            display=display if display is not None else str(value),
         )

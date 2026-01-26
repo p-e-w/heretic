@@ -409,7 +409,7 @@ def run():
         print()
         print("[bold]Metrics:[/]")
         for s in scores:
-            print(f"  * {s.name}: [bold]{s.display}[/]")
+            print(f"  * {s.name}: [bold]{s.cli_display}[/]")
         return
 
     print()
@@ -528,7 +528,7 @@ def run():
 
         print("  * Metrics:")
         for s in scores:
-            print(f"    * {s.name}: [bold]{s.display}[/]")
+            print(f"    * {s.name}: [bold]{s.cli_display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / (trial_index - start_index)) * (
@@ -542,7 +542,7 @@ def run():
             )
         trial.set_user_attr(
             "scores",
-            [{"name": s.name, "value": s.value, "display": s.display} for s in scores],
+            [s.__dict__ for s in scores],
         )
 
         return objective_values
@@ -815,18 +815,14 @@ def run():
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
                                 baseline_score_displays = {
-                                    s.name: s.display
+                                    s.name: s.hf_display
                                     for s in evaluator.baseline_scores
                                 }
-                                score_order = [
-                                    s.name for s in evaluator.baseline_scores
-                                ]
                                 card.text = (
                                     get_readme_intro(
                                         settings,
                                         trial,
                                         baseline_score_displays,
-                                        score_order,
                                     )
                                     + card.text
                                 )

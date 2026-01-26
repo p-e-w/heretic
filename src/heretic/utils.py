@@ -265,47 +265,25 @@ def get_readme_intro(
     settings: Settings,
     trial: Trial,
     baseline_score_displays: dict[str, str] | None = None,
-    score_order: list[str] | None = None,
 ) -> str:
     model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
 
     baseline_score_displays = baseline_score_displays or {}
 
     scores_raw = trial.user_attrs["scores"]
-    if not isinstance(scores_raw, list):
-        raise TypeError(
-            "trial.user_attrs['scores'] must be a list of dicts like "
-            "{'name': str, 'value': float, 'display': str}"
-        )
-
     scores_by_name: dict[str, dict[str, object]] = {}
-    scores_in_order: list[str] = []
+    score_names: list[str] = []
     for item in scores_raw:
-        if not isinstance(item, dict):
-            raise TypeError(
-                "trial.user_attrs['scores'] must be a list of dicts like "
-                "{'name': str, 'value': float, 'display': str}"
-            )
         name = item.get("name")
-        if not isinstance(name, str) or not name:
-            raise TypeError(
-                "trial.user_attrs['scores'] entries must include a non-empty string 'name'"
-            )
         scores_by_name[name] = item
-        scores_in_order.append(name)
+        score_names.append(name)
 
-    if score_order:
-        ordered = [n for n in score_order if n in scores_by_name]
-        remaining = [n for n in scores_in_order if n not in set(ordered)]
-        score_names = ordered + remaining
-    else:
-        score_names = scores_in_order
 
     score_rows = chr(10).join(
         [
             (
                 f"| **{name}** | "
-                f"{scores_by_name.get(name, {}).get('display', '—')} | "
+                f"{scores_by_name.get(name, {}).get('hf_display', '—')} | "
                 f"{baseline_score_displays.get(name, '—')} |"
             )
             for name in score_names

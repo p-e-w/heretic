@@ -53,4 +53,9 @@ class KLDivergence(Scorer):
             reduction="batchmean",
             log_target=True,
         ).item()
-        return self.make_result(kl, f"{kl:.4f}")
+        return Score(
+            name=self.__class__.__name__,
+            value=kl,
+            cli_display=f"{kl:.4f}",
+            hf_display=f"{kl:.4f}"
+        )

@@ -50,7 +50,7 @@ class Evaluator:
     def _print_baseline(self) -> None:
         """Print baseline scores summary."""
         for s in self.baseline_scores:
-            print(f"* Baseline {s.name}: [bold]{s.display}[/]")
+            print(f"* Baseline {s.name}: [bold]{s.cli_display}[/]")
 
     def _get_scorer_settings_raw(
         self, *, scorer_cls: type[Scorer], instance_name: str | None

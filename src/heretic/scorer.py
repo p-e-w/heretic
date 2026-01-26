@@ -46,16 +46,16 @@ class Context:
     Direct access to the underlying Model is intentionally not exposed.
     """
 
-    settings: "HereticSettings"
-    model: InitVar["Model"]
+    settings: HereticSettings
+    model: InitVar[Model]
 
-    _model: "Model" = field(init=False, repr=False)
+    _model: Model = field(init=False, repr=False)
 
     _responses_cache: dict[tuple[tuple[str, str], ...], list[str]] = field(
         default_factory=dict, init=False, repr=False
     )
 
-    def __post_init__(self, model: "Model") -> None:
+    def __post_init__(self, model: Model) -> None:
         self._model = model
 
     def _cache_key(self, prompts: list[Prompt]) -> tuple[tuple[str, str], ...]:
@@ -101,7 +101,7 @@ class Scorer(Plugin, ABC):
 
     def __init__(
         self,
-        heretic_settings: "HereticSettings",
+        heretic_settings: HereticSettings,
         settings: BaseModel | None = None,
     ):
         super().__init__(settings=settings)

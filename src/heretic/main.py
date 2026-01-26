@@ -397,12 +397,8 @@ def run():
     else:
         print("* None found")
 
-    try:
-        evaluator = Evaluator(settings, model)
-    except (ImportError, ValueError, TypeError) as e:
-        print(f"[red]Error initializing evaluator: {e}[/]")
-        return
-
+    evaluator = Evaluator(settings, model)
+    
     if settings.evaluate_model is not None:
         print()
         print(f"Loading model [bold]{settings.evaluate_model}[/]...")

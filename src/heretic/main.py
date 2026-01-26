@@ -377,7 +377,7 @@ def run():
     # with a space character lead to the common prefix ending with
     # a space, which would result in an uncommon tokenization.
     model.response_prefix = commonprefix(responses).rstrip(" ")
-    
+
     # Suppress CoT output.
     if model.response_prefix.startswith("<think>"):
         # Most thinking models.

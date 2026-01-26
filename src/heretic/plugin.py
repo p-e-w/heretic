@@ -16,6 +16,25 @@ from pydantic import BaseModel
 T = TypeVar("T")
 
 
+def get_plugin_namespace(model_extra, namespace: str) -> dict[str, Any]:
+    """
+    Returns the config dict from the `[<namespace>]` TOML table.
+    """
+    cur: Any = model_extra
+    for part in namespace.split("."):
+        if not isinstance(cur, dict):
+            return {}
+        cur = cur.get(part)
+
+    if cur is None:
+        return {}
+    if not isinstance(cur, dict):
+        raise TypeError(
+            f"Plugin namespace [{namespace}] must be a table/object, got {type(cur).__name__}"
+        )
+    return cur
+
+
 def load_plugin(
     name: str,
     base_class: type[T],

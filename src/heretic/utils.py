@@ -32,6 +32,21 @@ print = Console(highlight=False).print
 T = TypeVar("T")
 
 
+def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """
+    Recursively merge two dicts.
+
+    Values from `override` take precedence. Nested dicts are merged recursively.
+    """
+    merged: dict[str, Any] = dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(merged.get(k), dict):
+            merged[k] = deep_merge_dicts(merged[k], v)  # type: ignore[arg-type]
+        else:
+            merged[k] = v
+    return merged
+
+
 def is_notebook() -> bool:
     # Check for specific environment variables (Colab, Kaggle).
     # This is necessary because when running as a subprocess (e.g. !heretic),

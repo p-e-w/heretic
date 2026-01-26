@@ -10,9 +10,9 @@ from pydantic import BaseModel
 
 from .config import ScorerConfig, Settings
 from .model import Model
-from .plugin import load_plugin
+from .plugin import get_plugin_namespace, load_plugin
 from .scorer import Context, Score, Scorer
-from .utils import print
+from .utils import deep_merge_dicts, print
 
 
 class Evaluator:
@@ -21,7 +21,7 @@ class Evaluator:
     """
     Manages evaluation of the model using configured scorer plugins.
 
-    Loads prompts, establishes baseline metrics, and runs scorers during optimization.
+    Loads scorers, establishes baseline metrics, and runs scorers during optimization.
     """
 
     def __init__(self, settings: Settings, model: Model):
@@ -52,41 +52,6 @@ class Evaluator:
         for m in self.baseline_metrics:
             print(f"* Baseline {m.name}: [bold]{m.display}[/]")
 
-    def _get_plugin_namespace(self, namespace: str) -> dict[str, Any]:
-        """
-        Returns the config dict from the `[<namespace>]` TOML table.
-        """
-        extra = self.settings.model_extra or {}
-        cur: Any = extra
-        for part in namespace.split("."):
-            if not isinstance(cur, dict):
-                return {}
-            cur = cur.get(part)
-
-        if cur is None:
-            return {}
-        if not isinstance(cur, dict):
-            raise TypeError(
-                f"Plugin namespace [{namespace}] must be a table/object, got {type(cur).__name__}"
-            )
-        return cur
-
-    def _deep_merge_dicts(
-        self, base: dict[str, Any], override: dict[str, Any]
-    ) -> dict[str, Any]:
-        """
-        Recursively merge two dicts.
-
-        Values from `override` take precedence. Nested dicts are merged recursively.
-        """
-        merged: dict[str, Any] = dict(base)
-        for k, v in override.items():
-            if isinstance(v, dict) and isinstance(merged.get(k), dict):
-                merged[k] = self._deep_merge_dicts(merged[k], v)  # type: ignore[arg-type]
-            else:
-                merged[k] = v
-        return merged
-
     def _get_scorer_settings_raw(
         self, *, scorer_cls: type[Scorer], instance_name: str | None
     ) -> dict[str, Any]:
@@ -100,7 +65,7 @@ class Evaluator:
         """
         class_name = scorer_cls.__name__
         canonical_ns = f"scorer.{class_name}"
-        raw_class_table = self._get_plugin_namespace(canonical_ns)
+        raw_class_table = get_plugin_namespace(self.settings.model_extra, canonical_ns)
 
         if instance_name is not None and "." in instance_name:
             raise ValueError(
@@ -110,7 +75,9 @@ class Evaluator:
         raw_instance_table: dict[str, Any] = {}
         if instance_name:
             instance_ns = f"scorer.{class_name}_{instance_name}"
-            raw_instance_table = self._get_plugin_namespace(instance_ns)
+            raw_instance_table = get_plugin_namespace(
+                self.settings.model_extra, instance_ns
+            )
 
         settings_model = scorer_cls.get_settings_model()
         if settings_model is None:
@@ -122,7 +89,7 @@ class Evaluator:
         instance_filtered = {
             k: v for k, v in raw_instance_table.items() if k in allowed_keys
         }
-        return self._deep_merge_dicts(base_filtered, instance_filtered)
+        return deep_merge_dicts(base_filtered, instance_filtered)
 
     def _load_scorers(self) -> list[Scorer]:
         """Load and instantiate all configured scorer plugins."""
@@ -154,7 +121,9 @@ class Evaluator:
             raw_settings = self._get_scorer_settings_raw(
                 scorer_cls=scorer_cls, instance_name=instance_name
             )
-            scorer_settings: BaseModel | None = scorer_cls.validate_settings(raw_settings)
+            scorer_settings: BaseModel | None = scorer_cls.validate_settings(
+                raw_settings
+            )
 
             scorer = scorer_cls(
                 heretic_settings=self.settings,

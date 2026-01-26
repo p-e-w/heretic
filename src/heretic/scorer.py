@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import InitVar, dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn
 
 from pydantic import BaseModel
 
@@ -33,6 +33,7 @@ class Score:
     name: str
     value: float
     display: str
+
 
 @dataclass
 class Context:

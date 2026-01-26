@@ -152,14 +152,6 @@ class Model:
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
 
-    def _strip_pad_tokens(self, texts: list[str]) -> list[str]:
-        # Strip out pad tokens from batch generation (some tokenizers insert them
-        # into decoded text for batched decoding).
-        pad = self.tokenizer.pad_token
-        if not pad:
-            return texts
-        return [t.replace(pad, "") for t in texts]
-
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PreTrainedModel)
@@ -561,8 +553,7 @@ class Model:
         responses = []
         for batch in batchify(prompts, self.settings.batch_size):
             for response in self.get_responses(
-                batch,
-                skip_special_tokens=skip_special_tokens
+                batch, skip_special_tokens=skip_special_tokens
             ):
                 responses.append(response)
         return responses
@@ -629,12 +620,12 @@ class Model:
         return logits
 
     def get_logits_batched(self, prompts: list[Prompt]) -> Tensor:
-        logprobs = []
+        logits = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            logprobs.append(self.get_logits(batch))
+            logits.append(self.get_logits(batch))
 
-        return torch.cat(logprobs, dim=0)
+        return torch.cat(logits, dim=0)
 
     def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
         # This cast is valid because str is the return type

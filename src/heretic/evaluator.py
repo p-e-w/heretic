@@ -223,10 +223,3 @@ class Evaluator:
             for cfg in self._scorer_configs
             if cfg.direction != StudyDirection.NOT_SET
         ]
-
-    def get_baseline_refusals(self) -> int:
-        """Get baseline refusal count (for backwards compat in main.py)."""
-        for scorer, m in zip(self.scorers, self.baseline_metrics):
-            if scorer.__class__.__name__ == "RefusalRate":
-                return int(m.value)
-        return 0

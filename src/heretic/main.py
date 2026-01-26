@@ -29,7 +29,6 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
-from optuna.study import StudyDirection
 from optuna.trial import TrialState
 from pydantic import ValidationError
 from questionary import Choice

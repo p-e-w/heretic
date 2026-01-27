@@ -616,7 +616,8 @@ class Model:
         # Logits for the first (only) generated token.
         # This cast is valid because we passed output_scores=True above.
         logits = cast(tuple[FloatTensor], outputs.scores)[0]
-
+        
+        # The returned tensor has shape (prompt, token).
         return logits
 
     def get_logits_batched(self, prompts: list[Prompt]) -> Tensor:

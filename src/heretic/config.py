@@ -97,14 +97,6 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="allow")
 
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
-    scorers: list[ScorerConfig] = Field(
-        default_factory=list,
-        description=(
-            "List of scorer plugin configs. Each entry is an object"
-            " {plugin=<plugin>, direction=<direction>, scale=<scale>}."
-            " <direction> is one of {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}."
-        ),
-    )
 
     evaluate_model: str | None = Field(
         default=None,
@@ -190,6 +182,15 @@ class Settings(BaseSettings):
     residual_plot_style: str = Field(
         default="dark_background",
         description="Matplotlib style sheet to use for plots of residual vectors.",
+    )
+
+    scorers: list[ScorerConfig] = Field(
+        default_factory=list,
+        description=(
+            "List of scorer plugin configs. Each entry is an object"
+            " {plugin=<plugin>, direction=<direction>, scale=<scale>}."
+            " <direction> is one of {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}."
+        ),
     )
 
     n_trials: int = Field(

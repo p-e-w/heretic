@@ -63,33 +63,30 @@ class Evaluator:
         - Instance overrides live in `[scorer.ClassName_<instance_name>]` (preferred)
         - Only merge/validate keys that exist in the scorer Settings schema
         """
-        class_name = scorer_cls.__name__
-        canonical_ns = f"scorer.{class_name}"
-        raw_class_table = get_plugin_namespace(self.settings.model_extra, canonical_ns)
-
-        if instance_name is not None and "." in instance_name:
-            raise ValueError(
-                f"Invalid instance_name '{instance_name}' for scorer {class_name}: '.' is not allowed"
-            )
-
-        raw_instance_table: dict[str, Any] = {}
-        if instance_name:
-            instance_ns = f"scorer.{class_name}_{instance_name}"
-            raw_instance_table = get_plugin_namespace(
-                self.settings.model_extra, instance_ns
-            )
-
         settings_model = scorer_cls.get_settings_model()
         if settings_model is None:
             # No settings schema: nothing to merge/validate.
             return {}
 
+        class_name = scorer_cls.__name__
+        if instance_name and "." in instance_name:
+            raise ValueError(
+                f"Invalid instance_name '{instance_name}' for scorer {class_name}: '.' is not allowed"
+            )
+
+        namespaces = [f"scorer.{class_name}"]
+        if instance_name:
+            namespaces.append(f"scorer.{class_name}_{instance_name}")
+
+        merged_settings: dict[str, Any] = {}
         allowed_keys = set(settings_model.model_fields.keys())
-        base_filtered = {k: v for k, v in raw_class_table.items() if k in allowed_keys}
-        instance_filtered = {
-            k: v for k, v in raw_instance_table.items() if k in allowed_keys
-        }
-        return deep_merge_dicts(base_filtered, instance_filtered)
+
+        for ns in namespaces:
+            raw_table = get_plugin_namespace(self.settings.model_extra, ns)
+            filtered = {k: v for k, v in raw_table.items() if k in allowed_keys}
+            merged_settings = deep_merge_dicts(merged_settings, filtered)
+
+        return merged_settings
 
     def _load_scorers(self) -> list[Scorer]:
         """Load and instantiate all configured scorer plugins."""

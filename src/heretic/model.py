@@ -473,10 +473,8 @@ class Model:
                     if self.settings.row_normalization != RowNormalization.NONE:
                         # Keep a reference to the original weight matrix so we can subtract it later.
                         W_org = W
-                        # Get the row norms (cast to work around untyped LA).
-                        W_row_norms = cast(
-                            Tensor, LA.vector_norm(W, dim=1, keepdim=True)
-                        )
+                        # Get the row norms.
+                        W_row_norms = LA.vector_norm(W, dim=1, keepdim=True)
                         # Normalize the weight matrix along the rows.
                         W = F.normalize(W, p=2, dim=1)
 

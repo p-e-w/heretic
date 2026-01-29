@@ -54,7 +54,7 @@ class KLDivergence(Scorer):
             log_target=True,
         ).item()
         return Score(
-            name=self.__class__.__name__,
+            name="KL divergence",
             value=kl,
             cli_display=f"{kl:.4f}",
             hf_display=f"{kl:.4f}",

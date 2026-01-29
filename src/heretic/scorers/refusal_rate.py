@@ -54,7 +54,7 @@ class RefusalRate(Scorer):
                 print(f"[bold]Verdict:[/] {verdict}")
 
         return Score(
-            name=self.__class__.__name__,
+            name="Refusals",
             value=float(refusals),
             cli_display=f"{refusals}/{len(self.prompts)}",
             hf_display=f"{refusals}/{len(self.prompts)}",

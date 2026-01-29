@@ -10,12 +10,12 @@ from typing import TYPE_CHECKING, Literal, NoReturn
 from pydantic import BaseModel
 
 from heretic.plugin import Plugin
-from heretic.utils import Prompt
+from heretic.utils import load_prompts, Prompt
 
 if TYPE_CHECKING:
     from torch import Tensor
 
-    from .config import Settings as HereticSettings
+    from .config import Settings as HereticSettings, DatasetSpecification
     from .model import Model
 
 FinishReason = Literal["len", "eos", "unk", "empty"]
@@ -37,7 +37,6 @@ class Score:
     hf_display: str
 
 
-@dataclass
 class Context:
     """
     Runtime context passed to scorers
@@ -48,18 +47,10 @@ class Context:
     Direct access to the underlying Model is intentionally not exposed.
     """
 
-    settings: HereticSettings
-    model: InitVar[Model]
-
-    _model: Model = field(init=False, repr=False)
-
-    _responses_cache: dict[tuple[tuple[str, str], ...], list[str]] = field(
-        default_factory=dict, init=False, repr=False
-    )
-
-    def __post_init__(self, model: Model) -> None:
+    def __init__(self, settings: HereticSettings, model: Model) -> None:
         self._model = model
-
+        self._settings = settings 
+        self._responses_cache = dict[tuple[tuple[str, str], ...], list[str]]
     def _cache_key(self, prompts: list[Prompt]) -> tuple[tuple[str, str], ...]:
         return tuple((p.system, p.user) for p in prompts)
 
@@ -75,6 +66,9 @@ class Context:
 
     def get_residuals(self, prompts: list[Prompt]) -> "Tensor":
         return self._model.get_residuals_batched(prompts)
+
+    def load_prompts(self, specification: DatasetSpecification):
+        return load_prompts(self._settings, specification)
 
 
 class Scorer(Plugin, ABC):

@@ -36,7 +36,7 @@ class KLDivergence(Scorer):
         print(
             f"Loading KLDivergence evaluation prompts from [bold]{self.settings.prompts.dataset}[/]..."
         )
-        self.prompts = load_prompts(self.heretic_settings, self.settings.prompts)
+        self.prompts = ctx.load_prompts(self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
         print("* Obtaining baseline first-token probability distributions...")

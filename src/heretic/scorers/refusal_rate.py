@@ -37,7 +37,7 @@ class RefusalRate(Scorer):
         print(
             f"Loading RefusalRate evaluation prompts from [bold]{self.settings.prompts.dataset}[/]..."
         )
-        self.prompts = load_prompts(self.heretic_settings, self.settings.prompts)
+        self.prompts = ctx.load_prompts(self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
     def get_score(self, ctx: Context) -> Score:

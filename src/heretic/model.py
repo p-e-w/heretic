@@ -645,10 +645,11 @@ class Model:
         residuals = residuals.to(torch.float32)
 
         if 0 <= self.settings.winsorization_quantile < 1:
-            # Perform symmetric magnitude winsorization on the residuals.
+            # Apply symmetric winsorization to each layer of the per-prompt residuals.
             abs_residuals = torch.abs(residuals)
+            # Get the (prompt, layer, 1) quantiles of the (prompt, layer, component) residuals.
             thresholds = torch.quantile(
-                abs_residuals, self.settings.winsorization_quantile, 2, True
+                abs_residuals, self.settings.winsorization_quantile, dim=2, keepdim=True
             )
             return torch.clamp(residuals, -thresholds, thresholds)
 

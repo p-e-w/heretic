@@ -188,8 +188,9 @@ class Settings(BaseSettings):
     winsorization_quantile: float = Field(
         default=1.0,
         description=(
-            "The winsorization to apply to the residuals, expressed as the quantile to clamp to (between 0 and 1). "
-            "Disabled by default. Example: winsorization_quantile = 0.95 applies a 90% winsorization."
+            "The symmetric winsorization to apply to each layer of the per-prompt residuals, "
+            "expressed as the quantile to clamp to (between 0 and 1). Disabled by default. "
+            "Example: winsorization_quantile = 0.95 applies a 90% winsorization."
         ),
     )
 

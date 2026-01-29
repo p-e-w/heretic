@@ -59,3 +59,11 @@ class KLDivergence(Scorer):
             cli_display=f"{kl:.4f}",
             hf_display=f"{kl:.4f}",
         )
+
+    def get_baseline_score(self, ctx: Context) -> Score:
+        return Score(
+            name="KL divergence",
+            value=0,
+            cli_display="0 (by definition)",
+            hf_display="0 **(by definition)**",
+        )

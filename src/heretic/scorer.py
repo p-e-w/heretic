@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, NoReturn
 
 from pydantic import BaseModel
@@ -49,8 +49,8 @@ class Context:
 
     def __init__(self, settings: HereticSettings, model: Model) -> None:
         self._model = model
-        self._settings = settings 
-        self._responses_cache = dict[tuple[tuple[str, str], ...], list[str]]
+        self._settings = settings
+        self._responses_cache: dict[tuple[tuple[str, str], ...], list[str]] = {}
     def _cache_key(self, prompts: list[Prompt]) -> tuple[tuple[str, str], ...]:
         return tuple((p.system, p.user) for p in prompts)
 
@@ -141,3 +141,12 @@ class Scorer(Plugin, ABC):
         raise NotImplementedError(
             f"{self.__class__.__name__} must implement get_score()"
         )
+
+    def get_baseline_score(self, ctx: Context) -> Score:
+        """
+        Calculates a baseline score.
+
+        Defaults to the current `get_score(...)` implementation and can be
+        overridden by scorers that need a distinct baseline.
+        """
+        return self.get_score(ctx)

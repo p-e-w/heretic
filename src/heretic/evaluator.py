@@ -35,7 +35,7 @@ class Evaluator:
         self._init_scorers()
 
         # Establish baseline scores (pre-abliteration)
-        self.baseline_scores = self.get_scores()
+        self.baseline_scores = self.get_baseline_scores()
         self._print_baseline()
 
     def _init_scorers(self) -> None:
@@ -157,6 +157,25 @@ class Evaluator:
         scores: list[Score] = []
         for scorer, label in zip(self.scorers, self._scorer_instance_labels):
             s = scorer.get_score(ctx)
+            if label:
+                # Add label externally
+                s.name = f"{s.name} - {label}"
+            scores.append(s)
+        return scores
+
+    def get_baseline_scores(self) -> list[Score]:
+        """
+        Run all scorers and return their baseline scores
+        If there are multiple instances of the same scorer, the `Score`'s `name`
+        is labeled externally as `<base> - <instance_name>`.
+
+        Returns:
+            List of Score from each scorer.
+        """
+        ctx = Context(settings=self.settings, model=self.model)
+        scores: list[Score] = []
+        for scorer, label in zip(self.scorers, self._scorer_instance_labels):
+            s = scorer.get_baseline_score(ctx)
             if label:
                 # Add label externally
                 s.name = f"{s.name} - {label}"

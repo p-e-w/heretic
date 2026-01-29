@@ -88,7 +88,7 @@ def load_plugin(
         module_name = f"heretic_plugin_{plugin_path}"
 
         # Reuse already-loaded modules to avoid re-executing the plugin on repeated loads.
-        module = sys.modules.get(plugin_path)
+        module = sys.modules.get(module_name)
         if module is None:
             spec = importlib.util.spec_from_file_location(module_name, plugin_path)
             if spec is None or spec.loader is None:

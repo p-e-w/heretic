@@ -93,7 +93,7 @@ class Scorer(Plugin, ABC):
         if "__init__" in cls.__dict__:
             raise TypeError(
                 f"{cls.__name__} must not define __init__(). "
-                "Use an optional start(ctx) method for scorer-specific initialization."
+                "Use an optional init(ctx) method for scorer-specific initialization."
             )
 
     def __init__(

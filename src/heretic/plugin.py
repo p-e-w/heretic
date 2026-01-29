@@ -48,20 +48,7 @@ def load_plugin(
     - `path/to/plugin.py:MyPluginClass` (relative or absolute): load `MyPluginClass`
       from that file.
     - `fully.qualified.module.MyPluginClass`: import the module and load the class.
-    """
-
-    def import_module(module_name: str) -> ModuleType:
-        try:
-            return importlib.import_module(module_name)
-        except ImportError as e:
-            raise ImportError(f"Error loading plugin '{name}': {e}") from e
-
-    def stable_module_name_for_path(plugin_path: Path) -> str:
-        # Module names can't contain path characters and we want to
-        # prevent clashes between two different files with the same name,
-        # so a hash of the path is the safest here
-        digest = sha256(str(plugin_path).encode("utf-8")).hexdigest()[:12]
-        return f"_heretic_plugin_{plugin_path.stem}_{digest}"
+    """ 
 
     def validate_class(module: ModuleType, class_name: str) -> type[Any]:
         """
@@ -96,10 +83,13 @@ def load_plugin(
         if not plugin_path.is_file():
             raise ImportError(f"Plugin file '{plugin_path}' does not exist")
 
-        module_name = stable_module_name_for_path(plugin_path)
+        # We're writing directly to the sys.modules dict,
+        # so the typical restrictions on module names
+        # (no dots, slashes, etc.) don't apply
+        module_name = f"heretic_plugin_{plugin_path}"
 
         # Reuse already-loaded modules to avoid re-executing the plugin on repeated loads.
-        module = sys.modules.get(module_name)
+        module = sys.modules.get(plugin_path)
         if module is None:
             spec = importlib.util.spec_from_file_location(module_name, plugin_path)
             if spec is None or spec.loader is None:
@@ -126,7 +116,10 @@ def load_plugin(
                 "Import-based plugin must use the form 'fully.qualified.module.ClassName'"
             )
         module_name, class_name = name.rsplit(".", 1)
-        module = import_module(module_name)
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError as e:
+            raise ImportError(f"Error loading plugin '{name}': {e}") from e
         plugin_cls = validate_class(module, class_name)
 
     if not issubclass(plugin_cls, base_class):

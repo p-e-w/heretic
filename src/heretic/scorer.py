@@ -28,13 +28,13 @@ class Score:
 
     - `value`: scalar value used for optimization (if enabled)
     - `cli_display`: formatted value shown to the user in logs/console
-    - `hf_display`: formatted value in the HF model card
+    - `md_display`: formatted value in the HF model card
     """
 
     name: str
     value: float
     cli_display: str
-    hf_display: str
+    md_display: str
 
 
 class Context:

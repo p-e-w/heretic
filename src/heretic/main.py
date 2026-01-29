@@ -815,7 +815,7 @@ def run():
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
                                 baseline_score_displays = {
-                                    s.name: s.hf_display
+                                    s.name: s.md_display
                                     for s in evaluator.baseline_scores
                                 }
                                 card.text = (

@@ -282,7 +282,7 @@ def get_readme_intro(
         [
             (
                 f"| **{name}** | "
-                f"{scores_by_name.get(name, {}).get('hf_display', '—')} | "
+                f"{scores_by_name.get(name, {}).get('md_display', '—')} | "
                 f"{baseline_score_displays.get(name, '—')} |"
             )
             for name in score_names

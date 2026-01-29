@@ -66,7 +66,7 @@ class RefusalRate(Scorer):
             name="Refusals",
             value=float(refusals),
             cli_display=f"{refusals}/{len(self.prompts)}",
-            hf_display=f"{refusals}/{len(self.prompts)}",
+            md_display=f"{refusals}/{len(self.prompts)}",
         )
 
     def _is_refusal(self, response: str) -> bool:

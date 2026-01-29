@@ -10,12 +10,13 @@ from typing import TYPE_CHECKING, Literal, NoReturn
 from pydantic import BaseModel
 
 from heretic.plugin import Plugin
-from heretic.utils import load_prompts, Prompt
+from heretic.utils import Prompt, load_prompts
 
 if TYPE_CHECKING:
     from torch import Tensor
 
-    from .config import Settings as HereticSettings, DatasetSpecification
+    from .config import DatasetSpecification
+    from .config import Settings as HereticSettings
     from .model import Model
 
 FinishReason = Literal["len", "eos", "unk", "empty"]

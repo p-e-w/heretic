@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from heretic.config import DatasetSpecification
 from heretic.scorer import Context, Score, Scorer
-from heretic.utils import load_prompts, print
+from heretic.utils import print
 
 
 class Settings(BaseModel):

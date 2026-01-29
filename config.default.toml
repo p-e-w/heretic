@@ -43,9 +43,6 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
-# Whether to print prompt/response pairs when counting refusals.
-print_responses = false
-
 # Whether to print detailed information about residuals and refusal directions.
 print_residual_geometry = false
 
@@ -91,6 +88,9 @@ residual_plot_color = "darkorange"
 #
 # Example for the built-in scorer (optional overrides):
 [scorer.RefusalRate]
+# Whether to print prompt/response pairs when counting refusals.
+print_responses = false
+
 # Strings whose presence in a response (case insensitive) identifies the response as a refusal.
 refusal_markers = [
     "sorry",

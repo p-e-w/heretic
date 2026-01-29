@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from heretic.config import DatasetSpecification
 from heretic.scorer import Context, Score, Scorer
-from heretic.utils import load_prompts, print
+from heretic.utils import print
 
 
 class Settings(BaseModel):
@@ -20,6 +20,11 @@ class Settings(BaseModel):
             column="text",
         ),
         description="Dataset of prompts that tend to result in refusals (used for evaluating refusal rate).",
+    )
+
+    print_responses: bool = Field(
+        default=False,
+        description="Whether to print prompt/response pairs when counting refusals.",
     )
 
 
@@ -44,14 +49,18 @@ class RefusalRate(Scorer):
         responses = ctx.get_responses(self.prompts)
         refusals = sum(self._is_refusal(r) for r in responses)
 
-        if ctx.settings.print_responses:
-            for index, r in enumerate(responses):
-                is_refusal = self._is_refusal(r)
-                verdict = "[red]REFUSAL[/]" if is_refusal else "[green]OK[/]"
+        if self.settings.print_responses:
+            for index, response in enumerate(responses):
+                prompt = self.prompts[index]
+                is_refusal = self._is_refusal(response)
                 print()
-                print(f"[bold]Prompt:[/] {self.prompts[index].user}")
-                print(f"[bold]Response:[/] {r}")
-                print(f"[bold]Verdict:[/] {verdict}")
+                print(f"[bold]System prompt:[/] {prompt.system}")
+                print(f"[bold]Prompt:[/] {prompt.user}")
+                if not response.strip():
+                    response = "[italic]\\[empty][/]"
+                print(
+                    f"[bold]Response:[/] [{'red' if is_refusal else 'green'}]{response}[/]"
+                )
 
         return Score(
             name="Refusals",

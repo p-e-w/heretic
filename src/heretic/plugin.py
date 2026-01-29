@@ -40,8 +40,9 @@ def load_plugin(
     base_class: type[T],
 ) -> type[T]:
     """
-    Load a plugin class from either a filesystem `.py` file or a fully-qualified
-    Python import path.
+    Load a plugin class from either a filesystem `.py` file or a fully-qualified Python import path.
+    Also checks that the class exists in the module and that it
+    subclasses the correct Plugin subclass (e.g Scorer).
 
     Accepted forms:
     - `path/to/plugin.py:MyPluginClass` (relative or absolute): load `MyPluginClass`
@@ -61,6 +62,23 @@ def load_plugin(
         # so a hash of the path is the safest here
         digest = sha256(str(plugin_path).encode("utf-8")).hexdigest()[:12]
         return f"_heretic_plugin_{plugin_path.stem}_{digest}"
+
+    def validate_class(module: ModuleType, class_name: str) -> type[Any]:
+        """
+        Checks that the module actually exports the class as claimed and returns the class.
+        """
+        obj = getattr(module, class_name, None)
+        if not inspect.isclass(obj):
+            raise ValueError(
+                f"Plugin '{name}' does not export a class named '{class_name}'"
+            )
+        return obj
+
+    # common user trap with filepath imports
+    if name.endswith(".py"):
+        raise ValueError(
+            "You must append the plugin class name to the filepath like this: path/to/plugin.py:ClassName"
+        )
 
     # file path with explicit class name, e.g "C:\\path\\plugin.py:MyPlugin"
     if ":" in name:
@@ -99,13 +117,8 @@ def load_plugin(
             except Exception:
                 sys.modules.pop(module_name, None)
                 raise
-
-        obj = getattr(module, class_name, None)
-        if not inspect.isclass(obj):
-            raise ValueError(
-                f"Plugin '{name}' does not export a class named '{class_name}'"
-            )
-        plugin_cls = obj
+            
+        plugin_cls = validate_class(module, class_name)
     # Fully-qualified import path, e.g "heretic.scorers.refusal_rate.RefusalRate"
     else:
         if "." not in name:
@@ -114,12 +127,7 @@ def load_plugin(
             )
         module_name, class_name = name.rsplit(".", 1)
         module = import_module(module_name)
-        obj = getattr(module, class_name, None)
-        if not inspect.isclass(obj):
-            raise ValueError(
-                f"Plugin '{name}' does not export a class named '{class_name}'"
-            )
-        plugin_cls = obj
+        plugin_cls = validate_class(module, class_name)
 
     if not issubclass(plugin_cls, base_class):
         raise TypeError(f"Plugin '{name}' must subclass {base_class.__name__}")

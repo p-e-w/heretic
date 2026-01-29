@@ -52,6 +52,7 @@ class Context:
         self._model = model
         self._settings = settings
         self._responses_cache: dict[tuple[tuple[str, str], ...], list[str]] = {}
+
     def _cache_key(self, prompts: list[Prompt]) -> tuple[tuple[str, str], ...]:
         return tuple((p.system, p.user) for p in prompts)
 

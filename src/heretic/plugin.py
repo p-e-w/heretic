@@ -47,7 +47,7 @@ def load_plugin(
     - `path/to/plugin.py:MyPluginClass` (relative or absolute): load `MyPluginClass`
       from that file.
     - `fully.qualified.module.MyPluginClass`: import the module and load the class.
-    """ 
+    """
 
     def validate_class(module: ModuleType, class_name: str) -> type[Any]:
         """
@@ -106,7 +106,7 @@ def load_plugin(
             except Exception:
                 sys.modules.pop(module_name, None)
                 raise
-            
+
         plugin_cls = validate_class(module, class_name)
     # Fully-qualified import path, e.g "heretic.scorers.refusal_rate.RefusalRate"
     else:

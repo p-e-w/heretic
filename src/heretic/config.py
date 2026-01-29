@@ -124,7 +124,7 @@ class Settings(BaseSettings):
         default=False,
         description=(
             "Whether to adjust the refusal directions so that only the component that is "
-            "orthogonal to the harmless direction is subtracted during abliteration."
+            "orthogonal to the good direction is subtracted during abliteration."
         ),
     )
 

@@ -35,7 +35,7 @@ max_batch_size = 128
 max_response_length = 100
 
 # Whether to adjust the refusal directions so that only the component that is
-# orthogonal to the harmless direction is subtracted during abliteration.
+# orthogonal to the good direction is subtracted during abliteration.
 orthogonalize_direction = false
 
 # How to apply row normalization of the weights. Options:

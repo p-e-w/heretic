@@ -55,12 +55,12 @@ class AbliterationParameters:
 class Model:
     model: PreTrainedModel | PeftModel
     tokenizer: PreTrainedTokenizerBase
+    peft_config: LoraConfig
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self.response_prefix = ""
         self.needs_reload = False
-        self.lora_rank: int = None
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -170,17 +170,17 @@ class Model:
 
         if self.settings.row_normalization != RowNormalization.FULL:
             # Rank 1 is sufficient for directional ablation without renormalization.
-            self.lora_rank = 1
+            lora_rank = 1
         else:
             # Row magnitude preservation introduces nonlinear effects. A rank of 3 is enough to explain
             # most of the variance in the delta matrix, and reduction of the spectral norm of the error
             # of the reconstructed matrix falls off at higher ranks.
-            self.lora_rank = 3
+            lora_rank = 3
 
-        peft_config = LoraConfig(
-            r=self.lora_rank,
+        self.peft_config = LoraConfig(
+            r=lora_rank,
             target_modules=target_modules,
-            lora_alpha=self.lora_rank,  # Apply adapter at full strength.
+            lora_alpha=lora_rank,  # Apply adapter at full strength.
             lora_dropout=0,
             bias="none",
             # Even if we're using AutoModelForImageTextToText, this is still correct, as it is (post-vision)
@@ -189,9 +189,9 @@ class Model:
             task_type="CAUSAL_LM",
         )
 
-        # peft_config is a LoraConfig object rather than a dictionary,
+        # self.peft_config is a LoraConfig object rather than a dictionary,
         # so the result is a PeftModel rather than a PeftMixedModel.
-        self.model = cast(PeftModel, get_peft_model(self.model, peft_config))
+        self.model = cast(PeftModel, get_peft_model(self.model, self.peft_config))
 
         print(
             f"[green]LoRA adapters initialized (targets: {', '.join(target_modules)})[/]"
@@ -247,18 +247,8 @@ class Model:
             )
 
             # Apply LoRA adapters to the CPU model
-
             print("* Applying LoRA adapters...")
-            target_modules = self.get_abliterable_components()
-            peft_config = LoraConfig(
-                r=self.lora_rank,
-                target_modules=target_modules,
-                lora_alpha=self.lora_rank,  # Apply adapter at full strength.
-                lora_dropout=0,
-                bias="none",
-                task_type="CAUSAL_LM",
-            )
-            peft_model = get_peft_model(base_model, peft_config)
+            peft_model = get_peft_model(base_model, self.peft_config)
 
             # Copy the trained adapter weights
             for name, param in peft_model.named_parameters():
@@ -512,7 +502,7 @@ class Model:
                         # Subtract the original matrix to turn W into a delta.
                         W = W - W_org
                         # Use a low-rank SVD to get an approximation of the matrix.
-                        r = self.lora_rank
+                        r = self.peft_config.r
                         U, S, Vh = torch.svd_lowrank(W, q=2 * r + 4, niter=6)
                         # Truncate it to the part we want to store in the LoRA adapter.
                         # Note: svd_lowrank actually returns V, so transpose it to get Vh.

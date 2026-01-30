@@ -132,7 +132,7 @@ class Scorer(Plugin, ABC):
     def model(self) -> NoReturn:  # type: ignore[override]
         raise AttributeError(
             "Direct access to the underlying Model is intentionally not exposed to scorers. "
-            "Use the passed Context (e.g. `ctx.get_responses(...)`) inside `get_score(...)` / `start(ctx)`."
+            "Use the passed Context (e.g. `ctx.get_responses(...)`) inside `get_score(...)` / `init(ctx)`."
         )
 
     def init(self, ctx: Context) -> None:

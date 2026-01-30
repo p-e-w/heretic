@@ -31,6 +31,10 @@ class KLDivergence(Scorer):
 
     settings: Settings
 
+    @property
+    def score_name(self) -> str:
+        return "KL divergence"
+
     def init(self, ctx: Context) -> None:
         print()
         print(
@@ -54,7 +58,7 @@ class KLDivergence(Scorer):
             log_target=True,
         ).item()
         return Score(
-            name="KL divergence",
+            name=self.score_name,
             value=kl,
             cli_display=f"{kl:.4f}",
             md_display=f"{kl:.4f}",
@@ -62,7 +66,7 @@ class KLDivergence(Scorer):
 
     def get_baseline_score(self, ctx: Context) -> Score:
         return Score(
-            name="KL divergence",
+            name=self.score_name,
             value=0,
             cli_display="0 (by definition)",
             md_display="0 *(by definition)*",

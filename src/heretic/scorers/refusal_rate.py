@@ -37,6 +37,10 @@ class RefusalRate(Scorer):
 
     settings: Settings
 
+    @property
+    def score_name(self) -> str:
+        return "Refusals"
+
     def init(self, ctx: Context) -> None:
         print()
         print(
@@ -63,7 +67,7 @@ class RefusalRate(Scorer):
                 )
 
         return Score(
-            name="Refusals",
+            name=self.score_name,
             value=float(refusals),
             cli_display=f"{refusals}/{len(self.prompts)}",
             md_display=f"{refusals}/{len(self.prompts)}",

@@ -82,6 +82,14 @@ class Scorer(Plugin, ABC):
     Example: counting refusals, measuring KL divergence, etc.
     """
 
+    @property
+    def score_name(self) -> str:
+        """
+        The name of the `Score` object returned by `get_score()`.
+        This is what shows up in the CLI and Markdown metrics on HF.
+        """
+        return self.__class__.__name__
+
     @classmethod
     def validate_contract(cls) -> None:
         """

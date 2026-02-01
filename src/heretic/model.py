@@ -172,10 +172,8 @@ class Model:
             # Rank 1 is sufficient for directional ablation without renormalization.
             lora_rank = 1
         else:
-            # Row magnitude preservation introduces nonlinear effects. A rank of 3 is enough to explain
-            # most of the variance in the delta matrix, and reduction of the spectral norm of the error
-            # of the reconstructed matrix falls off at higher ranks.
-            lora_rank = 3
+            # Row magnitude preservation introduces nonlinear effects.
+            lora_rank = self.settings.full_normalization_lora_rank
 
         self.peft_config = LoraConfig(
             r=lora_rank,

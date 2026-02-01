@@ -42,8 +42,13 @@ orthogonalize_direction = false
 # 'none' (no normalization),
 # 'pre' (compute LoRA adapter relative to row-normalized weights),
 # 'full' (like 'pre', but re-normalizes to preserve original row magnitudes).
-# Note: Row magnitude preservation is approximate due to non-linear effects.
 row_normalization = "none"
+
+# The rank of the LoRA adapter to use when 'full' row normalization is used.
+# Row magnitude preservation is approximate due to non-linear efects,
+# and this determines the rank of that approximation. Higher ranks produce
+# larger output files and may slow down evaluation.
+full_normalization_lora_rank = 3
 
 # Whether to print prompt/response pairs when counting refusals.
 print_responses = false

@@ -134,8 +134,17 @@ class Settings(BaseSettings):
             "How to apply row normalization of the weights. Options: "
             "'none' (no normalization), "
             "'pre' (compute LoRA adapter relative to row-normalized weights), "
-            "'full' (like 'pre', but renormalizes to preserve original row magnitudes). "
-            "Note: Row magnitude preservation is approximate due to non-linear effects."
+            "'full' (like 'pre', but renormalizes to preserve original row magnitudes)."
+        ),
+    )
+
+    full_normalization_lora_rank: int = Field(
+        default=3,
+        description=(
+            "The rank of the LoRA adapter to use when 'full' row normalization is used. "
+            "Row magnitude preservation is approximate due to non-linear efects, "
+            "and this determines the rank of that approximation. Higher ranks produce "
+            "larger output files and may slow down evaluation."
         ),
     )
 

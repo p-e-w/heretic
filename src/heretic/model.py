@@ -505,7 +505,9 @@ class Model:
                         U = U[:, :r]
                         S = S[:r]
                         Vh = Vh[:, :r].T
-                        # Transfer it into the LoRA adapter components.
+                        # Transfer it into the LoRA adapter components. Split the singular values
+                        # evenly between the two components to keep their norms balanced and avoid
+                        # potential issues with numerical stability.
                         sqrt_S = torch.sqrt(S)
                         lora_B = U @ torch.diag(sqrt_S)
                         lora_A = torch.diag(sqrt_S) @ Vh

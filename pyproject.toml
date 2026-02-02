@@ -62,6 +62,7 @@ Changelog = "https://github.com/p-e-w/heretic/releases"
 
 [project.scripts]
 heretic = "heretic.main:main"
+heretic-restore = "heretic.restore:main"
 
 [build-system]
 requires = ["uv_build>=0.8.11,<0.9.0"]

@@ -45,6 +45,7 @@ from .utils import (
     get_trial_parameters,
     load_prompts,
     print,
+    print_memory_usage,
     prompt_password,
     prompt_path,
     prompt_select,
@@ -309,6 +310,8 @@ def run():
             return
 
     model = Model(settings)
+    print()
+    print_memory_usage()
 
     print()
     print(f"Loading good prompts from [bold]{settings.good_prompts.dataset}[/]...")
@@ -554,6 +557,7 @@ def run():
             "scores",
             [s.__dict__ for s in scores],
         )
+        print_memory_usage()
 
         return objective_values
 

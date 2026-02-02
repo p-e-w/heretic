@@ -22,6 +22,7 @@ from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
 from optuna import Trial
+from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
 
@@ -45,6 +46,23 @@ def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str
         else:
             merged[k] = v
     return merged
+
+
+def print_memory_usage():
+    def p(label: str, size_in_bytes: int):
+        print(f"[grey50]{label}: [bold]{size_in_bytes / (1024**3):.2f} GB[/][/]")
+
+    p("Resident system RAM", Process().memory_info().rss)
+
+    if torch.cuda.is_available():
+        p("Allocated GPU VRAM", torch.cuda.memory_allocated())
+        p("Reserved GPU VRAM", torch.cuda.memory_reserved())
+    elif is_xpu_available():
+        p("Allocated XPU memory", torch.xpu.memory_allocated())
+        p("Reserved XPU memory", torch.xpu.memory_reserved())
+    elif torch.backends.mps.is_available():
+        p("Allocated MPS memory", torch.mps.current_allocated_memory())
+        p("Driver (reserved) MPS memory", torch.mps.driver_allocated_memory())
 
 
 def is_notebook() -> bool:

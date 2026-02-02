@@ -648,8 +648,8 @@ class Model:
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.
     def get_logits(self, prompts: list[Prompt]) -> Tensor:
-        # We only generate one token, and we return the (log) probability distributions
-        # over the vocabulary at that token position, for each prompt.
+        # We only generate one token, and we return the raw logits over the vocabulary
+        # at that token position, for each prompt.
         _, outputs = self.generate(
             prompts,
             max_new_tokens=1,

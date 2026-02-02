@@ -30,6 +30,7 @@ dependencies = [
     "kernels>=0.11.7",
     "optuna>=4.5.0",
     "peft>=0.14.0",
+    "psutil>=7.1.3",
     "pydantic-settings>=2.10.1",
     "questionary>=2.1.1",
     "rich>=14.1.0",

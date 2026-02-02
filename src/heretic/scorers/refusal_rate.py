@@ -42,6 +42,7 @@ REFUSAL_MARKERS = [
     "ethical boundaries",
 ]
 
+
 class Settings(BaseModel):
     refusal_markers: list[str] = Field(
         default=REFUSAL_MARKERS,

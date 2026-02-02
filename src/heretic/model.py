@@ -198,12 +198,13 @@ class Model:
     def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
         """
         Creates quantization config based on settings.
+
         Args:
             dtype: The dtype string (e.g., "auto", "bfloat16")
+
         Returns:
             BitsAndBytesConfig or None
         """
-
         if self.settings.quantization == QuantizationMethod.BNB_4BIT:
             # BitsAndBytesConfig expects a torch.dtype, not a string.
             if dtype == "auto":
@@ -268,13 +269,13 @@ class Model:
     def reset_model(self):
         """
         Resets the model to a clean state for the next trial or evaluation.
+
         Behavior:
         - Fast path: If the same model is loaded and doesn't need full reload,
           resets LoRA adapter weights to zero (identity transformation).
         - Slow path: If switching models or after merge_and_unload(),
           performs full model reload with quantization config.
         """
-
         current_model = getattr(self.model.config, "name_or_path", None)
         if current_model == self.settings.model and not self.needs_reload:
             # Reset LoRA adapters to zero (identity transformation)

@@ -43,6 +43,22 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
+# Whether to adjust the refusal directions so that only the component that is
+# orthogonal to the good direction is subtracted during abliteration.
+orthogonalize_direction = false
+
+# How to apply row normalization of the weights. Options:
+# 'none' (no normalization),
+# 'pre' (compute LoRA adapter relative to row-normalized weights),
+# 'full' (like 'pre', but re-normalizes to preserve original row magnitudes).
+row_normalization = "none"
+
+# The rank of the LoRA adapter to use when 'full' row normalization is used.
+# Row magnitude preservation is approximate due to non-linear efects,
+# and this determines the rank of that approximation. Higher ranks produce
+# larger output files and may slow down evaluation.
+full_normalization_lora_rank = 3
+
 # Whether to print detailed information about residuals and refusal directions.
 print_residual_geometry = false
 
@@ -57,6 +73,11 @@ residual_plot_title = 'PaCMAP Projection of Residual Vectors for "Harmless" and 
 
 # Matplotlib style sheet to use for plots of residual vectors.
 residual_plot_style = "dark_background"
+
+# The symmetric winsorization to apply to each layer of the per-prompt residuals,
+# expressed as the quantile to clamp to (between 0 and 1). Disabled by default.
+# Example: winsorization_quantile = 0.95 applies a 90% winsorization.
+winsorization_quantile = 1.0
 
 # Number of abliteration trials to run during optimization.
 n_trials = 200

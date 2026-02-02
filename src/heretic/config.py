@@ -22,6 +22,13 @@ class QuantizationMethod(str, Enum):
     BNB_4BIT = "bnb_4bit"
 
 
+class RowNormalization(str, Enum):
+    NONE = "none"
+    PRE = "pre"
+    # POST = "post"  # Theoretically possible, but provides no advantage.
+    FULL = "full"
+
+
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
@@ -154,6 +161,34 @@ class Settings(BaseSettings):
         description="Maximum number of tokens to generate for each response.",
     )
 
+    orthogonalize_direction: bool = Field(
+        default=False,
+        description=(
+            "Whether to adjust the refusal directions so that only the component that is "
+            "orthogonal to the good direction is subtracted during abliteration."
+        ),
+    )
+
+    row_normalization: RowNormalization = Field(
+        default=RowNormalization.NONE,
+        description=(
+            "How to apply row normalization of the weights. Options: "
+            "'none' (no normalization), "
+            "'pre' (compute LoRA adapter relative to row-normalized weights), "
+            "'full' (like 'pre', but renormalizes to preserve original row magnitudes)."
+        ),
+    )
+
+    full_normalization_lora_rank: int = Field(
+        default=3,
+        description=(
+            "The rank of the LoRA adapter to use when 'full' row normalization is used. "
+            "Row magnitude preservation is approximate due to non-linear efects, "
+            "and this determines the rank of that approximation. Higher ranks produce "
+            "larger output files and may slow down evaluation."
+        ),
+    )
+
     print_residual_geometry: bool = Field(
         default=False,
         description="Whether to print detailed information about residuals and refusal directions.",
@@ -185,6 +220,15 @@ class Settings(BaseSettings):
             "List of scorer plugin configs. Each entry is an object"
             " {plugin=<plugin>, direction=<direction>, scale=<scale>}."
             " <direction> is one of {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}."
+        ),
+    )
+
+    winsorization_quantile: float = Field(
+        default=1.0,
+        description=(
+            "The symmetric winsorization to apply to each layer of the per-prompt residuals, "
+            "expressed as the quantile to clamp to (between 0 and 1). Disabled by default. "
+            "Example: winsorization_quantile = 0.95 applies a 90% winsorization."
         ),
     )
 

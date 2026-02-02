@@ -419,11 +419,21 @@ def run():
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
 
-    refusal_directions = F.normalize(
-        bad_residuals.mean(dim=0) - good_residuals.mean(dim=0),
-        p=2,
-        dim=1,
-    )
+    good_means = good_residuals.mean(dim=0)
+    bad_means = bad_residuals.mean(dim=0)
+
+    refusal_directions = F.normalize(bad_means - good_means, p=2, dim=1)
+
+    if settings.orthogonalize_direction:
+        # Implements https://huggingface.co/blog/grimjim/projected-abliteration
+        # Adjust the refusal directions so that only the component that is
+        # orthogonal to the good direction is subtracted during abliteration.
+        good_directions = F.normalize(good_means, p=2, dim=1)
+        projection_vector = torch.sum(refusal_directions * good_directions, dim=1)
+        refusal_directions = (
+            refusal_directions - projection_vector.unsqueeze(1) * good_directions
+        )
+        refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
 
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 

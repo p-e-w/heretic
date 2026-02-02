@@ -203,6 +203,7 @@ class Model:
         Returns:
             BitsAndBytesConfig or None
         """
+
         if self.settings.quantization == QuantizationMethod.BNB_4BIT:
             # BitsAndBytesConfig expects a torch.dtype, not a string.
             if dtype == "auto":
@@ -273,6 +274,7 @@ class Model:
         - Slow path: If switching models or after merge_and_unload(),
           performs full model reload with quantization config.
         """
+        
         current_model = getattr(self.model.config, "name_or_path", None)
         if current_model == self.settings.model and not self.needs_reload:
             # Reset LoRA adapters to zero (identity transformation)

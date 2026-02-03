@@ -30,6 +30,23 @@ from .config import DatasetSpecification, Settings
 
 print = Console(highlight=False).print
 
+T = TypeVar("T")
+
+
+def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """
+    Recursively merge two dicts.
+
+    Values from `override` take precedence. Nested dicts are merged recursively.
+    """
+    merged: dict[str, Any] = dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(merged.get(k), dict):
+            merged[k] = deep_merge_dicts(merged[k], v)  # type: ignore[arg-type]
+        else:
+            merged[k] = v
+    return merged
+
 
 def print_memory_usage():
     def p(label: str, size_in_bytes: int):
@@ -221,9 +238,6 @@ def load_prompts(
     ]
 
 
-T = TypeVar("T")
-
-
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
@@ -268,10 +282,30 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
 def get_readme_intro(
     settings: Settings,
     trial: Trial,
-    base_refusals: int,
-    bad_prompts: list[Prompt],
+    baseline_score_displays: dict[str, str] | None = None,
 ) -> str:
     model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
+
+    baseline_score_displays = baseline_score_displays or {}
+
+    scores_raw = trial.user_attrs["scores"]
+    scores_by_name: dict[str, dict[str, object]] = {}
+    score_names: list[str] = []
+    for item in scores_raw:
+        name = item.get("name")
+        scores_by_name[name] = item
+        score_names.append(name)
+
+    score_rows = chr(10).join(
+        [
+            (
+                f"| **{name}** | "
+                f"{scores_by_name.get(name, {}).get('md_display', '—')} | "
+                f"{baseline_score_displays.get(name, '—')} |"
+            )
+            for name in score_names
+        ]
+    )
 
     return f"""# This is a decensored version of {
         model_link
@@ -294,10 +328,7 @@ def get_readme_intro(
 
 | Metric | This model | Original model ({model_link}) |
 | :----- | :--------: | :---------------------------: |
-| **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
-| **Refusals** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
-        len(bad_prompts)
-    } |
+{score_rows}
 
 -----
 

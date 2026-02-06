@@ -341,9 +341,23 @@ class Model:
                     f"Unexpected Tensor in {component} - expected nn.Module"
                 )
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+        # Exceptions are now suppressed for attention out-projections to support
+        # multiple architectures (e.g., LFM2 uses 'out_proj' or 'conv.out_proj').
+        # LFM2 attention layers use 'out_proj' instead of 'o_proj'.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # LFM2 convolution layers.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.conv.out_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # Most dense models.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # LFM2 uses 'feed_forward.w2' instead of 'mlp.down_proj'.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.feed_forward.w2)  # ty:ignore[possibly-missing-attribute]
 
         # Most dense models.
         with suppress(Exception):

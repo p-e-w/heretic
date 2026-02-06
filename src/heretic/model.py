@@ -159,14 +159,22 @@ class Model:
         assert isinstance(self.model, PreTrainedModel)
 
         # Always use LoRA adapters for abliteration (faster reload, no weight modification)
-        # We use the leaf names (e.g. "o_proj") as target modules.
-        # This may cause LoRA adapters to be attached to unrelated modules (e.g. "conv.o_proj"),
-        # but this is harmless as we only abliterate the modules we target in `abliterate()`,
-        # leaving the others at their default (identity) state.
-        # NOTE: This will need to be updated when hybrid layer support (#43) is merged.
-        target_modules = [
-            comp.split(".")[-1] for comp in self.get_abliterable_components()
-        ]
+        # Get actual module names from the first layer's modules to support different architectures
+        # (e.g., LFM2 uses 'out_proj' and 'w2', while standard models use 'o_proj' and 'down_proj')
+        layer_modules = self.get_layer_modules(0)
+        target_modules = []
+        for modules in layer_modules.values():
+            if modules:
+                # Get the actual name of the first module in each component
+                # by searching through named_modules
+                module = modules[0]
+                for name, mod in self.model.named_modules():
+                    if mod is module:
+                        target_modules.append(name.split(".")[-1])
+                        break
+        target_modules = list(
+            dict.fromkeys(target_modules)
+        )  # Remove duplicates while preserving order
 
         if self.settings.row_normalization != RowNormalization.FULL:
             # Rank 1 is sufficient for directional ablation without renormalization.
@@ -341,9 +349,23 @@ class Model:
                     f"Unexpected Tensor in {component} - expected nn.Module"
                 )
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+        # Exceptions are now suppressed for attention out-projections to support
+        # multiple architectures (e.g., LFM2 uses 'out_proj' or 'conv.out_proj').
+        # LFM2 attention layers use 'out_proj' instead of 'o_proj'.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # LFM2 convolution layers.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.conv.out_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # Most dense models.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # LFM2 uses 'feed_forward.w2' instead of 'mlp.down_proj'.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.feed_forward.w2)  # ty:ignore[possibly-missing-attribute]
 
         # Most dense models.
         with suppress(Exception):

@@ -160,3 +160,32 @@ column = "text"
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
+
+# The parameter ranges used to choose settings for abliteration. With the
+# exception of direction_scope and max_weight, all values are between 0 and 1.
+# min_weight is set relative to max_weight, and the other values are relative
+# to the number of layers in the model. By default, the same ranges are used
+# across all modules. If the individual module names for a given model are
+# known, separate settings can be specified per module by dotted keys
+# like foo.bar.baz = 1 or nested objects like foo = { bar = { baz = 1 } }.
+[parameter_ranges]
+# The different refusal direction scopes that can be applied to each trial.
+direction_scope = [
+    # Choose a refusal direction by interpolating between 2 layers and apply it globally.
+    "global",
+    # For each layer within range, apply the layer's own refusal direction to itself.
+    "per layer",
+]
+# For the global direction scope, the layer from which to choose the refusal direction.
+direction_index = { low = 0.4, high = 0.9 }
+# The maximum weight with which to apply the abliteration. Set log = true to
+# sample from the log space, which will select lower values more frequently.
+# Note that low must be greater than 0 when log = true.
+max_weight = { low = 0.8, high = 1.5, log = false }
+# The position (layer) at which the maximum weight should be applied.
+max_weight_position = { low = 0.6, high = 1.0 }
+# The minimum weight as a fraction of the maximum weight.
+min_weight = { low = 0.0, high = 1.0 }
+# The distance from max_weight_position across which the weight drops from
+# max_weight to min_weight. Beyond this distance, the weight is set to 0.
+min_weight_distance = { low = 0.0, high = 0.6 }

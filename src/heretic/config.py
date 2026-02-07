@@ -2,9 +2,10 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Dict
+from typing import Dict, Type, TypeAlias, TypeVar
 
-from pydantic import BaseModel, Field
+from optuna import Trial
+from pydantic import BaseModel, Field, PrivateAttr, RootModel
 from pydantic_settings import (
     BaseSettings,
     CliSettingsSource,
@@ -12,6 +13,7 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     TomlConfigSettingsSource,
 )
+from typing_extensions import TypeAliasType
 
 
 class QuantizationMethod(str, Enum):
@@ -59,6 +61,63 @@ class DatasetSpecification(BaseModel):
         default=None,
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
     )
+
+
+class CategoricalParamSpecification(RootModel[list[str]]):
+    _name: str | None = PrivateAttr(None)
+
+    def __len__(self) -> int:
+        return len(self.root)
+
+    def __contains__(self, item: str) -> bool:
+        return item in self.root
+
+    def set_name(self, name: str):
+        self._name = name
+
+    def suggest_categorical(self, trial: Trial) -> str:
+        if self._name is None:
+            raise TypeError("Parameter name is not set.")
+        if len(self.root) == 1:
+            return self.root[0]
+        return trial.suggest_categorical(self._name, self.root)
+
+
+class FloatParamSpecification(BaseModel):
+    low: float = Field(
+        description="Lower endpoint of the range of suggested values (inclusive).",
+    )
+
+    high: float = Field(
+        description="Upper endpoint of the range of suggested values (inclusive).",
+    )
+
+    log: bool = Field(
+        default=False,
+        description="If true, the value is sampled from the range in the log domain.",
+    )
+
+    _name: str | None = PrivateAttr(None)
+
+    def set_name(self, name: str):
+        self._name = name
+
+    def suggest_float(self, trial: Trial) -> float:
+        if self._name is None:
+            raise TypeError("Parameter name is not set.")
+        if self.low == self.high:
+            return self.low
+        return trial.suggest_float(self._name, self.low, self.high, log=self.log)
+
+
+ParamSpecification: TypeAlias = CategoricalParamSpecification | FloatParamSpecification
+ParamSpecificationRecursive = TypeAliasType(
+    "ParamSpecificationRecursive",
+    "ParamSpecification | dict[str, ParamSpecificationRecursive]",
+)
+ParamSpecificationType = TypeVar(
+    "ParamSpecificationType", CategoricalParamSpecification, FloatParamSpecification
+)
 
 
 class Settings(BaseSettings):
@@ -313,6 +372,13 @@ class Settings(BaseSettings):
         description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
     )
 
+    parameter_ranges: dict[str, ParamSpecificationRecursive] = Field(
+        default={},
+        description="Parameter ranges, per parameter or per module and parameter.",
+    )
+
+    _parameter_range_defaults: dict[str, ParamSpecification] | None = PrivateAttr(None)
+
     @classmethod
     def settings_customise_sources(
         cls,
@@ -335,3 +401,55 @@ class Settings(BaseSettings):
             file_secret_settings,
             TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )
+
+    def set_parameter_range_defaults(self, defaults: dict[str, ParamSpecification]):
+        self._parameter_range_defaults = defaults
+
+    def _param_spec(
+        self, name: str, spec_type: Type[ParamSpecificationType]
+    ) -> ParamSpecificationType:
+        """
+        Finds the setting with the longest matching suffix.
+        For example, if we're looking for setting `foo.bar.baz` and
+        both `baz` and `bar.baz` are available, return `bar.baz`.
+        """
+        if self._parameter_range_defaults is None:
+            raise ValueError(
+                "Parameter defaults are not initialized. "
+                "Call 'set_parameter_range_defaults()' first."
+            )
+        split_name = name.split(".")
+        # Get the default parameter specification.
+        most_specific_spec = self._parameter_range_defaults[split_name[-1]]
+        if most_specific_spec is None:
+            raise TypeError(f"No parameter default found for {split_name[-1]}.")
+        if not isinstance(most_specific_spec, spec_type):
+            raise TypeError(
+                f"Expected parameter default to be an instance of {spec_type.__name__}, "
+                f"but got {type(most_specific_spec).__name__} instead."
+            )
+        # Look for an override from the config.
+        split_len = len(split_name)
+        for i in range(split_len - 1, -1, -1):
+            spec = self.parameter_ranges.get(split_name[i], None)
+            for j in range(i + 1, split_len):
+                if spec is None:
+                    break
+                if not isinstance(spec, dict):
+                    # Found a setting for the prefix, but didn't match suffix.
+                    spec = None
+                    break
+                spec = spec.get(split_name[j], None)
+            if spec is not None and isinstance(spec, spec_type):
+                most_specific_spec = spec
+        # Set the specific name (for suggest_categorical() and suggest_float()).
+        most_specific_spec.set_name(name)
+        # most_specific_spec can only be ParamSpecificationType,
+        # but ty's support for narrowing generics is still limited.
+        return most_specific_spec  # ty:ignore[invalid-return-type]
+
+    def categorical_spec(self, name: str) -> CategoricalParamSpecification:
+        return self._param_spec(name, CategoricalParamSpecification)
+
+    def float_spec(self, name: str) -> FloatParamSpecification:
+        return self._param_spec(name, FloatParamSpecification)

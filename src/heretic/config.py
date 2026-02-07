@@ -13,16 +13,13 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+from .parameters import ParameterSpecification
+
 # !!!IMPORTANT!!!
 #
 # Any settings added to the classes defined in this module
 # must be evaluated for privacy implications and have
 # exclude=True set in their field definitions if appropriate.
-
-
-class ModelComponent(str, Enum):
-    ATTN_O_PROJ = "attn.o_proj"
-    MLP_DOWN_PROJ = "mlp.down_proj"
 
 
 class QuantizationMethod(str, Enum):
@@ -496,6 +493,11 @@ class Settings(BaseSettings):
             column="text",
         ),
         description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
+    )
+
+    parameters: ParameterSpecification = Field(
+        default=ParameterSpecification(),
+        description="The parameter specifications, per parameter or per component within each parameter.",
     )
 
     @classmethod

@@ -31,7 +31,8 @@ from transformers.generation import (
     GenerateDecoderOnlyOutput,  # ty:ignore[possibly-missing-import]
 )
 
-from .config import ModelComponent, QuantizationMethod, RowNormalization, Settings
+from .config import QuantizationMethod, RowNormalization, Settings
+from .parameters import ModelComponent
 from .system import empty_cache
 from .utils import Prompt, batchify, format_exception, print
 

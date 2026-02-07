@@ -1,14 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import sys
 from enum import Enum
-from typing import TYPE_CHECKING, Dict
-
-if TYPE_CHECKING or sys.version_info < (3, 11):
-    from backports.strenum import StrEnum
-else:
-    from enum import StrEnum
+from typing import Dict
 
 import tomli
 from pydantic import (
@@ -26,6 +20,8 @@ from pydantic_settings import (
 )
 from pydantic_settings.sources.providers import toml as pydantic_toml
 
+from .parameters import ParameterSpecification
+
 # Force pydantic-settings to use tomli for TOML v1.1.0 support.
 pydantic_toml.tomli = tomli  # ty:ignore[invalid-assignment]
 pydantic_toml.tomllib = tomli  # ty:ignore[invalid-assignment]
@@ -36,11 +32,6 @@ pydantic_toml.import_toml = lambda: None  # ty:ignore[invalid-assignment]
 # Any settings added to the classes defined in this module
 # must be evaluated for privacy implications and have
 # exclude=True set in their field definitions if appropriate.
-
-
-class ModelComponent(StrEnum):
-    ATTN_O_PROJ = "attn.o_proj"
-    MLP_DOWN_PROJ = "mlp.down_proj"
 
 
 class QuantizationMethod(str, Enum):
@@ -586,6 +577,11 @@ class Settings(BaseSettings):
             column="text",
         ),
         description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
+    )
+
+    parameters: ParameterSpecification = Field(
+        default=ParameterSpecification(),
+        description="The parameter specifications, per parameter or per component within each parameter.",
     )
 
     @classmethod

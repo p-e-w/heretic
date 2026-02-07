@@ -477,61 +477,40 @@ def run():
         trial_index += 1
         trial.set_user_attr("index", trial_index)
 
-        direction_scope = trial.suggest_categorical(
-            "direction_scope",
-            [
-                "global",
-                "per layer",
-            ],
-        )
+        direction_scope_param = settings.param_categorical("direction_scope")
+        direction_scope = direction_scope_param.suggest(trial)
 
-        last_layer_index = len(model.get_layers()) - 1
-
-        # Discrimination between "harmful" and "harmless" inputs is usually strongest
-        # in layers slightly past the midpoint of the layer stack. See the original
-        # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
-        #
-        # Note that we always sample this parameter even though we only need it for
-        # the "global" direction scope. The reason is that multivariate TPE doesn't
-        # work with conditional or variable-range parameters.
-        direction_index = trial.suggest_float(
-            "direction_index",
-            0.4 * last_layer_index,
-            0.9 * last_layer_index,
-        )
-
-        if direction_scope == "per layer":
-            direction_index = None
+        # Note that we always sample this parameter when the "global" direction
+        # scope is included in the choices, even though we only need it for the
+        # "global" direction scope itself. The reason is that multivariate TPE
+        # doesn't work with conditional or variable-range parameters.
+        direction_index = None
+        if "global" in direction_scope_param.choices:
+            direction_index_param = settings.param_float("direction_index")
+            direction_index = direction_index_param.suggest(trial)
+            if direction_scope != "global":
+                direction_index = None
 
         parameters = {}
 
         for component in model.get_abliterable_components():
-            # The parameter ranges are based on experiments with various models
-            # and much wider ranges. They are not set in stone and might have to be
-            # adjusted for future models.
-            max_weight = trial.suggest_float(
-                f"{component}.max_weight",
-                0.8,
-                1.5,
+            max_weight_param = settings.param_float(f"{component}.max_weight")
+            max_weight = max_weight_param.suggest(trial)
+            if max_weight == 0.0 and max_weight_param.is_constant():
+                continue
+
+            max_weight_position_param = settings.param_float(
+                f"{component}.max_weight_position"
             )
-            max_weight_position = trial.suggest_float(
-                f"{component}.max_weight_position",
-                0.6 * last_layer_index,
-                1.0 * last_layer_index,
+            max_weight_position = max_weight_position_param.suggest(trial)
+
+            min_weight_param = settings.param_float(f"{component}.min_weight")
+            min_weight = min_weight_param.suggest(trial)
+
+            min_weight_distance_param = settings.param_float(
+                f"{component}.min_weight_distance"
             )
-            # For sampling purposes, min_weight is expressed as a fraction of max_weight,
-            # again because multivariate TPE doesn't support variable-range parameters.
-            # The value is transformed into the actual min_weight value below.
-            min_weight = trial.suggest_float(
-                f"{component}.min_weight",
-                0.0,
-                1.0,
-            )
-            min_weight_distance = trial.suggest_float(
-                f"{component}.min_weight_distance",
-                1.0,
-                0.6 * last_layer_index,
-            )
+            min_weight_distance = min_weight_distance_param.suggest(trial)
 
             parameters[component] = AbliterationParameters(
                 max_weight=max_weight,

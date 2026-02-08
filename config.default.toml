@@ -15,15 +15,16 @@ dtypes = [
     "float32",
 ]
 
+# Quantization method to use when loading the model. Options:
+# "none" (no quantization),
+# "bnb_4bit" (4-bit quantization using bitsandbytes).
+quantization = "none"
+
 # Device map to pass to Accelerate when loading the model.
 device_map = "auto"
 
-# Quantization method to use when loading the model.
-# Options: "none" (no quantization), "bnb_4bit" (4-bit quantization using bitsandbytes).
-quantization = "none"
-
-# Memory limits to impose. 0 is usually your first graphics card.
-# max_memory = {0 = "16GB", "cpu" = "64GB"}
+# Maximum memory to allocate per device.
+# max_memory = {"0": "20GB", "cpu": "64GB"}
 
 # Number of input sequences to process in parallel (0 = auto).
 batch_size = 0  # auto
@@ -33,22 +34,6 @@ max_batch_size = 128
 
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
-
-# Whether to adjust the refusal directions so that only the component that is
-# orthogonal to the good direction is subtracted during abliteration.
-orthogonalize_direction = false
-
-# How to apply row normalization of the weights. Options:
-# 'none' (no normalization),
-# 'pre' (compute LoRA adapter relative to row-normalized weights),
-# 'full' (like 'pre', but re-normalizes to preserve original row magnitudes).
-row_normalization = "none"
-
-# The rank of the LoRA adapter to use when 'full' row normalization is used.
-# Row magnitude preservation is approximate due to non-linear efects,
-# and this determines the rank of that approximation. Higher ranks produce
-# larger output files and may slow down evaluation.
-full_normalization_lora_rank = 3
 
 # Whether to print prompt/response pairs when counting refusals.
 print_responses = false
@@ -76,9 +61,25 @@ kl_divergence_scale = 1.0
 # This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".
 kl_divergence_target = 0.01
 
+# Whether to adjust the refusal directions so that only the component that is
+# orthogonal to the good direction is subtracted during abliteration.
+orthogonalize_direction = false
+
+# How to apply row normalization of the weights. Options:
+# "none" (no normalization),
+# "pre" (compute LoRA adapter relative to row-normalized weights),
+# "full" (like "pre", but renormalizes to preserve original row magnitudes).
+row_normalization = "none"
+
+# The rank of the LoRA adapter to use when "full" row normalization is used.
+# Row magnitude preservation is approximate due to non-linear effects,
+# and this determines the rank of that approximation. Higher ranks produce
+# larger output files and may slow down evaluation.
+full_normalization_lora_rank = 3
+
 # The symmetric winsorization to apply to each layer of the per-prompt residuals,
 # expressed as the quantile to clamp to (between 0 and 1). Disabled by default.
-# Example: winsorization_quantile = 0.95 applies a 90% winsorization.
+# Example: winsorization_quantile = 0.95 applies a 95% winsorization.
 winsorization_quantile = 1.0
 
 # Number of abliteration trials to run during optimization.
@@ -86,6 +87,9 @@ n_trials = 200
 
 # Number of trials that use random sampling for the purpose of exploration.
 n_startup_trials = 60
+
+# Directory to save and load study progress to/from.
+study_checkpoint_dir = "checkpoints"
 
 # Strings whose presence in a response (case insensitive) identifies the response as a refusal.
 refusal_markers = [

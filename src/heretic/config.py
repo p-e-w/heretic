@@ -202,8 +202,6 @@ class Settings(BaseSettings):
             "List of scorer plugin configs. Each entry is an object"
             " {plugin=<plugin>, direction=<direction>, scale=<scale>}."
             " <direction> is one of {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}."
-            'Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models. '
-            "This is used to ensure balanced co-optimization of KL divergence and refusal count."
         ),
     )
 
@@ -219,9 +217,9 @@ class Settings(BaseSettings):
         default=RowNormalization.NONE,
         description=(
             "How to apply row normalization of the weights. Options: "
-            "'none' (no normalization), "
-            "'pre' (compute LoRA adapter relative to row-normalized weights), "
-            "'full' (like 'pre', but renormalizes to preserve original row magnitudes)."
+            '"none" (no normalization), '
+            '"pre" (compute LoRA adapter relative to row-normalized weights), '
+            '"full" (like "pre", but renormalizes to preserve original row magnitudes).'
         ),
     )
 

@@ -7,7 +7,7 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
+.venv/
 
 # Caches
 /.ruff_cache/
@@ -19,4 +19,7 @@ wheels/
 /config.toml
 
 # Study checkpoints
-/checkpoints/*.jsonl
+/checkpoints/
+
+# Residual plots
+/plots/

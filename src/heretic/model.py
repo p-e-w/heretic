@@ -593,10 +593,9 @@ class Model:
         for batch in batchify(prompts, self.settings.batch_size):
             for response in self.get_responses(
                 batch,
-                skip_special_tokens=skip_special_tokens
+                skip_special_tokens=skip_special_tokens,
             ):
                 responses.append(response)
-                
         return responses
 
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:

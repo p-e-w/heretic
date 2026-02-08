@@ -38,7 +38,7 @@ def get_model_class(
 ) -> Type[AutoModelForImageTextToText] | Type[AutoModelForCausalLM]:
     configs = PretrainedConfig.get_config_dict(model)
 
-    if any(["vision_config" in x for x in configs]):
+    if any([("vision_config" in config) for config in configs]):
         return AutoModelForImageTextToText
     else:
         return AutoModelForCausalLM
@@ -96,9 +96,9 @@ class Model:
             try:
                 quantization_config = self._get_quantization_config(dtype)
 
-                # Build kwargs, only include quantization_config if it's not None
-                # (some models like gpt-oss have issues with explicit None)
                 extra_kwargs = {}
+                # Only include quantization_config if it's not None
+                # (some models like gpt-oss have issues with explicit None).
                 if quantization_config is not None:
                     extra_kwargs["quantization_config"] = quantization_config
 
@@ -134,9 +134,11 @@ class Model:
                 print(f"[red]Failed[/] ({error})")
                 continue
 
-            print("[green]Ok[/]")
             if settings.quantization == QuantizationMethod.BNB_4BIT:
-                print("[bold green]Model loaded in 4-bit precision.[/]")
+                print("[green]Ok[/] (quantized to 4-bit precision)")
+            else:
+                print("[green]Ok[/]")
+
             break
 
         if self.model is None:
@@ -158,7 +160,7 @@ class Model:
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PreTrainedModel)
 
-        # Always use LoRA adapters for abliteration (faster reload, no weight modification)
+        # Always use LoRA adapters for abliteration (faster reload, no weight modification).
         # We use the leaf names (e.g. "o_proj") as target modules.
         # This may cause LoRA adapters to be attached to unrelated modules (e.g. "conv.o_proj"),
         # but this is harmless as we only abliterate the modules we target in `abliterate()`,
@@ -181,9 +183,8 @@ class Model:
             lora_alpha=lora_rank,  # Apply adapter at full strength.
             lora_dropout=0,
             bias="none",
-            # Even if we're using AutoModelForImageTextToText, this is still correct, as it is (post-vision)
-            # the same kind of model.
-            # https://github.com/huggingface/peft/blob/622c2821cb0d7897bee53aad7914d42b5fecbf61/src/peft/auto.py#L45
+            # Even if we're using AutoModelForImageTextToText, this is still correct,
+            # as VL models are typically just causal LMs with an added image encoder.
             task_type="CAUSAL_LM",
         )
 
@@ -191,9 +192,7 @@ class Model:
         # so the result is a PeftModel rather than a PeftMixedModel.
         self.model = cast(PeftModel, get_peft_model(self.model, self.peft_config))
 
-        print(
-            f"[green]LoRA adapters initialized (targets: {', '.join(target_modules)})[/]"
-        )
+        print(f"* LoRA adapters initialized (targets: {', '.join(target_modules)})")
 
     def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
         """
@@ -634,7 +633,10 @@ class Model:
             abs_residuals = torch.abs(residuals)
             # Get the (prompt, layer, 1) quantiles of the (prompt, layer, component) residuals.
             thresholds = torch.quantile(
-                abs_residuals, self.settings.winsorization_quantile, dim=2, keepdim=True
+                abs_residuals,
+                self.settings.winsorization_quantile,
+                dim=2,
+                keepdim=True,
             )
             return torch.clamp(residuals, -thresholds, thresholds)
 

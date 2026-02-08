@@ -107,7 +107,10 @@ class Settings(BaseSettings):
 
     evaluate_model: str | None = Field(
         default=None,
-        description="If this model ID or path is set, then instead of abliterating the main model, evaluate this model relative to the main model.",
+        description=(
+            "If this model ID or path is set, then instead of abliterating the main model, "
+            "evaluate this model relative to the main model."
+        ),
     )
 
     dtypes: list[str] = Field(
@@ -123,7 +126,19 @@ class Settings(BaseSettings):
             # if that was the dtype "auto" resolved to).
             "float32",
         ],
-        description="List of PyTorch dtypes to try when loading model tensors. If loading with a dtype fails, the next dtype in the list will be tried.",
+        description=(
+            "List of PyTorch dtypes to try when loading model tensors. "
+            "If loading with a dtype fails, the next dtype in the list will be tried."
+        ),
+    )
+
+    quantization: QuantizationMethod = Field(
+        default=QuantizationMethod.NONE,
+        description=(
+            "Quantization method to use when loading the model. Options: "
+            '"none" (no quantization), '
+            '"bnb_4bit" (4-bit quantization using bitsandbytes).'
+        ),
     )
 
     device_map: str | Dict[str, int | str] = Field(
@@ -133,17 +148,12 @@ class Settings(BaseSettings):
 
     max_memory: Dict[str, str] | None = Field(
         default=None,
-        description="Maximum memory to allocate per device (e.g., {'0': '20GB', 'cpu': '64GB'}).",
+        description='Maximum memory to allocate per device (e.g., {"0": "20GB", "cpu": "64GB"}).',
     )
 
     trust_remote_code: bool | None = Field(
         default=None,
         description="Whether to trust remote code when loading the model.",
-    )
-
-    quantization: QuantizationMethod = Field(
-        default=QuantizationMethod.NONE,
-        description="Quantization method to use when loading the model. Options: 'none' (no quantization), 'bnb_4bit' (4-bit quantization using bitsandbytes).",
     )
 
     batch_size: int = Field(
@@ -159,34 +169,6 @@ class Settings(BaseSettings):
     max_response_length: int = Field(
         default=100,
         description="Maximum number of tokens to generate for each response.",
-    )
-
-    orthogonalize_direction: bool = Field(
-        default=False,
-        description=(
-            "Whether to adjust the refusal directions so that only the component that is "
-            "orthogonal to the good direction is subtracted during abliteration."
-        ),
-    )
-
-    row_normalization: RowNormalization = Field(
-        default=RowNormalization.NONE,
-        description=(
-            "How to apply row normalization of the weights. Options: "
-            "'none' (no normalization), "
-            "'pre' (compute LoRA adapter relative to row-normalized weights), "
-            "'full' (like 'pre', but renormalizes to preserve original row magnitudes)."
-        ),
-    )
-
-    full_normalization_lora_rank: int = Field(
-        default=3,
-        description=(
-            "The rank of the LoRA adapter to use when 'full' row normalization is used. "
-            "Row magnitude preservation is approximate due to non-linear efects, "
-            "and this determines the rank of that approximation. Higher ranks produce "
-            "larger output files and may slow down evaluation."
-        ),
     )
 
     print_residual_geometry: bool = Field(
@@ -220,6 +202,36 @@ class Settings(BaseSettings):
             "List of scorer plugin configs. Each entry is an object"
             " {plugin=<plugin>, direction=<direction>, scale=<scale>}."
             " <direction> is one of {0 (NOT_SET = do not optimize), 1 (MINIMIZE), 2 (MAXIMIZE)}."
+            'Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models. '
+            "This is used to ensure balanced co-optimization of KL divergence and refusal count."
+        ),
+    )
+
+    orthogonalize_direction: bool = Field(
+        default=False,
+        description=(
+            "Whether to adjust the refusal directions so that only the component that is "
+            "orthogonal to the good direction is subtracted during abliteration."
+        ),
+    )
+
+    row_normalization: RowNormalization = Field(
+        default=RowNormalization.NONE,
+        description=(
+            "How to apply row normalization of the weights. Options: "
+            "'none' (no normalization), "
+            "'pre' (compute LoRA adapter relative to row-normalized weights), "
+            "'full' (like 'pre', but renormalizes to preserve original row magnitudes)."
+        ),
+    )
+
+    full_normalization_lora_rank: int = Field(
+        default=3,
+        description=(
+            'The rank of the LoRA adapter to use when "full" row normalization is used. '
+            "Row magnitude preservation is approximate due to non-linear effects, "
+            "and this determines the rank of that approximation. Higher ranks produce "
+            "larger output files and may slow down evaluation."
         ),
     )
 
@@ -228,7 +240,7 @@ class Settings(BaseSettings):
         description=(
             "The symmetric winsorization to apply to each layer of the per-prompt residuals, "
             "expressed as the quantile to clamp to (between 0 and 1). Disabled by default. "
-            "Example: winsorization_quantile = 0.95 applies a 90% winsorization."
+            "Example: winsorization_quantile = 0.95 applies a 95% winsorization."
         ),
     )
 
@@ -244,7 +256,7 @@ class Settings(BaseSettings):
 
     study_checkpoint_dir: str = Field(
         default="checkpoints",
-        description="Directory to save and load study progress to/from:",
+        description="Directory to save and load study progress to/from.",
     )
     system_prompt: str = Field(
         default="You are a helpful assistant.",

@@ -60,21 +60,15 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
     Returns "merge", "adapter", or None (if cancelled/invalid).
     """
 
-    # Prompt for all PEFT models to ensure user is aware of merge implications
     if settings.quantization == QuantizationMethod.BNB_4BIT:
-        # Quantized models need special handling - we must reload the base model
-        # in full precision to merge the LoRA adapters
         print()
         print(
-            "[yellow]Model was loaded with quantization. Merging requires reloading the base model.[/]"
+            "Model was loaded with quantization. Merging requires reloading the base model."
         )
         print(
-            "[red](!) WARNING: CPU Merging requires dequantizing the entire model to System RAM.[/]"
+            "[yellow]WARNING: CPU merging requires dequantizing the entire model to system RAM.[/]"
         )
-        print("[red]    This can lead to SYSTEM FREEZES if you run out of memory.[/]")
-        print(
-            "[yellow]    Rule of thumb: You need approx. 3x the parameter count in GB.[/]"
-        )
+        print("[yellow]This can lead to system freezes if you run out of memory.[/]")
 
         try:
             # Estimate memory requirements by loading the model structure on the "meta" device.
@@ -93,61 +87,39 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
                 footprint_bytes = meta_model.get_memory_footprint()
                 footprint_gb = footprint_bytes / (1024**3)
                 print(
-                    f"[yellow]    Estimated net RAM required for model weights (excluding overhead): [bold]~{footprint_gb:.1f} GB[/][/]"
+                    f"[yellow]Estimated RAM required (excluding overhead): [bold]~{footprint_gb:.2f} GB[/][/]"
                 )
         except Exception:
             # Fallback if meta loading fails (e.g. owing to custom model code
-            # or `bitsandbytes` quantization config issues on the meta device)
+            # or bitsandbytes quantization config issues on the meta device).
             print(
-                "[yellow]    Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
+                "[yellow]Rule of thumb: You need approximately 3x the parameter count in GB RAM.[/]"
+            )
+            print(
+                "[yellow]Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
             )
         print()
 
-    merge_choice = prompt_select(
+    strategy = prompt_select(
         "How do you want to proceed?",
         choices=[
             Choice(
-                title="Merge full model"
+                title="Merge LoRA into full model"
                 + (
                     ""
                     if settings.quantization == QuantizationMethod.NONE
-                    else " (reload base model on CPU - requires high RAM)"
+                    else " (requires sufficient RAM)"
                 ),
                 value="merge",
             ),
             Choice(
-                title="Save LoRA adapter only (can be merged later with llama.cpp or more RAM)",
+                title="Save LoRA adapter only (can be merged later)",
                 value="adapter",
             ),
         ],
     )
-    return merge_choice
 
-
-def save_model(
-    model: Model,
-    save_directory: str,
-    settings: Settings,
-    strategy: str | None = None,
-) -> None:
-    print("Saving model...")
-    if strategy is None:
-        strategy = obtain_merge_strategy(settings)
-        if strategy is None:
-            print("[yellow]Action cancelled.[/]")
-            return
-
-    if strategy == "adapter":
-        model.model.save_pretrained(save_directory)
-    else:
-        merged_model = model.get_merged_model()
-        merged_model.save_pretrained(save_directory)
-        del merged_model
-        empty_cache()
-
-    model.tokenizer.save_pretrained(save_directory)
-
-    print(f"Model saved to [bold]{save_directory}[/].")
+    return strategy
 
 
 def run():
@@ -248,6 +220,8 @@ def run():
     # Silence the warning about multivariate TPE being experimental.
     warnings.filterwarnings("ignore", category=ExperimentalWarning)
 
+    os.makedirs(settings.study_checkpoint_dir, exist_ok=True)
+
     study_checkpoint_file = os.path.join(
         settings.study_checkpoint_dir,
         "".join(
@@ -256,7 +230,6 @@ def run():
         + ".jsonl",
     )
 
-    os.makedirs(settings.study_checkpoint_dir, exist_ok=True)
     lock_obj = JournalFileOpenLock(study_checkpoint_file)
     backend = JournalFileBackend(study_checkpoint_file, lock_obj=lock_obj)
     storage = JournalStorage(backend)
@@ -267,35 +240,57 @@ def run():
         existing_study = None
 
     if existing_study is not None:
-        # A study is in here. Check if it's finished.
         choices = []
+
         if existing_study.user_attrs["finished"]:
+            print()
             print(
-                "[green]You have already processed this model. How would you like to proceed?[/]"
+                (
+                    "[green]You have already processed this model.[/] "
+                    "You can show the results from the previous run, allowing you to export models or to run additional trials. "
+                    "Alternatively, you can ignore the previous run and start from scratch. "
+                    "This will delete the checkpoint file and all results from the previous run."
+                )
             )
             choices.append(
                 Choice(
-                    title="Show the results from the previous run, allowing you to export models, or to run additional trials.",
+                    title="Show the results from the previous run",
                     value="continue",
                 )
             )
         else:
+            print()
             print(
-                "[yellow]You have already processed this model, but the run was interrupted. How would you like to proceed?[/]",
+                (
+                    "[yellow]You have already processed this model, but the run was interrupted.[/] "
+                    "You can continue the previous run from where it stopped. This will override any specified settings. "
+                    "Alternatively, you can ignore the previous run and start from scratch. "
+                    "This will delete the checkpoint file and all results from the previous run."
+                )
             )
             choices.append(
                 Choice(
-                    title="Continue the previous run from where it stopped (will override all specified settings).",
+                    title="Continue the previous run",
                     value="continue",
                 )
             )
+
         choices.append(
             Choice(
-                title="Ignore the previous run and start from scratch. This will delete the checkpoint file and all results from the previous run.",
+                title="Ignore the previous run and start from scratch",
                 value="restart",
             )
         )
-        choice = prompt_select("", choices)
+
+        choices.append(
+            Choice(
+                title="Exit program",
+                value="",
+            )
+        )
+
+        print()
+        choice = prompt_select("How would you like to proceed?", choices)
 
         if choice == "continue":
             settings = Settings.model_validate_json(
@@ -305,8 +300,7 @@ def run():
             os.unlink(study_checkpoint_file)
             backend = JournalFileBackend(study_checkpoint_file, lock_obj=lock_obj)
             storage = JournalStorage(backend)
-        else:
-            print("Cancelled; exiting.")
+        elif choice is None or choice == "":
             return
 
     model = Model(settings)
@@ -575,7 +569,6 @@ def run():
     directions = evaluator.get_objective_directions()
 
     study = optuna.create_study(
-        study_name="heretic",
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
@@ -583,6 +576,7 @@ def run():
         ),
         storage=storage,
         directions=directions,
+        study_name="heretic",
         load_if_exists=True,
     )
 
@@ -595,13 +589,14 @@ def run():
 
     start_index = trial_index = count_completed_trials()
     if start_index > 0:
+        print()
         print("Resuming existing study.")
 
     try:
         study.optimize(
-            objective_wrapper, n_trials=settings.n_trials - count_completed_trials()
+            objective_wrapper,
+            n_trials=settings.n_trials - count_completed_trials(),
         )
-
     except KeyboardInterrupt:
         # This additional handler takes care of the small chance that KeyboardInterrupt
         # is raised just between trials, which wouldn't be caught by the handler
@@ -646,14 +641,14 @@ def run():
 
         choices.append(
             Choice(
-                title="Continue optimization (run more trials)",
+                title="Run additional trials",
                 value="continue",
             )
         )
 
         choices.append(
             Choice(
-                title="None (exit program)",
+                title="Exit program",
                 value="",
             )
         )
@@ -677,18 +672,26 @@ def run():
             if trial == "continue":
                 while True:
                     try:
-                        n_more_trials = int(
-                            prompt_text("How many more trials do you want to run?")
+                        n_additional_trials = prompt_text(
+                            "How many additional trials do you want to run?"
                         )
-                        if n_more_trials > 0:
+                        if n_additional_trials is None or n_additional_trials == "":
+                            n_additional_trials = 0
+                            break
+                        n_additional_trials = int(n_additional_trials)
+                        if n_additional_trials > 0:
                             break
                         print("[red]Please enter a number greater than 0.[/]")
                     except ValueError:
-                        print("[red]Invalid input. Please enter a number.[/]")
+                        print("[red]Please enter a number.[/]")
 
-                settings.n_trials += n_more_trials
+                if n_additional_trials == 0:
+                    continue
+
+                settings.n_trials += n_additional_trials
                 study.set_user_attr("settings", settings.model_dump_json())
                 study.set_user_attr("finished", False)
+
                 try:
                     study.optimize(
                         objective_wrapper,
@@ -696,8 +699,10 @@ def run():
                     )
                 except KeyboardInterrupt:
                     pass
+
                 if count_completed_trials() == settings.n_trials:
                     study.set_user_attr("finished", True)
+
                 break
 
             elif trial is None or trial == "":
@@ -728,14 +733,11 @@ def run():
                         "Save the model to a local folder",
                         "Upload the model to Hugging Face",
                         "Chat with the model",
-                        "Nothing (return to trial selection menu)",
+                        "Return to the trial selection menu",
                     ],
                 )
 
-                if (
-                    action is None
-                    or action == "Nothing (return to trial selection menu)"
-                ):
+                if action is None or action == "Return to the trial selection menu":
                     break
 
                 # All actions are wrapped in a try/except block so that if an error occurs,
@@ -748,11 +750,23 @@ def run():
                             if not save_directory:
                                 continue
 
-                            save_model(
-                                model,
-                                save_directory,
-                                settings,
-                            )
+                            strategy = obtain_merge_strategy(settings)
+                            if strategy is None:
+                                continue
+
+                            if strategy == "adapter":
+                                print("Saving LoRA adapter...")
+                                model.model.save_pretrained(save_directory)
+                            else:
+                                print("Saving merged model...")
+                                merged_model = model.get_merged_model()
+                                merged_model.save_pretrained(save_directory)
+                                del merged_model
+                                empty_cache()
+
+                            model.tokenizer.save_pretrained(save_directory)
+
+                            print(f"Model saved to [bold]{save_directory}[/].")
 
                         case "Upload the model to Hugging Face":
                             # We don't use huggingface_hub.login() because that stores the token on disk,
@@ -788,7 +802,6 @@ def run():
 
                             strategy = obtain_merge_strategy(settings)
                             if strategy is None:
-                                print("[yellow]Action cancelled.[/]")
                                 continue
 
                             if strategy == "adapter":

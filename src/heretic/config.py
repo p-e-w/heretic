@@ -207,9 +207,11 @@ class Settings(BaseSettings):
     winsorization_quantile: float = Field(
         default=1.0,
         description=(
-            "The symmetric winsorization to apply to each layer of the per-prompt residuals, "
+            "The symmetric winsorization to apply to the per-prompt, per-layer residual vectors, "
             "expressed as the quantile to clamp to (between 0 and 1). Disabled by default. "
-            "Example: winsorization_quantile = 0.95 applies a 95% winsorization."
+            'This can tame so-called "massive activations" that occur in some models. '
+            "Example: winsorization_quantile = 0.95 computes the 0.95-quantile of the absolute values "
+            "of the components, then clamps the magnitudes of all components to that quantile."
         ),
     )
 

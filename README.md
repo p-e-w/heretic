@@ -5,7 +5,9 @@
 Heretic is a tool that removes censorship (aka "safety alignment") from
 transformer-based language models without expensive post-training.
 It combines an advanced implementation of directional ablation, also known
-as "abliteration" ([Arditi et al. 2024](https://arxiv.org/abs/2406.11717)),
+as "abliteration" ([Arditi et al. 2024](https://arxiv.org/abs/2406.11717),
+Lai 2025 ([1](https://huggingface.co/blog/grimjim/projected-abliteration),
+[2](https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration))),
 with a TPE-based parameter optimizer powered by [Optuna](https://optuna.org/).
 
 This approach enables Heretic to work **completely automatically.** Heretic
@@ -89,8 +91,10 @@ a configuration file.
 
 At the start of a program run, Heretic benchmarks the system to determine
 the optimal batch size to make the most of the available hardware.
-On an RTX 3090, with the default configuration, decensoring Llama-3.1-8B
-takes about 45 minutes.
+On an RTX 3090, with the default configuration, decensoring Llama-3.1-8B-Instruct
+takes about 45 minutes. Note that Heretic supports model quantization with
+bitsandbytes, which can drastically reduce the amount of VRAM required to process
+models. Set the `quantization` option to `bnb_4bit` to enable quantization.
 
 After Heretic has finished decensoring a model, you are given the option to
 save the model, upload it to Hugging Face, chat with it to test how well it works,
@@ -242,7 +246,8 @@ The development of Heretic was informed by:
 * [The original abliteration paper (Arditi et al. 2024)](https://arxiv.org/abs/2406.11717)
 * [Maxime Labonne's article on abliteration](https://huggingface.co/blog/mlabonne/abliteration),
   as well as some details from the model cards of his own abliterated models (see above)
-* [Jim Lai's article describing "projected abliteration"](https://huggingface.co/blog/grimjim/projected-abliteration)
+* Jim Lai's articles describing ["projected abliteration"](https://huggingface.co/blog/grimjim/projected-abliteration)
+  and ["norm-preserving biprojected abliteration"](https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration)
 
 
 ## Citation

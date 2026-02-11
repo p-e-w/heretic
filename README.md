@@ -263,7 +263,7 @@ If you use Heretic for your research, please cite it using the following BibTeX 
 
 ## License
 
-Copyright &copy; 2025  Philipp Emanuel Weidmann (<pew@worldwidemann.com>)
+Copyright &copy; 2025-2026  Philipp Emanuel Weidmann (<pew@worldwidemann.com>) + contributors
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by

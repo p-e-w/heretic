@@ -166,6 +166,12 @@ def run():
         )
         return
 
+    # Keep Hugging Face credentials in memory for this process only.
+    # We don't use huggingface_hub.login() because that stores the token on disk.
+    # Since this program will often be run on rented or shared GPU servers,
+    # it is better to not persist credentials.
+    hf_token = huggingface_hub.get_token()
+
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
@@ -761,16 +767,13 @@ def run():
                             print(f"Model saved to [bold]{save_directory}[/].")
 
                         case "Upload the model to Hugging Face":
-                            # We don't use huggingface_hub.login() because that stores the token on disk,
-                            # and since this program will often be run on rented or shared GPU servers,
-                            # it's better to not persist credentials.
-                            token = huggingface_hub.get_token()
-                            if not token:
-                                token = prompt_password("Hugging Face access token:")
-                            if not token:
+                            hf_token = prompt_password(
+                                "Hugging Face access token:", hf_token
+                            )
+                            if not hf_token:
                                 continue
 
-                            user = huggingface_hub.whoami(token)
+                            user = huggingface_hub.whoami(hf_token)
                             fullname = user.get(
                                 "fullname",
                                 user.get("name", "unknown user"),
@@ -801,7 +804,7 @@ def run():
                                 model.model.push_to_hub(
                                     repo_id,
                                     private=private,
-                                    token=token,
+                                    token=hf_token,
                                 )
                             else:
                                 print("Uploading merged model...")
@@ -809,7 +812,7 @@ def run():
                                 merged_model.push_to_hub(
                                     repo_id,
                                     private=private,
-                                    token=token,
+                                    token=hf_token,
                                 )
                                 del merged_model
                                 empty_cache()
@@ -817,7 +820,7 @@ def run():
                             model.tokenizer.push_to_hub(
                                 repo_id,
                                 private=private,
-                                token=token,
+                                token=hf_token,
                             )
 
                             # If the model path doesn't exist locally, it can be assumed
@@ -842,7 +845,7 @@ def run():
                                     )
                                     + card.text
                                 )
-                                card.push_to_hub(repo_id, token=token)
+                                card.push_to_hub(repo_id, token=hf_token)
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 

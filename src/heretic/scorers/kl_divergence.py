@@ -51,12 +51,14 @@ class KLDivergence(Scorer):
     def get_score(self, ctx: Context) -> Score:
         logits = ctx.get_logits(self.prompts)
         logprobs = F.log_softmax(logits, dim=-1)
-        kl = F.kl_div(
+        # This occasionally returns a negative 0 floating point, so we force it to be positive
+        # since KL divergence is always >= by definition.
+        kl = abs(F.kl_div(
             logprobs,
             self._baseline_logprobs,
             reduction="batchmean",
             log_target=True,
-        ).item()
+        ).item())
         return Score(
             name=self.score_name,
             value=kl,

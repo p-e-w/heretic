@@ -167,9 +167,9 @@ def run():
         return
 
     # Keep Hugging Face credentials in memory for this process only.
-    # We don't use huggingface_hub.login() because that stores the token on disk,
-    # and since this program will often be run on rented or shared GPU servers,
-    # it's better to not persist credentials.
+    # We don't use huggingface_hub.login() because that stores the token on disk.
+    # Since this program will often be run on rented or shared GPU servers,
+    # it is better to not persist credentials.
     hf_token = huggingface_hub.get_token()
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py

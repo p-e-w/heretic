@@ -133,12 +133,20 @@ def prompt_path(message: str) -> str:
         return questionary.path(message, only_directories=True).ask()
 
 
-def prompt_password(message: str) -> str:
+def prompt_password(message: str, hf_token: str | None) -> str:
     if is_notebook():
         print()
+        # getpass doesn't support a default.
         return getpass.getpass(message)
     else:
-        return questionary.password(message).ask()
+        if hf_token:
+            # Set the existing token, but allow user to switch if desired.
+            return questionary.password(
+                message,
+                default=hf_token
+            ).ask()
+        else:
+            return questionary.password(message).ask()
 
 
 def format_duration(seconds: float) -> str:

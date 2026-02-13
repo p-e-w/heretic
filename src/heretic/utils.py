@@ -141,10 +141,7 @@ def prompt_password(message: str, hf_token: str | None) -> str:
     else:
         if hf_token:
             # Set the existing token, but allow user to switch if desired.
-            return questionary.password(
-                message,
-                default=hf_token
-            ).ask()
+            return questionary.password(message, default=hf_token).ask()
         else:
             return questionary.password(message).ask()
 

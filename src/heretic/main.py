@@ -767,7 +767,9 @@ def run():
                             print(f"Model saved to [bold]{save_directory}[/].")
 
                         case "Upload the model to Hugging Face":
-                            hf_token = prompt_password("Hugging Face access token:", hf_token)
+                            hf_token = prompt_password(
+                                "Hugging Face access token:", hf_token
+                            )
                             if not hf_token:
                                 continue
 

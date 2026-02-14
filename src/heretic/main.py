@@ -240,7 +240,7 @@ def run():
     except IndexError:
         existing_study = None
 
-    if existing_study is not None:
+    if existing_study is not None and settings.evaluate_model is None:
         choices = []
 
         if existing_study.user_attrs["finished"]:

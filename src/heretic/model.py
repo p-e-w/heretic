@@ -32,6 +32,8 @@ from transformers.generation import (
 from .config import QuantizationMethod, RowNormalization, Settings
 from .utils import Prompt, batchify, empty_cache, print
 
+_FP8_DTYPE_TOKEN = "fp8"
+
 
 def get_model_class(
     model: str,
@@ -85,6 +87,7 @@ class Model:
             if settings.max_memory
             else None
         )
+        self._loaded_dtype: str | None = None
         self.trusted_models = {settings.model: settings.trust_remote_code}
 
         if self.settings.evaluate_model is not None:
@@ -102,14 +105,27 @@ class Model:
                 if quantization_config is not None:
                     extra_kwargs["quantization_config"] = quantization_config
 
-                self.model = get_model_class(settings.model).from_pretrained(
-                    settings.model,
-                    dtype=dtype,
-                    device_map=settings.device_map,
-                    max_memory=self.max_memory,
-                    trust_remote_code=self.trusted_models.get(settings.model),
-                    **extra_kwargs,
-                )
+                if dtype == _FP8_DTYPE_TOKEN:
+                    # FP8/NVFP4 pre-quantized models: don't pass dtype= (not a valid
+                    # PyTorch dtype). Use bfloat16 for compute and let HF auto-detect
+                    # the model's built-in quantization_config.
+                    self.model = get_model_class(settings.model).from_pretrained(
+                        settings.model,
+                        torch_dtype=torch.bfloat16,
+                        device_map=settings.device_map,
+                        max_memory=self.max_memory,
+                        trust_remote_code=self.trusted_models.get(settings.model),
+                        **extra_kwargs,
+                    )
+                else:
+                    self.model = get_model_class(settings.model).from_pretrained(
+                        settings.model,
+                        dtype=dtype,
+                        device_map=settings.device_map,
+                        max_memory=self.max_memory,
+                        trust_remote_code=self.trusted_models.get(settings.model),
+                        **extra_kwargs,
+                    )
 
                 # If we reach this point and the model requires trust_remote_code,
                 # either the user accepted, or settings.trust_remote_code is True.
@@ -134,7 +150,11 @@ class Model:
                 print(f"[red]Failed[/] ({error})")
                 continue
 
-            if settings.quantization == QuantizationMethod.BNB_4BIT:
+            self._loaded_dtype = dtype
+
+            if dtype == _FP8_DTYPE_TOKEN:
+                print("[green]Ok[/] (FP8/NVFP4 pre-quantized)")
+            elif settings.quantization == QuantizationMethod.BNB_4BIT:
                 print("[green]Ok[/] (quantized to 4-bit precision)")
             else:
                 print("[green]Ok[/]")
@@ -151,9 +171,14 @@ class Model:
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print("* Abliterable components:")
-        for component, modules in self.get_layer_modules(0).items():
+        for component in self.get_abliterable_components():
+            # Count how many layers contain this component.
+            layer_count = sum(
+                1 for i in range(len(self.get_layers()))
+                if component in self.get_layer_modules(i)
+            )
             print(
-                f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
+                f"  * [bold]{component}[/]: present in [bold]{layer_count}[/] layers"
             )
 
     def _apply_lora(self):
@@ -206,7 +231,7 @@ class Model:
         """
         if self.settings.quantization == QuantizationMethod.BNB_4BIT:
             # BitsAndBytesConfig expects a torch.dtype, not a string.
-            if dtype == "auto":
+            if dtype == "auto" or dtype == _FP8_DTYPE_TOKEN:
                 compute_dtype = torch.bfloat16
             else:
                 compute_dtype = getattr(torch, dtype)
@@ -224,7 +249,10 @@ class Model:
         assert isinstance(self.model, PeftModel)
 
         # Check if we need special handling for quantized models
-        if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+        if (
+            self.settings.quantization == QuantizationMethod.BNB_4BIT
+            or self._loaded_dtype == _FP8_DTYPE_TOKEN
+        ):
             # Quantized models need special handling - we must reload the base model
             # in full precision to merge the LoRA adapters
 
@@ -296,14 +324,25 @@ class Model:
         if quantization_config is not None:
             extra_kwargs["quantization_config"] = quantization_config
 
-        self.model = get_model_class(self.settings.model).from_pretrained(
-            self.settings.model,
-            dtype=dtype,
-            device_map=self.settings.device_map,
-            max_memory=self.max_memory,
-            trust_remote_code=self.trusted_models.get(self.settings.model),
-            **extra_kwargs,
-        )
+        if self._loaded_dtype == _FP8_DTYPE_TOKEN:
+            # FP8/NVFP4 pre-quantized: use torch_dtype instead of dtype=.
+            self.model = get_model_class(self.settings.model).from_pretrained(
+                self.settings.model,
+                torch_dtype=torch.bfloat16,
+                device_map=self.settings.device_map,
+                max_memory=self.max_memory,
+                trust_remote_code=self.trusted_models.get(self.settings.model),
+                **extra_kwargs,
+            )
+        else:
+            self.model = get_model_class(self.settings.model).from_pretrained(
+                self.settings.model,
+                dtype=dtype,
+                device_map=self.settings.device_map,
+                max_memory=self.max_memory,
+                trust_remote_code=self.trusted_models.get(self.settings.model),
+                **extra_kwargs,
+            )
 
         self._apply_lora()
 
@@ -319,6 +358,10 @@ class Model:
         # Most multimodal models.
         with suppress(Exception):
             return model.model.language_model.layers
+
+        # NemotronH and other backbone-based models.
+        with suppress(Exception):
+            return model.backbone.layers
 
         # Text-only models.
         return model.model.layers
@@ -340,9 +383,9 @@ class Model:
                     f"Unexpected Tensor in {component} - expected nn.Module"
                 )
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+        # Standard transformer attention out-projection.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Most dense models.
         with suppress(Exception):
@@ -367,14 +410,65 @@ class Model:
             for expert in layer.moe.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
                 try_add("mlp.down_proj", expert.output_linear)  # ty:ignore[possibly-missing-attribute]
 
-        # We need at least one module across all components for abliteration to work.
-        total_modules = sum(len(mods) for mods in modules.values())
-        assert total_modules > 0, "No abliterable modules found in layer"
+        # NemotronH hybrid layers - all use a unified `mixer` attribute.
+        # Attention layers have mixer.o_proj.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.mixer.o_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # NemotronH simple MLP layers have mixer.down_proj.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mixer.down_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # NemotronH MoE layers have mixer.experts (per-expert) and mixer.shared_experts.
+        # Following heretic's standard pattern for MoE models (Qwen3, Phi-3.5-MoE, Granite):
+        # include all expert down_proj modules. Optuna will optimize the weight.
+        with suppress(Exception):
+            for expert in layer.mixer.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
+                try_add("mlp.down_proj", expert.down_proj)  # ty:ignore[possibly-missing-attribute]
+
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mixer.shared_experts.down_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # NemotronH Mamba2 SSM layers have mixer.out_proj.
+        with suppress(Exception):
+            try_add("mamba.out_proj", layer.mixer.out_proj)  # ty:ignore[possibly-missing-attribute]
 
         return modules
 
     def get_abliterable_components(self) -> list[str]:
-        return list(self.get_layer_modules(0).keys())
+        # Scan all layers to collect the union of component types.
+        # This is necessary for hybrid architectures (e.g. NemotronH) where
+        # different layers have different component types.
+        all_components: dict[str, list[Module]] = {}
+        n_layers = len(self.get_layers())
+        skipped_layers: list[int] = []
+        for layer_index in range(n_layers):
+            layer_modules = self.get_layer_modules(layer_index)
+            if not layer_modules:
+                skipped_layers.append(layer_index)
+                continue
+            for component, modules in layer_modules.items():
+                if component not in all_components:
+                    all_components[component] = modules
+
+        if skipped_layers:
+            # Log which layers were skipped and what their structure looks like
+            # so users can report the architecture for future support.
+            sample_idx = skipped_layers[0]
+            sample_layer = self.get_layers()[sample_idx]
+            child_names = [name for name, _ in sample_layer.named_children()]
+            print(
+                f"  [yellow]Warning: {len(skipped_layers)}/{n_layers} layers have "
+                f"no recognized abliterable modules (e.g. layer {sample_idx}: "
+                f"{type(sample_layer).__name__} with children: {child_names})[/]"
+            )
+
+        assert len(all_components) > 0, (
+            "No abliterable modules found in any layer. "
+            "This model architecture may not be supported."
+        )
+
+        return list(all_components.keys())
 
     def abliterate(
         self,
@@ -511,6 +605,11 @@ class Model:
                         lora_B = U @ torch.diag(sqrt_S)
                         lora_A = torch.diag(sqrt_S) @ Vh
 
+                    # Skip modules whose base weight is on meta device (no actual data)
+                    # or contains NaN values (e.g. improperly dequantized FP8 weights).
+                    if base_weight.device.type == "meta" or torch.isnan(W).any():
+                        continue
+
                     # Assign to adapters. The adapter name is "default", because that's
                     # what PEFT uses when no name is explicitly specified, as above.
                     # These casts are therefore valid.
@@ -600,10 +699,59 @@ class Model:
 
         return responses
 
+    def _get_hidden_states_via_hooks(self, inputs: BatchEncoding) -> list[Tensor]:
+        """
+        Capture per-layer hidden states using forward hooks.
+        Used as a fallback for models (e.g. NemotronH) that don't return
+        hidden_states through generate() or forward().
+
+        Returns a list matching the standard output_hidden_states format:
+        [embedding_output, layer_0_output, layer_1_output, ...] (n_layers + 1 entries).
+        """
+        captured: list[Tensor] = []
+
+        def make_hook(idx: int):
+            def hook(module: Module, args: Any, output: Any) -> None:
+                # Layer output is typically a tuple where the first element
+                # is the hidden state tensor of shape (batch, seq_len, hidden_dim).
+                if isinstance(output, tuple):
+                    captured.append(output[0].detach())
+                else:
+                    captured.append(output.detach())
+            return hook
+
+        # Also capture the input to the first layer (= embedding output)
+        # to match the standard hidden_states format of n_layers + 1 entries.
+        embedding_output: list[Tensor] = []
+
+        def embedding_hook(module: Module, args: Any) -> None:
+            # Pre-hooks receive (module, args). The first positional arg
+            # to a layer is the hidden state input (= embedding output).
+            if isinstance(args, tuple) and len(args) > 0 and isinstance(args[0], Tensor):
+                embedding_output.append(args[0].detach())
+
+        layers = self.get_layers()
+        handles = []
+        # Hook on the first layer to capture its input (= embedding output).
+        handles.append(layers[0].register_forward_pre_hook(embedding_hook))
+        for i, layer in enumerate(layers):
+            handles.append(layer.register_forward_hook(make_hook(i)))
+
+        try:
+            self.model(**inputs)
+        finally:
+            for handle in handles:
+                handle.remove()
+
+        # Prepend embedding output to match [embedding, layer_0, layer_1, ...] format.
+        if embedding_output:
+            return [embedding_output[0]] + captured
+        return captured
+
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
         # We only generate one token, and we return the residual vectors
         # at that token position, for each prompt and layer.
-        _, outputs = self.generate(
+        inputs, outputs = self.generate(
             prompts,
             max_new_tokens=1,
             output_hidden_states=True,
@@ -614,22 +762,43 @@ class Model:
         # of model.generate with return_dict_in_generate=True.
         outputs = cast(GenerateDecoderOnlyOutput, outputs)
 
-        # Hidden states for the first (only) generated token.
-        # This cast is valid because we passed output_hidden_states=True above.
-        hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
+        # Check if generate() returned usable hidden states.
+        # Some models (e.g. NemotronH) return a tuple of Nones instead of actual tensors.
+        has_hidden_states = (
+            outputs.hidden_states is not None
+            and len(outputs.hidden_states) > 0
+            and outputs.hidden_states[0] is not None
+        )
+
+        if has_hidden_states:
+            # Standard path: hidden states returned by generate().
+            hidden_states = outputs.hidden_states[0]
+        else:
+            # Fallback for hybrid architectures (e.g. NemotronH) that don't
+            # return hidden_states through generate() or forward().
+            # Use forward hooks to capture per-layer outputs directly.
+            hidden_states = self._get_hidden_states_via_hooks(inputs)
 
         # The returned tensor has shape (prompt, layer, component).
+        # Move all layer tensors to the same device before stacking,
+        # since multi-GPU setups may place layers on different devices.
+        target_device = hidden_states[0].device
         residuals = torch.stack(
             # layer_hidden_states has shape (prompt, position, component),
             # so this extracts the hidden states at the end of each prompt,
             # and stacks them up over the layers.
-            [layer_hidden_states[:, -1, :] for layer_hidden_states in hidden_states],
+            [layer_hidden_states[:, -1, :].to(target_device) for layer_hidden_states in hidden_states],
             dim=1,
         )
 
         # Upcast the data type to avoid precision (bfloat16) or range (float16)
         # problems during calculations involving residual vectors.
         residuals = residuals.to(torch.float32)
+
+        # Warn about NaN residuals from hook-based capture on hybrid architectures.
+        nan_layers = torch.isnan(residuals).any(dim=(0, 2)).nonzero().squeeze(-1).tolist()
+        if nan_layers:
+            print(f"  [bold yellow]Warning:[/] NaN residuals in layers: {nan_layers}")
 
         if 0 <= self.settings.winsorization_quantile < 1:
             # Apply symmetric winsorization to each layer of the per-prompt residuals.
@@ -671,7 +840,13 @@ class Model:
 
         # Logits for the first (only) generated token.
         # This cast is valid because we passed output_scores=True above.
+        assert outputs.scores is not None, (
+            "Model did not return scores. This model architecture may not support output_scores."
+        )
         logits = cast(tuple[FloatTensor], outputs.scores)[0]
+
+        if torch.isnan(logits).any():
+            print("  [bold yellow]Warning:[/] NaN values in logits (post-abliteration model corruption)")
 
         # The returned tensor has shape (prompt, token).
         return F.log_softmax(logits, dim=-1)

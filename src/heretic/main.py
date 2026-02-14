@@ -29,8 +29,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
-from optuna.study import StudyDirection
-from optuna.trial import TrialState
+from optuna.trial import FrozenTrial, TrialState
 from pydantic import ValidationError
 from questionary import Choice
 from rich.traceback import install
@@ -408,7 +407,11 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        evaluator.get_score()
+        scores = evaluator.get_scores()
+        print()
+        print("[bold]Metrics:[/]")
+        for s in scores:
+            print(f"  * {s.name}: [bold]{s.cli_display}[/]")
         return
 
     print()
@@ -442,7 +445,6 @@ def run():
     if settings.plot_residuals:
         analyzer.plot_residuals()
 
-    # We don't need the residuals after computing refusal directions.
     del good_residuals, bad_residuals, analyzer
     empty_cache()
 
@@ -450,7 +452,7 @@ def run():
     start_index = 0
     start_time = time.perf_counter()
 
-    def objective(trial: Trial) -> tuple[float, float]:
+    def objective(trial: Trial) -> tuple[float, ...]:
         nonlocal trial_index
         trial_index += 1
         trial.set_user_attr("index", trial_index)
@@ -533,7 +535,12 @@ def run():
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
-        score, kl_divergence, refusals = evaluator.get_score()
+        scores = evaluator.get_scores()
+        objective_values = evaluator.get_objective_values(scores)
+
+        print("  * Metrics:")
+        for s in scores:
+            print(f"    * {s.name}: [bold]{s.cli_display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / (trial_index - start_index)) * (
@@ -545,14 +552,15 @@ def run():
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
+        trial.set_user_attr(
+            "scores",
+            [s.__dict__ for s in scores],
+        )
         print_memory_usage()
 
-        trial.set_user_attr("kl_divergence", kl_divergence)
-        trial.set_user_attr("refusals", refusals)
+        return objective_values
 
-        return score
-
-    def objective_wrapper(trial: Trial) -> tuple[float, float]:
+    def objective_wrapper(trial: Trial) -> tuple[float, ...]:
         try:
             return objective(trial)
         except KeyboardInterrupt:
@@ -560,14 +568,19 @@ def run():
             trial.study.stop()
             raise TrialPruned()
 
+    # Derive objective info from baseline scores
+    objectives = evaluator.get_objectives(evaluator.baseline_scores)
+    objective_names = [s.name for s in objectives]
+    directions = evaluator.get_objective_directions()
+
     study = optuna.create_study(
         sampler=TPESampler(
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
             multivariate=True,
         ),
-        directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
         storage=storage,
+        directions=directions,
         study_name="heretic",
         load_if_exists=True,
     )
@@ -606,33 +619,28 @@ def run():
         if not completed_trials:
             raise KeyboardInterrupt
 
-        # Get the Pareto front of trials. We can't use study.best_trials directly
-        # as get_score() doesn't return the pure KL divergence and refusal count.
-        # Note: Unlike study.best_trials, this does not handle objective constraints.
-        sorted_trials = sorted(
-            completed_trials,
-            key=lambda trial: (
-                trial.user_attrs["refusals"],
-                trial.user_attrs["kl_divergence"],
-            ),
+        # For multi-objective, Optuna already computes a Pareto front.
+        # For single-objective, use the single best trial.
+        best_trials = (
+            list(study.best_trials) if len(directions) > 1 else [study.best_trial]
         )
-        min_divergence = math.inf
-        best_trials = []
-        for trial in sorted_trials:
-            kl_divergence = trial.user_attrs["kl_divergence"]
-            if kl_divergence < min_divergence:
-                min_divergence = kl_divergence
-                best_trials.append(trial)
+
+        def format_trial_title(trial: FrozenTrial) -> str:
+            parts: list[str] = [f"[Trial {trial.user_attrs['index']:>3}]"]
+
+            values = trial.values
+            if values is None:
+                values = (trial.value,)  # type: ignore[assignment]
+
+            for name, val in zip(objective_names, values):
+                if val is None:
+                    continue
+                parts.append(f"{name}: {val:.4f}")
+
+            return ", ".join(parts)
 
         choices = [
-            Choice(
-                title=(
-                    f"[Trial {trial.user_attrs['index']:>3}] "
-                    f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                    f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
-                ),
-                value=trial,
-            )
+            Choice(title=format_trial_title(trial), value=trial)
             for trial in best_trials
         ]
 
@@ -655,7 +663,7 @@ def run():
         print()
         print(
             (
-                "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
+                "The following trials resulted in Pareto optimal combinations of the optimization objectives. "
                 "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
                 "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
                 "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"
@@ -836,12 +844,15 @@ def run():
                                 card.data.tags.append("uncensored")
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
+                                baseline_score_displays = {
+                                    s.name: s.md_display
+                                    for s in evaluator.baseline_scores
+                                }
                                 card.text = (
                                     get_readme_intro(
                                         settings,
                                         trial,
-                                        evaluator.base_refusals,
-                                        evaluator.bad_prompts,
+                                        baseline_score_displays,
                                     )
                                     + card.text
                                 )

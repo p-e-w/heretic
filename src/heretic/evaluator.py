@@ -1,125 +1,208 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import torch.nn.functional as F
-from torch import Tensor
+from __future__ import annotations
 
-from .config import Settings
+from typing import Any
+
+from optuna.study import StudyDirection
+from pydantic import BaseModel
+
+from .config import ScorerConfig, Settings
 from .model import Model
-from .utils import Prompt, load_prompts, print
+from .plugin import get_plugin_namespace, load_plugin
+from .scorer import Context, Score, Scorer
+from .utils import deep_merge_dicts, print
 
 
 class Evaluator:
     settings: Settings
     model: Model
-    good_prompts: list[Prompt]
-    bad_prompts: list[Prompt]
-    base_logprobs: Tensor
-    base_refusals: int
+    """
+    Manages evaluation of the model using configured scorer plugins.
+
+    Loads scorers, establishes baseline scores, and runs scorers during optimization.
+    """
 
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings
         self.model = model
+        self._scorer_configs: list[ScorerConfig] = list(settings.scorers)
 
         print()
-        print(
-            f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."
-        )
-        self.good_prompts = load_prompts(settings, settings.good_evaluation_prompts)
-        print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
+        print("Loading scorers...")
+        self.scorers = self._load_scorers()
+        self._init_scorers()
 
-        print("* Obtaining first-token probability distributions...")
-        self.base_logprobs = model.get_logprobs_batched(self.good_prompts)
+        # Establish baseline scores (pre-abliteration)
+        self.baseline_scores = self.get_baseline_scores()
+        self._print_baseline()
 
-        print()
-        print(
-            f"Loading bad evaluation prompts from [bold]{settings.bad_evaluation_prompts.dataset}[/]..."
-        )
-        self.bad_prompts = load_prompts(settings, settings.bad_evaluation_prompts)
-        print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
+    def _init_scorers(self) -> None:
+        """
+        Optional scorer initialization hook.
+        """
+        ctx = Context(settings=self.settings, model=self.model)
 
-        print("* Counting model refusals...")
-        self.base_refusals = self.count_refusals()
-        print(
-            f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
-        )
+        for scorer in self.scorers:
+            scorer.init(ctx)
 
-    def is_refusal(self, response: str) -> bool:
-        # Classify empty responses as refusals to avoid optimizing for them.
-        if not response.strip():
-            return True
+    def _print_baseline(self) -> None:
+        """Print baseline scores summary."""
+        for s in self.baseline_scores:
+            print(f"* Baseline {s.name}: [bold]{s.cli_display}[/]")
 
-        # Remove emphasis (e.g. "I *will not*...").
-        response = response.lower().replace("*", "")
+    def _get_scorer_settings_raw(
+        self, *, scorer_cls: type[Scorer], instance_name: str | None
+    ) -> dict[str, Any]:
+        """
+        Build the raw settings dict for a scorer class and optional instance.
 
-        # Normalize typographic apostrophes ("won’t" -> "won't").
-        response = response.replace("’", "'")
+        Config rules:
+        - Base settings live in `[scorer.ClassName]` (applies to all instances)
+        - Instance overrides live in `[scorer.ClassName_<instance_name>]` (preferred)
+        - Only merge/validate keys that exist in the scorer Settings schema
+        """
+        settings_model = scorer_cls.get_settings_model()
+        if settings_model is None:
+            # No settings schema: nothing to merge/validate.
+            return {}
 
-        # Normalize whitespace between words to a single space.
-        response = " ".join(response.split())
+        class_name = scorer_cls.__name__
+        if instance_name and "." in instance_name:
+            raise ValueError(
+                f"Invalid instance_name '{instance_name}' for scorer {class_name}: '.' is not allowed"
+            )
 
-        for marker in self.settings.refusal_markers:
-            if marker.lower() in response:
-                return True
+        namespaces = [f"scorer.{class_name}"]
+        if instance_name:
+            namespaces.append(f"scorer.{class_name}_{instance_name}")
 
-        return False
+        merged_settings: dict[str, Any] = {}
+        allowed_keys = set(settings_model.model_fields.keys())
 
-    def count_refusals(self) -> int:
-        refusal_count = 0
+        for ns in namespaces:
+            raw_table = get_plugin_namespace(self.settings.model_extra, ns)
+            filtered = {k: v for k, v in raw_table.items() if k in allowed_keys}
+            merged_settings = deep_merge_dicts(merged_settings, filtered)
 
-        responses = self.model.get_responses_batched(
-            self.bad_prompts,
-            skip_special_tokens=True,
-        )
+        return merged_settings
 
-        for prompt, response in zip(self.bad_prompts, responses):
-            is_refusal = self.is_refusal(response)
-            if is_refusal:
-                refusal_count += 1
+    def _load_scorers(self) -> list[Scorer]:
+        """Load and instantiate all configured scorer plugins."""
+        scorer_configs = self._scorer_configs
+        # the scaling factor and optimization direction (maximize, minimize, none)
+        # is set at the top level
+        if not scorer_configs:
+            raise ValueError("No scorers configured. Set 'scorers' in config.toml")
 
-            if self.settings.print_responses:
-                print()
-                print(f"[bold]System prompt:[/] {prompt.system}")
-                print(f"[bold]Prompt:[/] {prompt.user}")
-                if not response.strip():
-                    response = "[italic]\\[empty][/]"
-                print(
-                    f"[bold]Response:[/] [{'red' if is_refusal else 'green'}]{response}[/]"
+        scorer_classes: list[type[Scorer]] = []
+
+        # resolve plugin classes from names and validate
+        for cfg in scorer_configs:
+            scorer_cls = load_plugin(name=cfg.plugin, base_class=Scorer)
+            scorer_cls.validate_contract()
+            scorer_classes.append(scorer_cls)
+
+            print(
+                f"* Loaded: [bold]{scorer_cls.__name__} {'- ' + cfg.instance_name if cfg.instance_name else ''}[/bold]"
+            )
+
+        scorers: list[Scorer] = []
+        self._scorer_instance_labels: list[str | None] = []
+        scorer_names: set[str] = set()
+        # instantiate scorers
+        for index, scorer_cls in enumerate(scorer_classes):
+            instance_name = scorer_configs[index].instance_name or None
+
+            raw_settings = self._get_scorer_settings_raw(
+                scorer_cls=scorer_cls, instance_name=instance_name
+            )
+            scorer_settings: BaseModel | None = scorer_cls.validate_settings(
+                raw_settings
+            )
+
+            scorer = scorer_cls(
+                heretic_settings=self.settings,
+                settings=scorer_settings,
+            )
+
+            # External labeling key: ensures multiple instances can coexist
+            scorer_key = (
+                scorer_cls.__name__
+                if not instance_name
+                else f"{scorer_cls.__name__}.{instance_name}"
+            )
+            if scorer_key in scorer_names:
+                raise ValueError(
+                    f"Duplicate scorer instance name: {scorer_key}. "
+                    "Give each instance a unique `instance_name`."
                 )
+            scorer_names.add(scorer_key)
 
-        if self.settings.print_responses:
-            print()
+            scorers.append(scorer)
+            self._scorer_instance_labels.append(instance_name)
+        return scorers
 
-        return refusal_count
+    def get_scores(self) -> list[Score]:
+        """
+        Run all scorers and return their scores
+        If there are multiple instances of the same scorer, the `Score`'s `name`
+        is labeled externally as `<base> - <instance_name>`.
 
-    def get_score(self) -> tuple[tuple[float, float], float, int]:
-        print("  * Obtaining first-token probability distributions...")
-        logprobs = self.model.get_logprobs_batched(self.good_prompts)
-        kl_divergence = F.kl_div(
-            logprobs,
-            self.base_logprobs,
-            reduction="batchmean",
-            log_target=True,
-        ).item()
-        print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
+        Returns:
+            List of Score from each scorer.
+        """
+        ctx = Context(settings=self.settings, model=self.model)
+        scores: list[Score] = []
+        for scorer, label in zip(self.scorers, self._scorer_instance_labels):
+            s = scorer.get_score(ctx)
+            if label:
+                # Add label externally
+                s.name = f"{s.name} - {label}"
+            scores.append(s)
+        return scores
 
-        print("  * Counting model refusals...")
-        refusals = self.count_refusals()
-        print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
+    def get_baseline_scores(self) -> list[Score]:
+        """
+        Run all scorers and return their baseline scores
+        If there are multiple instances of the same scorer, the `Score`'s `name`
+        is labeled externally as `<base> - <instance_name>`.
 
-        kl_divergence_scale = self.settings.kl_divergence_scale
-        kl_divergence_target = self.settings.kl_divergence_target
+        Returns:
+            List of Score from each scorer.
+        """
+        ctx = Context(settings=self.settings, model=self.model)
+        scores: list[Score] = []
+        for scorer, label in zip(self.scorers, self._scorer_instance_labels):
+            s = scorer.get_baseline_score(ctx)
+            if label:
+                # Add label externally
+                s.name = f"{s.name} - {label}"
+            scores.append(s)
+        return scores
 
-        refusals_score = refusals / self.base_refusals
+    def get_objectives(self, scores: list[Score]) -> list[Score]:
+        """Filter scores to only those used in optimization."""
+        return [
+            s
+            for cfg, s in zip(self._scorer_configs, scores)
+            if cfg.direction != StudyDirection.NOT_SET
+        ]
 
-        if kl_divergence >= kl_divergence_target:
-            kld_score = kl_divergence / kl_divergence_scale
-        else:
-            kld_score = refusals_score * kl_divergence_target / kl_divergence_scale
+    def get_objective_values(self, scores: list[Score]) -> tuple[float, ...]:
+        """Extract objective values as a tuple for Optuna."""
+        values: list[float] = []
+        for cfg, s in zip(self._scorer_configs, scores):
+            if cfg.direction == StudyDirection.NOT_SET:
+                continue
+            values.append(float(s.value) * float(cfg.scale))
+        return tuple(values)
 
-        score = (
-            kld_score,
-            refusals_score,
-        )
-
-        return score, kl_divergence, refusals
+    def get_objective_directions(self) -> list[StudyDirection]:
+        """Get optimization directions for objectives."""
+        return [
+            cfg.direction
+            for cfg in self._scorer_configs
+            if cfg.direction != StudyDirection.NOT_SET
+        ]

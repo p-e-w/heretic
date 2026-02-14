@@ -1,6 +1,7 @@
 # Rename this file to config.toml, place it in the working directory
 # that you run Heretic from, and edit the configuration to your liking.
 
+
 # List of PyTorch dtypes to try when loading model tensors.
 # If loading with a dtype fails, the next dtype in the list will be tried.
 dtypes = [
@@ -27,6 +28,7 @@ device_map = "auto"
 # Maximum memory to allocate per device.
 # max_memory = {"0": "20GB", "cpu": "64GB"}
 
+
 # Number of input sequences to process in parallel (0 = auto).
 batch_size = 0  # auto
 
@@ -35,9 +37,6 @@ max_batch_size = 128
 
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
-
-# Whether to print prompt/response pairs when counting refusals.
-print_responses = false
 
 # Whether to print detailed information about residuals and refusal directions.
 print_residual_geometry = false
@@ -54,13 +53,14 @@ residual_plot_title = 'PaCMAP Projection of Residual Vectors for "Harmless" and 
 # Matplotlib style sheet to use for plots of residual vectors.
 residual_plot_style = "dark_background"
 
-# Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models.
-# This is used to ensure balanced co-optimization of KL divergence and refusal count.
-kl_divergence_scale = 1.0
-
-# The KL divergence to target. Below this value, an objective based on the refusal count is used.
-# This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".
-kl_divergence_target = 0.01
+# List of scorers to evaluate.
+# Each entry is an object:
+# { plugin = <plugin>, direction = <direction>, scale = <scale>, instance_name = <optional> }
+# where <direction> is one of "minimize", "maximize", "not_set" (aka do not optimize)
+scorers = [
+    { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = "minimize", scale = 1.0 },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", direction = "minimize", scale = 1.0 },
+]
 
 # Whether to adjust the refusal directions so that only the component that is
 # orthogonal to the good direction is subtracted during abliteration.
@@ -69,7 +69,7 @@ orthogonalize_direction = false
 # How to apply row normalization of the weights. Options:
 # "none" (no normalization),
 # "pre" (compute LoRA adapter relative to row-normalized weights),
-# "full" (like "pre", but renormalizes to preserve original row magnitudes).
+# "full" (like "pre", but re-normalizes to preserve original row magnitudes).
 row_normalization = "none"
 
 # The rank of the LoRA adapter to use when "full" row normalization is used.
@@ -93,6 +93,31 @@ n_startup_trials = 60
 
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"
+
+# System prompt to use when prompting the model.
+system_prompt = "You are a helpful assistant."
+
+# Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).
+[good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:400]"
+column = "text"
+residual_plot_label = '"Harmless" prompts'
+residual_plot_color = "royalblue"
+
+# Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
+[bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:400]"
+column = "text"
+residual_plot_label = '"Harmful" prompts'
+residual_plot_color = "darkorange"
+
+# Plugin-specific settings live in a top-level TOML table.
+# For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>_<instance_name>]` for instance-related config).
+[scorer.RefusalRate]
+# Whether to print prompt/response pairs when counting refusals.
+print_responses = false
 
 # Strings whose presence in a response (case insensitive) identifies the response as a refusal.
 refusal_markers = [
@@ -130,33 +155,30 @@ refusal_markers = [
     "ethical boundaries",
 ]
 
-# System prompt to use when prompting the model.
-system_prompt = "You are a helpful assistant."
-
-# Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).
-[good_prompts]
-dataset = "mlabonne/harmless_alpaca"
-split = "train[:400]"
-column = "text"
-residual_plot_label = '"Harmless" prompts'
-residual_plot_color = "royalblue"
-
-# Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
-[bad_prompts]
+# Scorer-owned evaluation prompts
+[scorer.RefusalRate.prompts]
 dataset = "mlabonne/harmful_behaviors"
-split = "train[:400]"
-column = "text"
-residual_plot_label = '"Harmful" prompts'
-residual_plot_color = "darkorange"
-
-# Dataset of prompts that tend to not result in refusals (used for evaluating model performance).
-[good_evaluation_prompts]
-dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
 
-# Dataset of prompts that tend to result in refusals (used for evaluating model performance).
-[bad_evaluation_prompts]
-dataset = "mlabonne/harmful_behaviors"
+# You can also load multiple instances of the same scorer class by setting `instance_name`
+# in the `scorers = [...]` list. Each instance is still identified as `ClassName.instanceName`
+# internally, but its config overrides live under `[scorer.ClassName_<instance_name>]`.
+#
+# Example:
+# scorers = [
+#   { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = 1, scale = 1.0, instance_name = "small" },
+#   { plugin = "heretic.scorers.refusal_rate.RefusalRate", direction = 1, scale = 1.0, instance_name = "tiny" },
+# ]
+#
+# Shared defaults for all instances live under `[scorer.RefusalRate]` and can be overridden per
+# instance under `[scorer.RefusalRate_<instance_name>]`.
+#
+# Example instance override:
+# [scorer.RefusalRate_small.prompts]
+# split = "test[:10]"
+
+[scorer.KLDivergence.prompts]
+dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"

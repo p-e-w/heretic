@@ -418,6 +418,13 @@ def run():
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
 
+    if model.massive_dims.numel() > 0:
+        # Zero out the dimensions containing massive activations.
+        # These dominate the directions and are very sensitive to ablation.
+        print(f"* Zeroing massive activation dims {model.massive_dims.tolist()}...")
+        good_residuals[:, :, model.massive_dims] = 0
+        bad_residuals[:, :, model.massive_dims] = 0
+
     good_means = good_residuals.mean(dim=0)
     bad_means = bad_residuals.mean(dim=0)
 

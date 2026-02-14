@@ -1,6 +1,6 @@
 <img width="128" height="128" align="right" alt="Logo" src="https://github.com/user-attachments/assets/df5f2840-2f92-4991-aa57-252747d7182e" />
 
-# Heretic: Fully automatic censorship removal for language models<br><br>[![Discord](https://img.shields.io/discord/1447831134212984903?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/gdXc48gSyT)
+# Heretic: Fully automatic censorship removal for language models<br><br>[![Discord](https://img.shields.io/discord/1447831134212984903?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/gdXc48gSyT) [![Follow us on Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg)](https://huggingface.co/heretic-org)
 
 Heretic is a tool that removes censorship (aka "safety alignment") from
 transformer-based language models without expensive post-training.
@@ -67,8 +67,11 @@ Heretic supports most dense models, including many multimodal models, and
 several different MoE architectures. It does not yet support SSMs/hybrid models,
 models with inhomogeneous layers, and certain novel attention systems.
 
-You can find a collection of models that have been decensored using Heretic
-[on Hugging Face](https://huggingface.co/collections/p-e-w/the-bestiary).
+You can find a small collection of models that have been decensored using Heretic
+[on Hugging Face](https://huggingface.co/collections/p-e-w/the-bestiary),
+and the community has created and published
+[well over 1,000](https://huggingface.co/models?other=heretic)
+Heretic models in addition to those.
 
 
 ## Usage

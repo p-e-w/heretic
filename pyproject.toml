@@ -38,6 +38,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+fp8 = [
+    "fp-quant>=0.1.0",
+]
 research = [
     "geom-median~=0.1",
     "imageio~=2.37",

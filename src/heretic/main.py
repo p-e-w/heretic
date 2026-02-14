@@ -755,8 +755,7 @@ def run():
                                 merged_model.save_pretrained(save_directory)
                                 del merged_model
                                 empty_cache()
-
-                            model.tokenizer.save_pretrained(save_directory)
+                                model.tokenizer.save_pretrained(save_directory)
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -813,12 +812,11 @@ def run():
                                 )
                                 del merged_model
                                 empty_cache()
-
-                            model.tokenizer.push_to_hub(
-                                repo_id,
-                                private=private,
-                                token=token,
-                            )
+                                model.tokenizer.push_to_hub(
+                                    repo_id,
+                                    private=private,
+                                    token=token,
+                                )
 
                             # If the model path doesn't exist locally, it can be assumed
                             # to be a model hosted on the Hugging Face Hub, in which case

@@ -481,6 +481,11 @@ def run():
     # This should free up memory from the objects released with the del statements above.
     empty_cache()
 
+    if model.massive_dims.numel() > 0:
+        # List the massive activations that were detected.
+        # These dominate the directions and are very sensitive to ablation.
+        print(f"* Massive activations dimensions found: {model.massive_dims.tolist()}")
+
     trial_index = 0
     start_index = 0
     start_time = time.perf_counter()

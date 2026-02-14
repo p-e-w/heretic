@@ -271,7 +271,11 @@ def get_readme_intro(
     base_refusals: int,
     bad_prompts: list[Prompt],
 ) -> str:
-    model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
+    if Path(settings.model).exists():
+        # Hide the path, which may contain private information.
+        model_link = "a model"
+    else:
+        model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
 
     return f"""# This is a decensored version of {
         model_link

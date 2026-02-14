@@ -401,6 +401,8 @@ class Model:
         # the embedding matrix, but it's unclear if that has any benefits.
         for layer_index in range(len(self.get_layers())):
             for component, modules in self.get_layer_modules(layer_index).items():
+                if component not in parameters:
+                    continue
                 params = parameters[component]
 
                 # Type inference fails here for some reason.

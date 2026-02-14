@@ -36,7 +36,12 @@ from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod, Settings
+from .config import (
+    CategoricalParamSpecification,
+    FloatParamSpecification,
+    QuantizationMethod,
+    Settings,
+)
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .utils import (
@@ -446,6 +451,25 @@ def run():
     del good_residuals, bad_residuals, analyzer
     empty_cache()
 
+    settings.set_parameter_range_defaults(
+        {
+            "direction_scope": CategoricalParamSpecification(["global", "per layer"]),
+            # Discrimination between "harmful" and "harmless" inputs is usually strongest
+            # in layers slightly past the midpoint of the layer stack. See the original
+            # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
+            "direction_index": FloatParamSpecification(low=0.4, high=0.9),
+            # The parameter ranges are based on experiments with various models
+            # and much wider ranges. They are not set in stone and might have to be
+            # adjusted for future models.
+            "max_weight": FloatParamSpecification(low=0.8, high=1.5, log=False),
+            "max_weight_position": FloatParamSpecification(low=0.6, high=1.0),
+            # For sampling purposes, min_weight is expressed as a fraction of max_weight,
+            # because multivariate TPE doesn't support variable-range parameters.
+            "min_weight": FloatParamSpecification(low=0.0, high=1.0),
+            "min_weight_distance": FloatParamSpecification(low=0.0, high=0.6),
+        }
+    )
+
     trial_index = 0
     start_index = 0
     start_time = time.perf_counter()
@@ -455,67 +479,48 @@ def run():
         trial_index += 1
         trial.set_user_attr("index", trial_index)
 
-        direction_scope = trial.suggest_categorical(
-            "direction_scope",
-            [
-                "global",
-                "per layer",
-            ],
-        )
+        direction_scope_choices = settings.categorical_spec("direction_scope")
+        direction_scope = direction_scope_choices.suggest_categorical(trial)
 
         last_layer_index = len(model.get_layers()) - 1
 
-        # Discrimination between "harmful" and "harmless" inputs is usually strongest
-        # in layers slightly past the midpoint of the layer stack. See the original
-        # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
-        #
-        # Note that we always sample this parameter even though we only need it for
-        # the "global" direction scope. The reason is that multivariate TPE doesn't
-        # work with conditional or variable-range parameters.
-        direction_index = trial.suggest_float(
-            "direction_index",
-            0.4 * last_layer_index,
-            0.9 * last_layer_index,
-        )
-
-        if direction_scope == "per layer":
+        # Note that we always sample this parameter when the "global" direction
+        # scope is included in the choices, even though we only need it for the
+        # "global" direction scope itself. The reason is that multivariate TPE
+        # doesn't work with conditional or variable-range parameters.
+        if "global" in direction_scope_choices:
+            direction_index_range = settings.float_spec("direction_index")
+            direction_index = direction_index_range.suggest_float(trial)
+            direction_index *= last_layer_index
+        if direction_scope != "global":
             direction_index = None
 
         parameters = {}
 
         for component in model.get_abliterable_components():
-            # The parameter ranges are based on experiments with various models
-            # and much wider ranges. They are not set in stone and might have to be
-            # adjusted for future models.
-            max_weight = trial.suggest_float(
-                f"{component}.max_weight",
-                0.8,
-                1.5,
+            max_weight_range = settings.float_spec(f"{component}.max_weight")
+            if max_weight_range.high == 0.0:
+                continue
+            max_weight = max_weight_range.suggest_float(trial)
+
+            max_weight_position_range = settings.float_spec(
+                f"{component}.max_weight_position"
             )
-            max_weight_position = trial.suggest_float(
-                f"{component}.max_weight_position",
-                0.6 * last_layer_index,
-                1.0 * last_layer_index,
+            max_weight_position = max_weight_position_range.suggest_float(trial)
+
+            min_weight_range = settings.float_spec(f"{component}.min_weight")
+            min_weight = min_weight_range.suggest_float(trial)
+
+            min_weight_distance_range = settings.float_spec(
+                f"{component}.min_weight_distance"
             )
-            # For sampling purposes, min_weight is expressed as a fraction of max_weight,
-            # again because multivariate TPE doesn't support variable-range parameters.
-            # The value is transformed into the actual min_weight value below.
-            min_weight = trial.suggest_float(
-                f"{component}.min_weight",
-                0.0,
-                1.0,
-            )
-            min_weight_distance = trial.suggest_float(
-                f"{component}.min_weight_distance",
-                1.0,
-                0.6 * last_layer_index,
-            )
+            min_weight_distance = min_weight_distance_range.suggest_float(trial)
 
             parameters[component] = AbliterationParameters(
                 max_weight=max_weight,
-                max_weight_position=max_weight_position,
-                min_weight=(min_weight * max_weight),
-                min_weight_distance=min_weight_distance,
+                max_weight_position=max_weight_position * last_layer_index,
+                min_weight=min_weight * max_weight,
+                min_weight_distance=min_weight_distance * last_layer_index,
             )
 
         trial.set_user_attr("direction_index", direction_index)

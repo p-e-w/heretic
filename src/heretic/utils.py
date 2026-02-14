@@ -160,6 +160,17 @@ class Prompt:
     user: str
 
 
+def _get_split_slice(split_str: str, length: int, split_name: str) -> tuple[int, int]:
+    """
+    Parse a split specification and return (start, end) indices.
+    Uses the datasets library's ReadInstruction for robust parsing.
+    """
+    instruction = ReadInstruction.from_spec(split_str)
+    name2len = {split_name: length}
+    abs_instruction = instruction.to_absolute(name2len)[0]
+    return abs_instruction.from_, abs_instruction.to
+
+
 def load_prompts(
     settings: Settings,
     specification: DatasetSpecification,
@@ -167,38 +178,60 @@ def load_prompts(
     path = specification.dataset
     split_str = specification.split
 
-    if os.path.isdir(path):
-        if Path(path, DATASET_STATE_JSON_FILENAME).exists():
-            # Dataset saved with datasets.save_to_disk; needs special handling.
-            # Path should be the subdirectory for a particular split.
-            dataset = load_from_disk(path)
-            assert not isinstance(dataset, DatasetDict), (
-                "Loading dataset dicts is not supported"
-            )
-            # Parse the split instructions.
-            instruction = ReadInstruction.from_spec(split_str)
-            # Associate the split with its number of examples (lines).
-            split_name = str(dataset.split)
-            name2len = {split_name: len(dataset)}
-            # Convert the instructions to absolute indices and select the first one.
-            abs_instruction = instruction.to_absolute(name2len)[0]
-            # Get the dataset by applying the indices.
-            dataset = dataset[abs_instruction.from_ : abs_instruction.to]
-        else:
-            # Path is a local directory.
-            dataset = load_dataset(
-                path,
-                split=split_str,
-                # Don't require the number of examples (lines) per split to be pre-defined.
-                verification_mode=VerificationMode.NO_CHECKS,
-                # But also don't use cached data, as the dataset may have changed on disk.
-                download_mode=DownloadMode.FORCE_REDOWNLOAD,
-            )
-    else:
-        # Probably a repository path; let load_dataset figure it out.
-        dataset = load_dataset(path, split=split_str)
+    # Support for plain text files (one prompt per line)
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            prompts = [line.strip() for line in f if line.strip()]
 
-    prompts = list(dataset[specification.column])
+        # Apply split specification if provided.
+        # We treat the list of prompts as a single split, so the name is arbitrary.
+        if split_str is not None:
+            try:
+                start, end = _get_split_slice(split_str, len(prompts), "_")
+                prompts = prompts[start:end]
+            except (ValueError, IndexError):
+                # If split_str doesn't contain valid slice notation, use all prompts.
+                pass
+
+    else:
+        # Load from HuggingFace datasets (local directory or Hub)
+        # These require split and column to be specified.
+        if split_str is None:
+            raise ValueError(
+                f"The 'split' field is required for HuggingFace datasets: {path}"
+            )
+        if specification.column is None:
+            raise ValueError(
+                f"The 'column' field is required for HuggingFace datasets: {path}"
+            )
+
+        if os.path.isdir(path):
+            if Path(path, DATASET_STATE_JSON_FILENAME).exists():
+                # Dataset saved with datasets.save_to_disk; needs special handling.
+                # Path should be the subdirectory for a particular split.
+                dataset = load_from_disk(path)
+                assert not isinstance(dataset, DatasetDict), (
+                    "Loading dataset dicts is not supported"
+                )
+                # Apply the split using the helper function.
+                split_name = str(dataset.split)
+                start, end = _get_split_slice(split_str, len(dataset), split_name)
+                dataset = dataset[start:end]
+            else:
+                # Path is a local directory.
+                dataset = load_dataset(
+                    path,
+                    split=split_str,
+                    # Don't require the number of examples (lines) per split to be pre-defined.
+                    verification_mode=VerificationMode.NO_CHECKS,
+                    # But also don't use cached data, as the dataset may have changed on disk.
+                    download_mode=DownloadMode.FORCE_REDOWNLOAD,
+                )
+        else:
+            # Probably a repository path; let load_dataset figure it out.
+            dataset = load_dataset(path, split=split_str)
+
+        prompts = list(dataset[specification.column])
 
     if specification.prefix:
         prompts = [f"{specification.prefix} {prompt}" for prompt in prompts]

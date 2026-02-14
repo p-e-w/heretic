@@ -56,6 +56,7 @@ class Model:
     model: PreTrainedModel | PeftModel
     tokenizer: PreTrainedTokenizerBase
     peft_config: LoraConfig
+    massive_dims: Tensor
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -155,6 +156,9 @@ class Model:
             print(
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
+
+        # Initialize the massive activation dimensions.
+        self._init_massive_activation_dims()
 
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.
@@ -600,6 +604,100 @@ class Model:
 
         return responses
 
+    def handle_massive_activations(self, hidden_states: tuple[FloatTensor]):
+        num_layers = len(hidden_states)
+        device = hidden_states[0].device
+
+        # The absolute value should be at least this high.
+        min_abs_value = 100
+        # The absolute value should be at least this multiple of the median.
+        min_med_mult = 1000
+        # The absolute deviation should be at least this multiple of the MAD.
+        min_mad_mult = 1000
+        # The outliers should form a cluster of no more than this many points.
+        max_cluster_size = 3
+        # Require several consecutive layers as confirmation.
+        num_confirm = num_layers // 4
+
+        # Look for massive activations in the hidden states.
+        candidates_list: list[Tensor] = []
+        for layer in hidden_states:
+            # layer has shape (prompt, position, component). Get the absolute values.
+            abs_value = torch.abs(layer.to(torch.float32))
+            # Get the (prompt, position, 1) medians along the components.
+            abs_median = torch.quantile(abs_value, q=0.5, dim=2, keepdim=True)
+            abs_dev = torch.abs(abs_value - abs_median)
+            mad = 1.4826 * torch.quantile(abs_dev, q=0.5, dim=2, keepdim=True)
+            # Get the indices of potential massive activations.
+            mask = (
+                (abs_value > min_abs_value)
+                & (abs_value > min_med_mult * abs_median)
+                & (abs_dev > min_mad_mult * mad)
+            )
+            candidates = mask.nonzero()
+            # Check whether the outliers are part of small clusters.
+            top_dev = torch.topk(abs_dev, k=10, dim=2).values
+            logs = torch.log(top_dev)
+            gaps = -torch.diff(logs, n=1, dim=2)
+            max_gaps, max_gap_indices = torch.max(gaps, dim=2)
+            cumsum_gaps = torch.cumsum(gaps[:, :, : max_cluster_size - 1], dim=2)
+            indices = (
+                (max_gap_indices - 1)
+                .clamp(min=0, max=max_cluster_size - 2)
+                .unsqueeze(-1)
+            )
+            intra_spread = cumsum_gaps.gather(dim=2, index=indices).squeeze(-1)
+            intra_spread = torch.where(
+                max_gap_indices > 0, intra_spread, torch.zeros_like(intra_spread)
+            )
+            small_clusters = (
+                (max_gap_indices < max_cluster_size)
+                & (max_gaps > 1)
+                & (max_gaps > intra_spread)
+            )
+            clusters_mask = small_clusters[candidates[:, 0], candidates[:, 1]]
+            candidates = candidates[clusters_mask]
+            candidates_list.append(candidates)
+
+        # For any massive activation candidates found,
+        # confirm them by checking if they persist for several layers.
+        massive_dims_list: list[Tensor] = []
+        for C_layer_idx in range(num_layers - num_confirm):
+            C = candidates_list[C_layer_idx]
+            if C.numel() < 1:
+                continue
+            D_all = candidates_list[C_layer_idx + 1 : C_layer_idx + num_confirm + 1]
+            # As a small optimization, check that the other layers have candidates.
+            any_empty = False
+            for D in D_all:
+                if D.numel() < 1:
+                    any_empty = True
+                    break
+            if any_empty:
+                continue
+            # Check that the other layers have matching candidates.
+            candidates = torch.arange(C.size(0), dtype=torch.long, device=device)
+            current_C = C
+            for D in D_all:
+                concat = torch.cat([current_C[candidates], D], dim=0)
+                _, inverse, counts = torch.unique(
+                    concat, dim=0, return_inverse=True, return_counts=True
+                )
+                matches = counts[inverse[: candidates.numel()]] > 1
+                candidates = candidates[matches]
+                if candidates.numel() == 0:
+                    break
+            if candidates.numel() == 0:
+                continue
+            confirmed_inds = C[candidates]
+            # Add confirmed massive dims (index 2 gives the dimension).
+            massive_dims_list.append(confirmed_inds[:, 2].unique())
+
+        if len(massive_dims_list) > 0:
+            self.massive_dims = torch.cat(
+                [self.massive_dims] + massive_dims_list
+            ).unique()
+
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
         # We only generate one token, and we return the residual vectors
         # at that token position, for each prompt and layer.
@@ -617,6 +715,9 @@ class Model:
         # Hidden states for the first (only) generated token.
         # This cast is valid because we passed output_hidden_states=True above.
         hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
+
+        # Identify massive activation dimensions.
+        self.handle_massive_activations(hidden_states)
 
         # The returned tensor has shape (prompt, layer, component).
         residuals = torch.stack(
@@ -652,6 +753,15 @@ class Model:
             residuals.append(self.get_residuals(batch))
 
         return torch.cat(residuals, dim=0)
+
+    def _init_massive_activation_dims(self):
+        prompt = Prompt(
+            system=self.settings.system_prompt,
+            # This prompt contains most common massive activation triggers.
+            user="Summer is warm, and winter\nfrom here doesn't feel cold of all seasons.",
+        )
+        self.massive_dims = torch.tensor([], dtype=torch.long, device=self.model.device)
+        self.get_residuals([prompt])
 
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.

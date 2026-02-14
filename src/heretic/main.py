@@ -38,7 +38,7 @@ from rich.traceback import install
 from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
-from .model import AbliterationParameters, Model, get_model_class
+from .model import AbliterationParameters, Model, _FP8_DTYPE_TOKEN, get_model_class
 from .utils import (
     empty_cache,
     format_duration,
@@ -54,14 +54,19 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings) -> str | None:
+def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
     """
     Prompts the user for how to proceed with saving the model.
     Provides info to the user if the model is quantized on memory use.
     Returns "merge", "adapter", or None (if cancelled/invalid).
     """
 
-    if settings.quantization == QuantizationMethod.BNB_4BIT:
+    is_quantized = (
+        settings.quantization == QuantizationMethod.BNB_4BIT
+        or model._loaded_dtype == _FP8_DTYPE_TOKEN
+    )
+
+    if is_quantized:
         print()
         print(
             "Model was loaded with quantization. Merging requires reloading the base model."
@@ -108,7 +113,7 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
                 title="Merge LoRA into full model"
                 + (
                     ""
-                    if settings.quantization == QuantizationMethod.NONE
+                    if not is_quantized
                     else " (requires sufficient RAM)"
                 ),
                 value="merge",
@@ -742,7 +747,7 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -791,7 +796,7 @@ def run():
                             )
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 

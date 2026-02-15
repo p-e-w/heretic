@@ -275,20 +275,18 @@ class Model:
         lora_state_dict = self.model.state_dict()
 
         # 1. resolve the local path
-        try:
-            assert os.path.exists(model_path)
-            print("Model path seems to be remote, attempting to locate cache.")
-        except Exception as e:
-        # 2. Attempt to load the cached model
+        if not os.path.exists(model_path):
+            print("Model path not found locally, attempting to locate in HF cache.")
             try:
                 hf_hub_location = os.environ["HF_HUB_CACHE"]
-            except Exception as e:
-                raise ValueError("HF Cache location is not set!")
+            except KeyError:
+                raise ValueError("HF_HUB_CACHE environment variable is not set!")
             
             model_name_cached = "models--" + model_path.replace("/", "--")
             model_path = os.path.join(hf_hub_location, model_name_cached)
 
-            assert os.path.exists(model_path)
+        if not os.path.exists(model_path):
+            raise ValueError(f"Could not find model at {model_path}")
 
         # Parse LoRA keys to find matching base layers
         lora_pairs = {}

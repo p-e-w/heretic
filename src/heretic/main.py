@@ -71,7 +71,7 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
         )
         print("[yellow]This can lead to system freezes if you run out of memory.[/]")
         print(
-            "[yellow] However, you can choose to save model shard by shard. It will be slightly slower, but require <10 gb RAM usage for most models.[/]"
+            "[yellow] However, you can choose to save the model shard-by-shard. It is slightly slower, but requires <10 GB of RAM for most models.[/]"
         )
 
         try:

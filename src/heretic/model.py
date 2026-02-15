@@ -8,6 +8,7 @@ from typing import Any, Type, cast
 import os
 import glob
 import json
+import shutil
 from safetensors import safe_open, save_file
 
 import bitsandbytes as bnb
@@ -356,7 +357,6 @@ class Model:
                 src = os.path.join(model_path, file)
                 dst = os.path.join(save_directory, file)
                 if os.path.isfile(src):
-                    import shutil
                     shutil.copy2(src, dst)
 
         assert len(lora_pairs) == 0, "Not all LoRA keys have been injected"

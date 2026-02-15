@@ -299,11 +299,7 @@ class Model:
                     'A': lora_state_dict[key],
                     'B': lora_state_dict.get(key.replace("lora_A", "lora_B"))
                 }
-        
-        # Load model config to check dtype
-        with open(os.path.join(model_path, "config.json"), 'r') as f:
-            config = json.load(f)
-        
+
         # Get all safetensors shards
         model_files = sorted(glob.glob(os.path.join(model_path, "*.safetensors")))
         if not model_files:

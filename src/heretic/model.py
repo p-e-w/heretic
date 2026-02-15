@@ -339,8 +339,6 @@ class Model:
                         # Add to original weight
                         tensor = tensor + lora_weight
                         
-                        print(f"Merged LoRA for {key}")
-                        
                     merged_tensors[key] = tensor
             
             # Save merged shard

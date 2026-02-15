@@ -280,10 +280,7 @@ class Model:
         # 1. resolve the local path
         if not os.path.exists(model_path):
             print("Model path not found locally, attempting to locate in HF cache.")
-            try:
-                hf_hub_location = os.environ["HF_HUB_CACHE"]
-            except KeyError:
-                raise ValueError("HF_HUB_CACHE environment variable is not set!")
+            hf_hub_location = os.environ.get("HF_HUB_CACHE", os.path.join(os.environ.get("HOME", ""), ".cache/huggingface/hub"))
             
             model_name_cached = "models--" + model_path.replace("/", "--")
             model_path = os.path.join(hf_hub_location, model_name_cached)

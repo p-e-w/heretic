@@ -268,7 +268,7 @@ class Model:
             return merged_model
 
 
-    def save_sharded(self, model_path, save_directory) -> PreTrainedModel:
+    def save_sharded(self, model_path: str, save_directory: str) -> None:
 
         assert isinstance(self.model, PeftModel)
 

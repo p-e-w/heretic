@@ -292,7 +292,7 @@ class Model:
         lora_pairs = {}
         for key in lora_state_dict.keys():
             if "lora_A" in key:
-                base_key = key.replace(".lora_A.weight", "")
+                base_key = key.replace(".lora_A.weight", "").replace("base_model.model.", "")
                 lora_pairs[base_key] = {
                     'A': lora_state_dict[key],
                     'B': lora_state_dict.get(key.replace("lora_A", "lora_B"))

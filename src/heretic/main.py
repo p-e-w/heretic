@@ -174,9 +174,15 @@ def run():
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
-        print(f"Detected [bold]{count}[/] CUDA device(s):")
+        total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
+        print(
+            f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):"
+        )
         for i in range(count):
-            print(f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/]")
+            vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
+            print(
+                f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/] ({vram:.2f} GB)"
+            )
     elif is_xpu_available():
         count = torch.xpu.device_count()
         print(f"Detected [bold]{count}[/] XPU device(s):")

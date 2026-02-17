@@ -91,6 +91,24 @@ n_trials = 200
 # Number of trials that use random sampling for the purpose of exploration.
 n_startup_trials = 60
 
+# Constraints for the optimization search space (layers and weights).
+[constraints]
+# Fraction of layers (from 0.0 to 1.0) where the direction search starts.
+layer_start_fraction = 0.4
+# Fraction of layers (from 0.0 to 1.0) where the direction search ends.
+layer_end_fraction = 0.9
+
+# Search constraints for Attention components (e.g., o_proj).
+[constraints.attention]
+max_weight_min = 0.8
+max_weight_max = 1.5
+
+# Search constraints for MLP components (e.g., down_proj).
+[constraints.mlp]
+max_weight_min = 0.8
+max_weight_max = 1.5
+
+
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"
 

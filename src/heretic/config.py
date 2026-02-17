@@ -61,6 +61,36 @@ class DatasetSpecification(BaseModel):
     )
 
 
+class ComponentConstraints(BaseModel):
+    max_weight_min: float = Field(
+        default=0.8,
+        description="Minimum value for the max_weight parameter search range.",
+    )
+    max_weight_max: float = Field(
+        default=1.5,
+        description="Maximum value for the max_weight parameter search range.",
+    )
+
+
+class OptimizationConstraints(BaseModel):
+    layer_start_fraction: float = Field(
+        default=0.4,
+        description="Fraction of layers (from 0.0 to 1.0) where the direction search starts.",
+    )
+    layer_end_fraction: float = Field(
+        default=0.9,
+        description="Fraction of layers (from 0.0 to 1.0) where the direction search ends.",
+    )
+    attention: ComponentConstraints = Field(
+        default_factory=ComponentConstraints,
+        description="Search constraints for Attention components (e.g., o_proj).",
+    )
+    mlp: ComponentConstraints = Field(
+        default_factory=ComponentConstraints,
+        description="Search constraints for MLP components (e.g., down_proj).",
+    )
+
+
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
@@ -223,6 +253,11 @@ class Settings(BaseSettings):
     n_startup_trials: int = Field(
         default=60,
         description="Number of trials that use random sampling for the purpose of exploration.",
+    )
+
+    constraints: OptimizationConstraints = Field(
+        default_factory=OptimizationConstraints,
+        description="Constraints for the optimization search space (layers and weights).",
     )
 
     study_checkpoint_dir: str = Field(

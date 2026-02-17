@@ -474,8 +474,8 @@ def run():
         # work with conditional or variable-range parameters.
         direction_index = trial.suggest_float(
             "direction_index",
-            0.4 * last_layer_index,
-            0.9 * last_layer_index,
+            settings.constraints.layer_start_fraction * last_layer_index,
+            settings.constraints.layer_end_fraction * last_layer_index,
         )
 
         if direction_scope == "per layer":
@@ -487,10 +487,15 @@ def run():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.
+
+            if "down_proj" in component:
+                constraints = settings.constraints.mlp
+            else:
+                constraints = settings.constraints.attention
             max_weight = trial.suggest_float(
                 f"{component}.max_weight",
-                0.8,
-                1.5,
+                constraints.max_weight_min,
+                constraints.max_weight_max,
             )
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",

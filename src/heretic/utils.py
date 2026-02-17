@@ -231,6 +231,9 @@ T = TypeVar("T")
 
 
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:
+    if batch_size <= 0:
+        raise ValueError("batch_size must be > 0")
+
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
 

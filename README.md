@@ -54,7 +54,7 @@ Heretic have been well-received by users (links and emphasis added):
 > [*(Link to comment)*](https://old.reddit.com/r/LocalLLaMA/comments/1oymku1/heretic_fully_automatic_censorship_removal_for/np6tba6/)
 
 > "[**Heretic GPT 20b**](https://huggingface.co/p-e-w/gpt-oss-20b-heretic)
-> seems to be the best uncensored model I have tried yet. It doesn't destroy a
+> seems to be the best uncensored model I have tried yet. It doesn't destroy
 > the model's intelligence and it is answering prompts normally would be
 > rejected by the base model."
 > [*(Link to comment)*](https://old.reddit.com/r/LocalLLaMA/comments/1oymku1/heretic_fully_automatic_censorship_removal_for/npe9jng/)
@@ -147,7 +147,7 @@ for all layers.
 If you are interested in a quantitative analysis of how residual vectors
 for "harmful" and "harmless" prompts relate to each other, this flag gives you
 the following table, packed with metrics that can facilitate understanding
-the same (for [gemma-3-270m-it](https://huggingface.co/google/gemma-3-270m-it)
+of these relationships (for [gemma-3-270m-it](https://huggingface.co/google/gemma-3-270m-it)
 in this case):
 
 ```

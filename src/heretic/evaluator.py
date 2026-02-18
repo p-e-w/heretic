@@ -95,15 +95,12 @@ class Evaluator:
     def get_score(self) -> tuple[tuple[float, float], float, int]:
         print("  * Obtaining first-token probability distributions...")
         logprobs = self.model.get_logprobs_batched(self.good_prompts)
-        kl_divergence = max(
-            0.0,
-            F.kl_div(
-                logprobs,
-                self.base_logprobs,
-                reduction="batchmean",
-                log_target=True,
-            ).item(),
-        )
+        kl_divergence = F.kl_div(
+            logprobs,
+            self.base_logprobs,
+            reduction="batchmean",
+            log_target=True,
+        ).clamp(min=0.0).item()
         print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
 
         print("  * Counting model refusals...")

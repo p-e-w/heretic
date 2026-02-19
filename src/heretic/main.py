@@ -356,7 +356,7 @@ def run():
                     # We cannot recover from this.
                     raise
 
-                print(f"[red]Failed[/] ({error})")
+                print(f"[red]Failed[/] ({error!r})")
                 break
 
             response_lengths = [
@@ -898,7 +898,7 @@ def run():
                                     break
 
                 except Exception as error:
-                    print(f"[red]Error: {error}[/]")
+                    print(f"[red]Error: {error!r}[/]")
 
 
 def main():

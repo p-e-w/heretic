@@ -131,7 +131,7 @@ class Model:
             except Exception as error:
                 self.model = None  # ty:ignore[invalid-assignment]
                 empty_cache()
-                print(f"[red]Failed[/] ({error!r})")
+                print(f"[red]Failed[/] ({type(error).__name__}: {error})")
                 continue
 
             if settings.quantization == QuantizationMethod.BNB_4BIT:

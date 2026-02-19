@@ -356,7 +356,7 @@ def run():
                     # We cannot recover from this.
                     raise
 
-                print(f"[red]Failed[/] ({error!r})")
+                print(f"[red]Failed[/] ({type(error).__name__}: {error})")
                 break
 
             response_lengths = [

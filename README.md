@@ -15,7 +15,7 @@ Changes are guarded to affect BitNet/older-Transformers paths only, so newer ver
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
-pip install heretic
+pip install -U heretic-llm
 pip install git+https://github.com/huggingface/transformers.git@096f25ae1f501a084d8ff2dcaf25fbc2bd60eba4
 robocopy .\src\heretic .\.venv\Lib\site-packages\heretic
 heretic .\models\bitnet-b1.58-2B-4T-bf16

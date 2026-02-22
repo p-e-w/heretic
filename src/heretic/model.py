@@ -6,7 +6,10 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Type, cast
 
-import bitsandbytes as bnb
+try:
+    import bitsandbytes as bnb
+except Exception:  # pragma: no cover - optional dependency
+    bnb = None
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
@@ -16,7 +19,6 @@ from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
 from transformers import (
     AutoModelForCausalLM,
-    AutoModelForImageTextToText,
     AutoTokenizer,
     BatchEncoding,
     BitsAndBytesConfig,
@@ -25,23 +27,65 @@ from transformers import (
     PreTrainedTokenizerBase,
     TextStreamer,
 )
-from transformers.generation import (
-    GenerateDecoderOnlyOutput,  # ty:ignore[possibly-missing-import]
-)
+try:
+    # Optional in older Transformers builds.
+    from transformers import AutoModelForImageTextToText as _AutoModelForImageTextToText
+except Exception:  # pragma: no cover - optional import
+    _AutoModelForImageTextToText = None
+try:
+    from transformers.models.bitnet.modeling_bitnet import (
+        BitNetForCausalLM as _BitNetForCausalLM,
+    )
+except Exception:  # pragma: no cover - optional import
+    _BitNetForCausalLM = None
+try:
+    from transformers.generation import GenerateDecoderOnlyOutput  # ty:ignore[possibly-missing-import]
+except Exception:  # pragma: no cover - older Transformers
+    from transformers.generation.utils import (  # ty:ignore[possibly-missing-import]
+        GenerateDecoderOnlyOutput,
+    )
 
 from .config import QuantizationMethod, RowNormalization, Settings
 from .utils import Prompt, batchify, empty_cache, print
 
 
+def _extract_config_dict(configs: Any) -> dict[str, Any]:
+    if isinstance(configs, tuple):
+        config_dict = configs[0]
+    else:
+        config_dict = configs
+    return config_dict if isinstance(config_dict, dict) else {}
+
+
+def _normalize_torch_dtype(dtype: str | torch.dtype) -> str | torch.dtype:
+    if isinstance(dtype, str):
+        if dtype == "auto":
+            return "auto"
+        return getattr(torch, dtype)
+    return dtype
+
+
+def _is_bitnet_model(model: str) -> bool:
+    try:
+        configs = PretrainedConfig.get_config_dict(model)
+        config_dict = _extract_config_dict(configs)
+        return config_dict.get("model_type") == "bitnet"
+    except Exception:
+        return False
+
+
 def get_model_class(
     model: str,
-) -> Type[AutoModelForImageTextToText] | Type[AutoModelForCausalLM]:
+) -> Type[PreTrainedModel]:
     configs = PretrainedConfig.get_config_dict(model)
+    config_dict = _extract_config_dict(configs)
 
-    if any([("vision_config" in config) for config in configs]):
-        return AutoModelForImageTextToText
-    else:
-        return AutoModelForCausalLM
+    if config_dict.get("model_type") == "bitnet" and _BitNetForCausalLM is not None:
+        return _BitNetForCausalLM
+
+    if _AutoModelForImageTextToText is not None and ("vision_config" in config_dict):
+        return _AutoModelForImageTextToText
+    return AutoModelForCausalLM
 
 
 @dataclass
@@ -85,10 +129,22 @@ class Model:
             if settings.max_memory
             else None
         )
+        self.is_bitnet = _is_bitnet_model(settings.model)
         self.trusted_models = {settings.model: settings.trust_remote_code}
 
         if self.settings.evaluate_model is not None:
             self.trusted_models[settings.evaluate_model] = settings.trust_remote_code
+
+        if self.is_bitnet:
+            # Disable torch.compile for BitNet to avoid TorchInductor issues on Windows.
+            # This keeps behavior correct while falling back to eager execution.
+            import os
+
+            os.environ.setdefault("TORCH_COMPILE_DISABLE", "1")
+            with suppress(Exception):
+                import torch._dynamo as _dynamo  # ty:ignore[import-not-found]
+
+                _dynamo.config.disable = True
 
         for dtype in settings.dtypes:
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
@@ -102,12 +158,17 @@ class Model:
                 if quantization_config is not None:
                     extra_kwargs["quantization_config"] = quantization_config
 
+                trust_remote_code = self.trusted_models.get(settings.model)
+                if self.is_bitnet:
+                    # Built-in BitNet support exists in Transformers; avoid requiring local custom code.
+                    trust_remote_code = False
+
                 self.model = get_model_class(settings.model).from_pretrained(
                     settings.model,
-                    dtype=dtype,
+                    torch_dtype=_normalize_torch_dtype(dtype),
                     device_map=settings.device_map,
                     max_memory=self.max_memory,
-                    trust_remote_code=self.trusted_models.get(settings.model),
+                    trust_remote_code=trust_remote_code,
                     **extra_kwargs,
                 )
 
@@ -194,7 +255,10 @@ class Model:
 
         print(f"* LoRA adapters initialized (targets: {', '.join(target_modules)})")
 
-    def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
+    def _get_quantization_config(
+        self,
+        dtype: str | torch.dtype,
+    ) -> BitsAndBytesConfig | None:
         """
         Creates quantization config based on settings.
 
@@ -205,11 +269,19 @@ class Model:
             BitsAndBytesConfig or None
         """
         if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+            if bnb is None:
+                raise RuntimeError(
+                    "bitsandbytes is required for BNB_4BIT quantization but is not available."
+                )
+
             # BitsAndBytesConfig expects a torch.dtype, not a string.
-            if dtype == "auto":
-                compute_dtype = torch.bfloat16
+            if isinstance(dtype, str):
+                if dtype == "auto":
+                    compute_dtype = torch.bfloat16
+                else:
+                    compute_dtype = getattr(torch, dtype)
             else:
-                compute_dtype = getattr(torch, dtype)
+                compute_dtype = dtype
 
             return BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -240,7 +312,7 @@ class Model:
                 self.settings.model,
                 torch_dtype=self.model.dtype,
                 device_map="cpu",
-                trust_remote_code=self.trusted_models.get(self.settings.model),
+                trust_remote_code=False if self.is_bitnet else self.trusted_models.get(self.settings.model),
             )
 
             # Apply LoRA adapters to the CPU model
@@ -298,10 +370,10 @@ class Model:
 
         self.model = get_model_class(self.settings.model).from_pretrained(
             self.settings.model,
-            dtype=dtype,
+            torch_dtype=_normalize_torch_dtype(dtype),
             device_map=self.settings.device_map,
             max_memory=self.max_memory,
-            trust_remote_code=self.trusted_models.get(self.settings.model),
+            trust_remote_code=False if self.is_bitnet else self.trusted_models.get(self.settings.model),
             **extra_kwargs,
         )
 
@@ -321,16 +393,36 @@ class Model:
             return model.model.language_model.layers
 
         # Text-only models.
-        return model.model.layers
+        with suppress(Exception):
+            return model.model.layers
+
+        # Some models expose layers at the top level.
+        with suppress(Exception):
+            return model.layers  # ty:ignore[return-value]
+
+        # GPT-style naming convention.
+        with suppress(Exception):
+            return model.transformer.h  # ty:ignore[return-value]
+
+        # GPT-NeoX naming convention.
+        with suppress(Exception):
+            return model.gpt_neox.layers  # ty:ignore[return-value]
+
+        raise Exception("Could not locate transformer layers on the model object.")
 
     def get_layer_modules(self, layer_index: int) -> dict[str, list[Module]]:
         layer = self.get_layers()[layer_index]
 
         modules = {}
+        added_modules: set[int] = set()
 
         def try_add(component: str, module: Any):
             # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
             if isinstance(module, Module):
+                module_id = id(module)
+                if module_id in added_modules:
+                    return
+                added_modules.add(module_id)
                 if component not in modules:
                     modules[component] = []
                 modules[component].append(module)
@@ -343,6 +435,10 @@ class Model:
         # Exceptions aren't suppressed here, because there is currently
         # no alternative location for the attention out-projection.
         try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+        with suppress(Exception):
+            try_add("attn.out_proj", layer.self_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
+        with suppress(Exception):
+            try_add("attn.proj", layer.self_attn.proj)  # ty:ignore[possibly-missing-attribute]
 
         # Most dense models.
         with suppress(Exception):
@@ -453,6 +549,10 @@ class Model:
                     if quant_state is None:
                         W = base_weight.to(torch.float32)
                     else:
+                        if bnb is None:
+                            raise RuntimeError(
+                                "bitsandbytes is required to dequantize 4-bit weights."
+                            )
                         # 4-bit quantization.
                         # This cast is always valid. Type inference fails here because the
                         # bnb.functional module is not found by ty for some reason.

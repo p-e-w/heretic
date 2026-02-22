@@ -4,8 +4,28 @@
 
 [![#1 Repository of the Day](https://trendshift.io/api/badge/repositories/20538)](https://trendshift.io/repositories/20538)
 
-Heretic is a tool that removes censorship (aka "safety alignment") from
-transformer-based language models without expensive post-training.
+## BitNet Compatibility Fork (Transformers 4.52.0.dev0)
+
+This fork adds a backward-compatible compatibility layer so Heretic can run BitNet models with the
+BitNet integration in Transformers `4.52.0.dev0` (commit `096f25ae1f501a084d8ff2dcaf25fbc2bd60eba4`).
+Changes are guarded to affect BitNet/older-Transformers paths only, so newer versions keep their behavior.
+
+### Quick Start
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install heretic
+pip install git+https://github.com/huggingface/transformers.git@096f25ae1f501a084d8ff2dcaf25fbc2bd60eba4
+robocopy .\src\heretic .\.venv\Lib\site-packages\heretic
+heretic .\models\bitnet-b1.58-2B-4T-bf16
+```
+
+If you prefer a clean install from source, clone this repo and use `pip install -e .` instead of copying files into `site-packages`.
+
+## Info
+
+Heretic is a tool that removes censorship (aka "safety alignment") from transformer-based language models without expensive post-training.
 It combines an advanced implementation of directional ablation, also known
 as "abliteration" ([Arditi et al. 2024](https://arxiv.org/abs/2406.11717),
 Lai 2025 ([1](https://huggingface.co/blog/grimjim/projected-abliteration),

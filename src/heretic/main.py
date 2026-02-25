@@ -57,6 +57,7 @@ from .utils import (
     prompt_path,
     prompt_select,
     prompt_text,
+    prompt_confirm,
     create_reproduce_folder,
     upload_reproduce_folder,
 )
@@ -788,7 +789,7 @@ def run():
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
 
-                            if questionary.confirm("Include 'reproduce' folder with configuration and environment details?").ask():
+                            if prompt_confirm("Include 'reproduce' folder with configuration and environment details?"):
                                 create_reproduce_folder(Path(save_directory), settings)
                                 print(f"Model and reproducibility files saved to [bold]{save_directory}[/].")
                             else:
@@ -889,7 +890,7 @@ def run():
                                 )
                                 card.push_to_hub(repo_id, token=token)
 
-                            if questionary.confirm("Include 'reproduce' folder with configuration and environment details?").ask():
+                            if prompt_confirm("Include 'reproduce' folder with configuration and environment details?"):
                                 upload_reproduce_folder(repo_id, settings, token)
                                 print(f"Model and reproducibility files uploaded to [bold]{repo_id}[/].")
                             else:

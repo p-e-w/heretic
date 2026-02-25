@@ -155,6 +155,18 @@ def prompt_password(message: str) -> str:
         return questionary.password(message).ask()
 
 
+def prompt_confirm(message: str, default: bool = True) -> bool:
+    if is_notebook():
+        print()
+        choices = "[Y/n]" if default else "[y/N]"
+        result = input(f"{message} {choices} ").strip().lower()
+        if not result:
+            return default
+        return result in ("y", "yes")
+    else:
+        return questionary.confirm(message, default=default).ask()
+
+
 def format_duration(seconds: float) -> str:
     seconds = round(seconds)
     hours, seconds = divmod(seconds, 3600)

@@ -225,6 +225,15 @@ class Settings(BaseSettings):
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 
+    seed: int | None = Field(
+        default=None,
+        description=(
+            "Random seed for reproducible optimization. "
+            "If set, seeds Python's random, NumPy (if available), PyTorch, and Optuna. "
+            "Note: exact reproducibility also depends on hardware, drivers, and library versions."
+        ),
+    )
+
     study_checkpoint_dir: str = Field(
         default="checkpoints",
         description="Directory to save and load study progress to/from.",

@@ -3,10 +3,16 @@
 
 import math
 import os
+import random
 import sys
 import time
 import warnings
 from dataclasses import asdict
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
 from importlib.metadata import version
 from os.path import commonprefix
 from pathlib import Path
@@ -51,6 +57,8 @@ from .utils import (
     prompt_path,
     prompt_select,
     prompt_text,
+    create_reproduce_folder,
+    upload_reproduce_folder,
 )
 
 
@@ -170,6 +178,17 @@ def run():
             "Run [bold]heretic --help[/] or see [bold]config.default.toml[/] for details about configuration parameters."
         )
         return
+
+    if settings.seed is not None:
+        random.seed(settings.seed)
+        torch.manual_seed(settings.seed)
+        torch.cuda.manual_seed_all(settings.seed)
+        if np is not None:
+            np.random.seed(settings.seed)
+        # Make PyTorch deterministic
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True, warn_only=True)
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
@@ -571,6 +590,7 @@ def run():
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
             multivariate=True,
+            seed=settings.seed,
         ),
         directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
         storage=storage,
@@ -768,7 +788,8 @@ def run():
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
 
-                            print(f"Model saved to [bold]{save_directory}[/].")
+                            create_reproduce_folder(Path(save_directory), settings)
+                            print(f"Model and reproducibility files saved to [bold]{save_directory}[/].")
 
                         case "Upload the model to Hugging Face":
                             # We don't use huggingface_hub.login() because that stores the token on disk,
@@ -865,7 +886,8 @@ def run():
                                 )
                                 card.push_to_hub(repo_id, token=token)
 
-                            print(f"Model uploaded to [bold]{repo_id}[/].")
+                            upload_reproduce_folder(repo_id, settings, token)
+                            print(f"Model and reproducibility files uploaded to [bold]{repo_id}[/].")
 
                         case "Chat with the model":
                             print()

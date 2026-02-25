@@ -428,7 +428,8 @@ def get_random_states() -> tuple[dict[str, torch.Tensor], dict[str, str]]:
         # We need to convert the ndarray to a list so json.dumps can serialize it.
         np_state = np.random.get_state()
         serializable_np_state = tuple(
-            x.tolist() if isinstance(x, np.ndarray) else x for x in np_state
+            x.tolist() if isinstance(x, np.ndarray) else x  # ty:ignore[no-matching-overload]
+            for x in np_state
         )
         metadata["numpy_random"] = json.dumps(serializable_np_state)
     except ImportError:

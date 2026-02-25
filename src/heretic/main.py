@@ -12,7 +12,7 @@ from dataclasses import asdict
 try:
     import numpy as np
 except ImportError:
-    np = None
+    np = None  # ty:ignore[invalid-assignment]
 from importlib.metadata import version
 from os.path import commonprefix
 from pathlib import Path

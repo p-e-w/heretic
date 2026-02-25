@@ -174,9 +174,15 @@ def run():
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
-        print(f"Detected [bold]{count}[/] CUDA device(s):")
+        total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
+        print(
+            f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):"
+        )
         for i in range(count):
-            print(f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/]")
+            vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
+            print(
+                f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/] ({vram:.2f} GB)"
+            )
     elif is_xpu_available():
         count = torch.xpu.device_count()
         print(f"Detected [bold]{count}[/] XPU device(s):")
@@ -823,11 +829,23 @@ def run():
                                     token=token,
                                 )
 
-                            # If the model path doesn't exist locally, it can be assumed
-                            # to be a model hosted on the Hugging Face Hub, in which case
+                            # If the model path exists locally and includes the
+                            # card, use it directly. If the model path doesn't
+                            # exist locally, it can be assumed to be a model
+                            # hosted on the Hugging Face Hub, in which case
                             # we can retrieve the model card.
-                            if not Path(settings.model).exists():
+                            model_path = Path(settings.model)
+                            if model_path.exists():
+                                card_path = (
+                                    model_path / huggingface_hub.constants.REPOCARD_NAME
+                                )
+                                if card_path.exists():
+                                    card = ModelCard.load(card_path)
+                                else:
+                                    card = None
+                            else:
                                 card = ModelCard.load(settings.model)
+                            if card is not None:
                                 if card.data is None:
                                     card.data = ModelCardData()
                                 if card.data.tags is None:

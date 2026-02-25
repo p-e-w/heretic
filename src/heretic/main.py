@@ -411,6 +411,19 @@ def run():
         evaluator.get_score()
         return
 
+    def tensor_shape_repr(self: torch.Tensor):
+        return f"tensor(shape={tuple(self.shape)}, dtype={self.dtype}, device={self.device})"
+
+    torch.Tensor.__repr__ = tensor_shape_repr  # ty:ignore[invalid-assignment]
+
+    print()
+    print("Obtaining module I/O for good prompts...")
+    good_module_io = model.get_module_io_batched(good_prompts)
+    print("Obtaining module I/O for bad prompts...")
+    bad_module_io = model.get_module_io_batched(bad_prompts)
+
+    print(good_module_io)
+
     print()
     print("Calculating per-layer refusal directions...")
     print("* Obtaining residuals for good prompts...")

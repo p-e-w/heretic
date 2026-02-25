@@ -791,9 +791,13 @@ def run():
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
 
-                            if prompt_confirm("Include 'reproduce' folder with configuration and environment details?"):
+                            if prompt_confirm(
+                                "Include 'reproduce' folder with configuration and environment details?"
+                            ):
                                 create_reproduce_folder(Path(save_directory), settings)
-                                print(f"Model and reproducibility files saved to [bold]{save_directory}[/].")
+                                print(
+                                    f"Model and reproducibility files saved to [bold]{save_directory}[/]."
+                                )
                             else:
                                 print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -892,9 +896,13 @@ def run():
                                 )
                                 card.push_to_hub(repo_id, token=token)
 
-                            if prompt_confirm("Include 'reproduce' folder with configuration and environment details?"):
+                            if prompt_confirm(
+                                "Include 'reproduce' folder with configuration and environment details?"
+                            ):
                                 upload_reproduce_folder(repo_id, settings, token)
-                                print(f"Model and reproducibility files uploaded to [bold]{repo_id}[/].")
+                                print(
+                                    f"Model and reproducibility files uploaded to [bold]{repo_id}[/]."
+                                )
                             else:
                                 print(f"Model uploaded to [bold]{repo_id}[/].")
 

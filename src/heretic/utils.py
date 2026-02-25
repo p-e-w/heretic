@@ -334,9 +334,11 @@ def get_readme_intro(
 
 """
 
+
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
     return tomli_w.dumps(settings.model_dump(exclude_none=True))
+
 
 def generate_requirements_txt() -> str:
     """Collects installed packages with exact versions."""
@@ -345,9 +347,10 @@ def generate_requirements_txt() -> str:
     for dist in dists:
         with contextlib.suppress(Exception):
             reqs.append(f"{dist.metadata['Name']}=={dist.version}")
-    
+
     reqs = sorted(set(reqs), key=lambda x: x.lower())
     return "\n".join(reqs) + "\n"
+
 
 def generate_environment_txt() -> str:
     """Collects OS, Python, and PyTorch/GPU information."""
@@ -362,91 +365,103 @@ def generate_environment_txt() -> str:
         "----------------------",
         f"PyTorch Version: {torch.__version__}",
     ]
-    
+
     if torch.cuda.is_available():
         lines.append(f"CUDA Version: {torch.version.cuda}")
         with contextlib.suppress(Exception):
             lines.append(f"CuDNN Version: {torch.backends.cudnn.version()}")
             lines.append(f"CUDA Driver Cap: {torch.cuda.get_device_capability()}")
-            
+
         count = torch.cuda.device_count()
         lines.append(f"CUDA Devices ({count}):")
         for i in range(count):
             name = torch.cuda.get_device_name(i)
             with contextlib.suppress(Exception):
                 props = torch.cuda.get_device_properties(i)
-                lines.append(f"  * GPU {i}: {name} ({props.total_memory / (1024**3):.2f} GB)")
+                lines.append(
+                    f"  * GPU {i}: {name} ({props.total_memory / (1024**3):.2f} GB)"
+                )
     elif is_xpu_available():
         count = torch.xpu.device_count()
         lines.append(f"XPU Devices ({count}):")
         for i in range(count):
             lines.append(f"  * XPU {i}: {torch.xpu.get_device_name(i)}")
     elif is_mlu_available():
-        count = torch.mlu.device_count() # ty:ignore
+        count = torch.mlu.device_count()  # ty:ignore
         lines.append(f"MLU Devices ({count}):")
         for i in range(count):
-            lines.append(f"  * MLU {i}: {torch.mlu.get_device_name(i)}") # ty:ignore
+            lines.append(f"  * MLU {i}: {torch.mlu.get_device_name(i)}")  # ty:ignore
     elif is_sdaa_available():
-        count = torch.sdaa.device_count() # ty:ignore
+        count = torch.sdaa.device_count()  # ty:ignore
         lines.append(f"SDAA Devices ({count}):")
         for i in range(count):
-            lines.append(f"  * SDAA {i}: {torch.sdaa.get_device_name(i)}") # ty:ignore
+            lines.append(f"  * SDAA {i}: {torch.sdaa.get_device_name(i)}")  # ty:ignore
     elif is_musa_available():
-        count = torch.musa.device_count() # ty:ignore
+        count = torch.musa.device_count()  # ty:ignore
         lines.append(f"MUSA Devices ({count}):")
         for i in range(count):
-            lines.append(f"  * MUSA {i}: {torch.musa.get_device_name(i)}") # ty:ignore
+            lines.append(f"  * MUSA {i}: {torch.musa.get_device_name(i)}")  # ty:ignore
     elif torch.backends.mps.is_available():
         lines.append("MPS Device (Apple Metal)")
     else:
         lines.append("No GPU or accelerator detected.")
-        
+
     return "\n".join(lines) + "\n"
+
 
 def get_random_states() -> tuple[dict[str, torch.Tensor], dict[str, str]]:
     """Captures RNG states natively into Safetensors formats."""
     # PyTorch Tensors
-    tensors = {
-        "torch_cpu": torch.get_rng_state()
-    }
+    tensors = {"torch_cpu": torch.get_rng_state()}
     if torch.cuda.is_available():
         cuda_states = torch.cuda.get_rng_state_all()
         for i, state in enumerate(cuda_states):
             tensors[f"torch_cuda_{i}"] = state
-            
+
     # Python / NumPy (saved as Metadata JSON)
-    metadata = {
-        "python_random": json.dumps(random.getstate())
-    }
-    
+    metadata = {"python_random": json.dumps(random.getstate())}
+
     try:
         import numpy as np
+
         # np.random.get_state() returns a tuple: (str, ndarray, int, int, float)
         # We need to convert the ndarray to a list so json.dumps can serialize it.
         np_state = np.random.get_state()
-        serializable_np_state = tuple(x.tolist() if isinstance(x, np.ndarray) else x for x in np_state)
+        serializable_np_state = tuple(
+            x.tolist() if isinstance(x, np.ndarray) else x for x in np_state
+        )
         metadata["numpy_random"] = json.dumps(serializable_np_state)
     except ImportError:
         pass
-        
+
     return tensors, metadata
+
 
 def create_reproduce_folder(path: Path, settings: Settings) -> None:
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
-    
-    (reproduce_dir / "config.toml").write_text(generate_config_toml(settings), encoding="utf-8")
-    (reproduce_dir / "requirements.txt").write_text(generate_requirements_txt(), encoding="utf-8")
-    (reproduce_dir / "environment.txt").write_text(generate_environment_txt(), encoding="utf-8")
-    
+
+    (reproduce_dir / "config.toml").write_text(
+        generate_config_toml(settings), encoding="utf-8"
+    )
+    (reproduce_dir / "requirements.txt").write_text(
+        generate_requirements_txt(), encoding="utf-8"
+    )
+    (reproduce_dir / "environment.txt").write_text(
+        generate_environment_txt(), encoding="utf-8"
+    )
+
     tensors, metadata = get_random_states()
-    safetensors.torch.save_file(tensors, reproduce_dir / "random_states.safetensors", metadata=metadata)
+    safetensors.torch.save_file(
+        tensors, reproduce_dir / "random_states.safetensors", metadata=metadata
+    )
+
 
 def upload_reproduce_folder(repo_id: str, settings: Settings, token: str) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         create_reproduce_folder(tmp_path, settings)
-        
+
         reproduce_dir = tmp_path / "reproduce"
         for file_path in reproduce_dir.iterdir():
             if file_path.is_file():

@@ -788,8 +788,11 @@ def run():
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
 
-                            create_reproduce_folder(Path(save_directory), settings)
-                            print(f"Model and reproducibility files saved to [bold]{save_directory}[/].")
+                            if questionary.confirm("Include 'reproduce' folder with configuration and environment details?").ask():
+                                create_reproduce_folder(Path(save_directory), settings)
+                                print(f"Model and reproducibility files saved to [bold]{save_directory}[/].")
+                            else:
+                                print(f"Model saved to [bold]{save_directory}[/].")
 
                         case "Upload the model to Hugging Face":
                             # We don't use huggingface_hub.login() because that stores the token on disk,
@@ -886,8 +889,11 @@ def run():
                                 )
                                 card.push_to_hub(repo_id, token=token)
 
-                            upload_reproduce_folder(repo_id, settings, token)
-                            print(f"Model and reproducibility files uploaded to [bold]{repo_id}[/].")
+                            if questionary.confirm("Include 'reproduce' folder with configuration and environment details?").ask():
+                                upload_reproduce_folder(repo_id, settings, token)
+                                print(f"Model and reproducibility files uploaded to [bold]{repo_id}[/].")
+                            else:
+                                print(f"Model uploaded to [bold]{repo_id}[/].")
 
                         case "Chat with the model":
                             print()

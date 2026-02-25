@@ -180,16 +180,18 @@ def run():
         )
         return
 
-    if settings.seed is not None:
-        random.seed(settings.seed)
-        torch.manual_seed(settings.seed)
-        torch.cuda.manual_seed_all(settings.seed)
-        if np is not None:
-            np.random.seed(settings.seed)
-        # Make PyTorch deterministic
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        torch.use_deterministic_algorithms(True, warn_only=True)
+    if settings.seed is None:
+        settings.seed = random.randint(0, 2**32 - 1)
+
+    random.seed(settings.seed)
+    torch.manual_seed(settings.seed)
+    torch.cuda.manual_seed_all(settings.seed)
+    if np is not None:
+        np.random.seed(settings.seed)
+    # Make PyTorch deterministic
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():

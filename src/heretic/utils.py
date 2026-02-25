@@ -9,6 +9,7 @@ import os
 import platform
 import random
 import tempfile
+import importlib.metadata
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path

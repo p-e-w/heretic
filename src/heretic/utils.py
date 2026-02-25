@@ -335,7 +335,7 @@ def get_readme_intro(
 
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
-    return tomli_w.dumps(settings.model_dump())
+    return tomli_w.dumps(settings.model_dump(exclude_none=True))
 
 def generate_requirements_txt() -> str:
     """Collects installed packages with exact versions."""

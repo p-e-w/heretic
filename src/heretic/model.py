@@ -400,21 +400,21 @@ class Model:
         if direction_index is not None:
             # If a specific direction is requested, interpolate across the direction dimension.
             # For example, if direction_index=0.5, it will blend direction 0 and 1.
-            weight, index = math.modf(direction_index)
-            # Clamp index to be within the valid range [0, num_directions - 1]
-            idx1 = int(index) % num_directions
-            idx2 = (idx1 + 1) % num_directions
-            # Interpolate between the two chosen directions. The result has shape (layers, hidden_dim)
-            interpolated_directions = F.normalize(
-                refusal_directions[:, idx1].lerp(
-                    refusal_directions[:, idx2],
+            weight, index = math.modf(direction_index + 1)
+            # Clamp index to be within the valid range [0, num_layers - 1]
+            idx1 = int(index)
+            idx2 = (idx1 + 1)
+            # Interpolate between the two chosen directions. The result has shape (n_directions, hidden_dim)
+            interpolated_directions = torch.stack([F.normalize(
+                r_dir[idx1].lerp(
+                    r_dir[idx2],
                     weight,
                 ),
                 p=2,
-                dim=1,
-            )
+                dim=0,
+            ) for r_dir in refusal_directions.permute(1, 0, 2)], dim=0)
             # We will use this single "blended" set of directions for all layers.
-            # Shape: (layers, hidden_dim)
+            # Shape: (n_directions, hidden_dim)
             layer_refusal_directions = interpolated_directions
         else:
             # If no specific direction is given, we use all directions for each layer.
@@ -450,7 +450,10 @@ class Model:
 
                 # Get the refusal directions for the current layer.
                 # Shape: (num_directions, hidden_dim)
-                current_layer_directions = layer_refusal_directions[layer_index]
+                if direction_index is None:
+                    current_layer_directions = layer_refusal_directions[layer_index+1]
+                else:
+                    current_layer_directions = layer_refusal_directions
 
                 for module in modules:
                     module = cast(Linear, module)

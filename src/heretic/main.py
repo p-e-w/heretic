@@ -528,11 +528,11 @@ def run():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.
-            max_weight = trial.suggest_float(
-                f"{component}.max_weight",
+            max_weights = [trial.suggest_float(
+                f"{component}.max_weight.{i}",
                 0.8,
                 1.5,
-            )
+            ) for i in range(len(refusal_directions))]
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
                 0.6 * last_layer_index,
@@ -541,11 +541,11 @@ def run():
             # For sampling purposes, min_weight is expressed as a fraction of max_weight,
             # again because multivariate TPE doesn't support variable-range parameters.
             # The value is transformed into the actual min_weight value below.
-            min_weight = trial.suggest_float(
-                f"{component}.min_weight",
+            min_weights = [trial.suggest_float(
+                f"{component}.min_weight.{i}",
                 0.0,
                 1.0,
-            )
+            ) for i in range(len(refusal_directions))]
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",
                 1.0,
@@ -553,9 +553,9 @@ def run():
             )
 
             parameters[component] = AbliterationParameters(
-                max_weight=max_weight,
+                max_weights=max_weights,
                 max_weight_position=max_weight_position,
-                min_weight=(min_weight * max_weight),
+                min_weights=[(min_weight * max_weight) for (min_weight, max_weight) in zip(min_weights, max_weights)],
                 min_weight_distance=min_weight_distance,
             )
 

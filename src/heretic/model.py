@@ -46,9 +46,9 @@ def get_model_class(
 
 @dataclass
 class AbliterationParameters:
-    max_weight: float
+    max_weights: list[float]
     max_weight_position: float
-    min_weight: float
+    min_weights: list[float]
     min_weight_distance: float
 
 

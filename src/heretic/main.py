@@ -188,7 +188,7 @@ def run():
     torch.cuda.manual_seed_all(settings.seed)
     if np is not None:
         np.random.seed(settings.seed)
-    # Make PyTorch deterministic
+    # Make PyTorch deterministic.
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True, warn_only=True)

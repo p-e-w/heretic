@@ -475,6 +475,9 @@ def run():
         ) for (refusal_direction, projection_vector) in zip(refusal_directions, projection_vectors)]
         refusal_directions = [F.normalize(refusal_direction, p=2, dim=1) for refusal_direction in refusal_directions]
 
+    refusal_directions = torch.stack(refusal_directions, dim=0)
+    refusal_directions = refusal_directions.permute(1, 0, -1) # layers, directions, hidden_dim
+
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
     if settings.print_residual_geometry:

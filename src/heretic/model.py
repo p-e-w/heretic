@@ -165,10 +165,11 @@ class Model:
         # This may cause LoRA adapters to be attached to unrelated modules (e.g. "conv.o_proj"),
         # but this is harmless as we only abliterate the modules we target in `abliterate()`,
         # leaving the others at their default (identity) state.
-        # NOTE: This will need to be updated when hybrid layer support (#43) is merged.
-        target_modules = [
-            comp.split(".")[-1] for comp in self.get_abliterable_components()
-        ]
+        target_modules = list(
+            dict.fromkeys(
+                comp.split(".")[-1] for comp in self.get_abliterable_components()
+            )
+        )
 
         if self.settings.row_normalization != RowNormalization.FULL:
             # Rank 1 is sufficient for directional ablation without renormalization.
@@ -340,9 +341,17 @@ class Model:
                     f"Unexpected Tensor in {component} - expected nn.Module"
                 )
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+        # Attention out-projection. Most models expose `self_attn.o_proj`,
+        # but hybrid/linear-attention models (e.g. Qwen3.5-MoE) may expose
+        # `linear_attn.out_proj` instead.
+        has_attn_out_proj = False
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+            has_attn_out_proj = True
+        with suppress(Exception):
+            try_add("attn.out_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
+            has_attn_out_proj = True
+        assert has_attn_out_proj, "No supported attention out-projection found in layer"
 
         # Most dense models.
         with suppress(Exception):
@@ -352,6 +361,10 @@ class Model:
         with suppress(Exception):
             for expert in layer.mlp.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
                 try_add("mlp.down_proj", expert.down_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # Qwen3.5-MoE shared expert.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_expert.down_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
@@ -374,7 +387,14 @@ class Model:
         return modules
 
     def get_abliterable_components(self) -> list[str]:
-        return list(self.get_layer_modules(0).keys())
+        # Hybrid architectures can expose different component names across layers
+        # (e.g. `attn.o_proj` and `attn.out_proj`), so collect a union.
+        components = []
+        for layer_index in range(len(self.get_layers())):
+            for component in self.get_layer_modules(layer_index).keys():
+                if component not in components:
+                    components.append(component)
+        return components
 
     def abliterate(
         self,

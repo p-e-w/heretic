@@ -411,7 +411,7 @@ def generate_environment_txt() -> str:
 
 def get_random_states() -> tuple[dict[str, torch.Tensor], dict[str, str]]:
     """Captures RNG states natively into Safetensors formats."""
-    # PyTorch Tensors
+    # PyTorch Tensors.
     tensors = {"torch_cpu": torch.get_rng_state()}
     if torch.cuda.is_available():
         cuda_states = torch.cuda.get_rng_state_all()

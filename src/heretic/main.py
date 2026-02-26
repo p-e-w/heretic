@@ -542,7 +542,7 @@ def run():
                 f"{component}.max_weight.{i}",
                 0.8,
                 1.5,
-            ) for i in range(len(refusal_directions))]
+            ) for i in range(refusal_directions.shape[1])]
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
                 0.6 * last_layer_index,
@@ -555,7 +555,7 @@ def run():
                 f"{component}.min_weight.{i}",
                 0.0,
                 1.0,
-            ) for i in range(len(refusal_directions))]
+            ) for i in range(refusal_directions.shape[1])]
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",
                 1.0,

@@ -171,6 +171,13 @@ def run():
         )
         return
 
+    if settings.multidirectional_som:
+        try:
+            from minisom import MiniSom
+        except ModuleNotFoundError as _:
+            print("Self-Organizing Map is selected, but 'minisom' module not installed.\nPlease install it with 'pip install minisom'.")
+            return
+
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
@@ -419,20 +426,54 @@ def run():
     bad_residuals = model.get_residuals_batched(bad_prompts)
 
     good_means = good_residuals.mean(dim=0)
-    bad_means = bad_residuals.mean(dim=0)
 
-    refusal_directions = F.normalize(bad_means - good_means, p=2, dim=1)
+    if settings.multidirectional_som:
+
+        from som import SOMCalculator
+        bad_means = []
+
+        # bad_residuals shape: (num_bad_prompts, num_layers, hidden_dim)
+        num_layers = bad_residuals.shape[1]
+
+        print(f"  - Retrieving multi-directions through self-organizing map...")
+
+        for layer_idx in range(num_layers):
+            print(f"  - Processing Layer {layer_idx + 1}/{num_layers}...")
+            # Extract residuals for the current layer
+            # Shape: (num_bad_prompts, hidden_dim)
+            layer_residuals = bad_residuals[:, layer_idx, :].numpy()
+
+            # Initialize and fit the SOM for this layer's residuals
+            som_calc = SOMCalculator(
+                som_x=settings.som_x,
+                som_y=settings.som_y,
+                iterations=settings.som_iterations,
+                lr=settings.som_lr,
+                sigma=settings.som_sigma
+            )
+            som_calc.fit(layer_residuals)
+
+            # Get the weights of the top-k neurons as our "bad means"
+            top_k_weights = som_calc.get_top_k_neuron_weights(k=settings.som_k)
+
+            # Convert back to tensor and add to our list
+            # Shape: (k, hidden_dim)
+            bad_means.append(torch.tensor(top_k_weights, dtype=torch.float32))
+    else:
+        bad_means = [bad_residuals.mean(dim=0)]
+
+    refusal_directions = [F.normalize(bad_mean - good_means, p=2, dim=1) for bad_mean in bad_means]
 
     if settings.orthogonalize_direction:
         # Implements https://huggingface.co/blog/grimjim/projected-abliteration
         # Adjust the refusal directions so that only the component that is
         # orthogonal to the good direction is subtracted during abliteration.
         good_directions = F.normalize(good_means, p=2, dim=1)
-        projection_vector = torch.sum(refusal_directions * good_directions, dim=1)
-        refusal_directions = (
-            refusal_directions - projection_vector.unsqueeze(1) * good_directions
-        )
-        refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
+        projection_vectors = [torch.sum(ref * good_directions, dim=1) for ref in refusal_directions]
+        refusal_directions = [(
+            refusal_direction - projection_vector.unsqueeze(1) * good_directions
+        ) for (refusal_direction, projection_vector) in zip(refusal_directions, projection_vectors)]
+        refusal_directions = [F.normalize(refusal_direction, p=2, dim=1) for refusal_direction in refusal_directions]
 
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 

@@ -429,7 +429,7 @@ def run():
 
     if settings.multidirectional_som:
 
-        from som import SOMCalculator
+        from .som import SOMCalculator
         bad_means = []
 
         # bad_residuals shape: (num_bad_prompts, num_layers, hidden_dim)

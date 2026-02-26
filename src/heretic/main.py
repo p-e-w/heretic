@@ -441,7 +441,7 @@ def run():
             print(f"  - Processing Layer {layer_idx + 1}/{num_layers}...")
             # Extract residuals for the current layer
             # Shape: (num_bad_prompts, hidden_dim)
-            layer_residuals = bad_residuals[:, layer_idx, :].numpy()
+            layer_residuals = bad_residuals[:, layer_idx, :].cpu().float().numpy()
 
             # Initialize and fit the SOM for this layer's residuals
             som_calc = SOMCalculator(
@@ -458,7 +458,7 @@ def run():
 
             # Convert back to tensor and add to our list
             # Shape: (k, hidden_dim)
-            bad_means.append(torch.tensor(top_k_weights, dtype=torch.float32))
+            bad_means.append(torch.tensor(top_k_weights, dtype=good_means.dtype, device=good_means.device))
     else:
         bad_means = [bad_residuals.mean(dim=0)]
 

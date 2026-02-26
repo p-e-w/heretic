@@ -229,8 +229,15 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "Random seed for reproducible optimization. "
-            "If set, seeds Python's random, NumPy (if available), PyTorch, and Optuna. "
-            "Note: exact reproducibility also depends on hardware, drivers, and library versions."
+            "Note: exact reproducibility also depends on hardware, environment, and library versions."
+        ),
+    )
+
+    deterministic: bool = Field(
+        default=False,
+        description=(
+            "Force the use of deterministic algorithms in PyTorch. "
+            "WARNING: This can significantly reduce performance and may not work for all models."
         ),
     )
 

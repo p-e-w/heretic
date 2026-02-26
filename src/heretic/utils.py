@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import huggingface_hub
+import numpy as np
 import questionary
 import safetensors.torch
 import tomli_w
@@ -23,6 +24,7 @@ import torch
 from accelerate.utils import (
     is_mlu_available,
     is_musa_available,
+    is_npu_available,
     is_sdaa_available,
     is_xpu_available,
 )
@@ -40,25 +42,90 @@ from .config import DatasetSpecification, Settings
 print = Console(highlight=False).print
 
 
+def get_accelerator_info() -> dict[str, Any]:
+    """Consolidates hardware detection logic into a structured dictionary."""
+    info: dict[str, Any] = {
+        "type": None,
+        "count": 0,
+        "devices": [],
+        "cuda_version": None,
+        "cudnn_version": None,
+        "cuda_capability": None,
+    }
+
+    if torch.cuda.is_available():
+        info["type"] = "cuda"
+        info["count"] = torch.cuda.device_count()
+        info["cuda_version"] = torch.version.cuda
+        with contextlib.suppress(Exception):
+            info["cudnn_version"] = torch.backends.cudnn.version()
+            info["cuda_capability"] = torch.cuda.get_device_capability()
+
+        for i in range(info["count"]):
+            name = torch.cuda.get_device_name(i)
+            with contextlib.suppress(Exception):
+                props = torch.cuda.get_device_properties(i)
+                info["devices"].append(
+                    {"name": name, "total_memory": props.total_memory}
+                )
+    elif is_xpu_available():
+        info["type"] = "xpu"
+        info["count"] = torch.xpu.device_count()
+        for i in range(info["count"]):
+            info["devices"].append({"name": torch.xpu.get_device_name(i)})
+    elif is_mlu_available():
+        info["type"] = "mlu"
+        info["count"] = torch.mlu.device_count()  # ty:ignore
+        for i in range(info["count"]):
+            info["devices"].append({"name": torch.mlu.get_device_name(i)})  # ty:ignore
+    elif is_sdaa_available():
+        info["type"] = "sdaa"
+        info["count"] = torch.sdaa.device_count()  # ty:ignore
+        for i in range(info["count"]):
+            info["devices"].append({"name": torch.sdaa.get_device_name(i)})  # ty:ignore
+    elif is_musa_available():
+        info["type"] = "musa"
+        info["count"] = torch.musa.device_count()  # ty:ignore
+        for i in range(info["count"]):
+            info["devices"].append({"name": torch.musa.get_device_name(i)})  # ty:ignore
+    elif is_npu_available():
+        info["type"] = "npu"
+        info["cann_version"] = torch.version.cann  # ty:ignore
+    elif torch.backends.mps.is_available():
+        info["type"] = "mps"
+        info["count"] = 1
+    else:
+        info["type"] = "cpu"
+
+    return info
+
+
 def print_memory_usage():
     def p(label: str, size_in_bytes: int):
         print(f"[grey50]{label}: [bold]{size_in_bytes / (1024**3):.2f} GB[/][/]")
 
     p("Resident system RAM", Process().memory_info().rss)
 
-    if torch.cuda.is_available():
-        count = torch.cuda.device_count()
-        allocated = sum(torch.cuda.memory_allocated(device) for device in range(count))
-        reserved = sum(torch.cuda.memory_reserved(device) for device in range(count))
+    acc = get_accelerator_info()
+    if acc["type"] == "cuda":
+        allocated = sum(
+            torch.cuda.memory_allocated(device) for device in range(acc["count"])
+        )
+        reserved = sum(
+            torch.cuda.memory_reserved(device) for device in range(acc["count"])
+        )
         p("Allocated GPU VRAM", allocated)
         p("Reserved GPU VRAM", reserved)
-    elif is_xpu_available():
-        count = torch.xpu.device_count()
-        allocated = sum(torch.xpu.memory_allocated(device) for device in range(count))
-        reserved = sum(torch.xpu.memory_reserved(device) for device in range(count))
+    elif acc["type"] == "xpu":
+        allocated = sum(
+            torch.xpu.memory_allocated(device) for device in range(acc["count"])
+        )
+        reserved = sum(
+            torch.xpu.memory_reserved(device) for device in range(acc["count"])
+        )
         p("Allocated XPU memory", allocated)
         p("Reserved XPU memory", reserved)
-    elif torch.backends.mps.is_available():
+    elif acc["type"] == "mps":
         p("Allocated MPS memory", torch.mps.current_allocated_memory())
         p("Driver (reserved) MPS memory", torch.mps.driver_allocated_memory())
 
@@ -366,47 +433,78 @@ def generate_environment_txt() -> str:
         f"PyTorch Version: {torch.__version__}",
     ]
 
-    if torch.cuda.is_available():
-        lines.append(f"CUDA Version: {torch.version.cuda}")
-        with contextlib.suppress(Exception):
-            lines.append(f"CuDNN Version: {torch.backends.cudnn.version()}")
-            lines.append(f"CUDA Driver Cap: {torch.cuda.get_device_capability()}")
+    acc = get_accelerator_info()
+    if acc["type"] == "cuda":
+        lines.append(f"CUDA Version: {acc['cuda_version']}")
+        if acc["cudnn_version"]:
+            lines.append(f"CuDNN Version: {acc['cudnn_version']}")
+        if acc["cuda_capability"]:
+            lines.append(f"CUDA Driver Cap: {acc['cuda_capability']}")
 
-        count = torch.cuda.device_count()
-        lines.append(f"CUDA Devices ({count}):")
-        for i in range(count):
-            name = torch.cuda.get_device_name(i)
-            with contextlib.suppress(Exception):
-                props = torch.cuda.get_device_properties(i)
-                lines.append(
-                    f"  * GPU {i}: {name} ({props.total_memory / (1024**3):.2f} GB)"
-                )
-    elif is_xpu_available():
-        count = torch.xpu.device_count()
-        lines.append(f"XPU Devices ({count}):")
-        for i in range(count):
-            lines.append(f"  * XPU {i}: {torch.xpu.get_device_name(i)}")
-    elif is_mlu_available():
-        count = torch.mlu.device_count()  # ty:ignore
-        lines.append(f"MLU Devices ({count}):")
-        for i in range(count):
-            lines.append(f"  * MLU {i}: {torch.mlu.get_device_name(i)}")  # ty:ignore
-    elif is_sdaa_available():
-        count = torch.sdaa.device_count()  # ty:ignore
-        lines.append(f"SDAA Devices ({count}):")
-        for i in range(count):
-            lines.append(f"  * SDAA {i}: {torch.sdaa.get_device_name(i)}")  # ty:ignore
-    elif is_musa_available():
-        count = torch.musa.device_count()  # ty:ignore
-        lines.append(f"MUSA Devices ({count}):")
-        for i in range(count):
-            lines.append(f"  * MUSA {i}: {torch.musa.get_device_name(i)}")  # ty:ignore
-    elif torch.backends.mps.is_available():
+        lines.append(f"CUDA Devices ({acc['count']}):")
+        for i, device in enumerate(acc["devices"]):
+            lines.append(
+                f"  * GPU {i}: {device['name']} ({device['total_memory'] / (1024**3):.2f} GB)"
+            )
+    elif acc["type"] in ["xpu", "mlu", "sdaa", "musa"]:
+        lines.append(f"{acc['type'].upper()} Devices ({acc['count']}):")
+        for i, device in enumerate(acc["devices"]):
+            lines.append(f"  * {acc['type'].upper()} {i}: {device['name']}")
+    elif acc["type"] == "npu":
+        lines.append(f"NPU detected (CANN version: {acc['cann_version']})")
+    elif acc["type"] == "mps":
         lines.append("MPS Device (Apple Metal)")
     else:
         lines.append("No GPU or accelerator detected.")
 
     return "\n".join(lines) + "\n"
+
+
+def set_reproducibility(seed: int, deterministic: bool):
+    """Sets the seed for all RNGs and optionally enables strict deterministic mode."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    if deterministic:
+        # Make PyTorch deterministic
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        # Note: This may raise an error for some non-deterministic operations
+        torch.use_deterministic_algorithms(True, warn_only=True)
+
+
+def generate_reproduce_readme(
+    settings: Settings, checkpoint_filename: str | None = None
+) -> str:
+    """Generates a README.md for the reproduce/ folder."""
+    checkpoint_desc = (
+        f"- **{checkpoint_filename}**: The Optuna study journal containing the history of all trials."
+        if checkpoint_filename
+        else ""
+    )
+    return f"""# Reproduction Guide
+
+This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.
+
+## Contents
+
+- **config.toml**: The exact configuration used, including the seed `{settings.seed}`.
+- **environment.txt**: Details about the OS, Python, and hardware used.
+- **requirements.txt**: The exact versions of all installed Python packages.
+- **random_states.safetensors**: A secure snapshot of the RNG states (Python, NumPy, PyTorch CPU/CUDA).
+{checkpoint_desc}
+
+## How to Reproduce
+
+1. Ensure you have the same versions of the models and datasets as specified in `config.toml`.
+2. Install the exact package versions listed in `requirements.txt`.
+3. Run Heretic using the provided `config.toml`. 
+4. For bit-perfect reproduction, ensure you are using compatible hardware as described in `environment.txt`.
+
+While the random states provide a deep snapshot for verification, specifying the `seed` in your configuration is usually sufficient to repeat the optimization path.
+"""
 
 
 def get_random_states() -> tuple[dict[str, torch.Tensor], dict[str, str]]:
@@ -421,26 +519,25 @@ def get_random_states() -> tuple[dict[str, torch.Tensor], dict[str, str]]:
     # Python / NumPy (saved as Metadata JSON).
     metadata = {"python_random": json.dumps(random.getstate())}
 
-    try:
-        import numpy as np
-
-        # np.random.get_state() returns a tuple: (str, ndarray, int, int, float)
-        # We need to convert the ndarray to a list so json.dumps can serialize it.
-        np_state = np.random.get_state()
-        serializable_np_state = tuple(
-            x.tolist() if isinstance(x, np.ndarray) else x  # ty:ignore[no-matching-overload]
-            for x in np_state
-        )
-        metadata["numpy_random"] = json.dumps(serializable_np_state)
-    except ImportError:
-        pass
+    # np.random.get_state() returns a tuple: (str, ndarray, int, int, float)
+    # We need to convert the ndarray to a list so json.dumps can serialize it.
+    np_state = np.random.get_state()
+    serializable_np_state = tuple(
+        x.tolist() if isinstance(x, np.ndarray) else x  # ty:ignore[no-matching-overload]
+        for x in np_state
+    )
+    metadata["numpy_random"] = json.dumps(serializable_np_state)
 
     return tensors, metadata
 
 
-def create_reproduce_folder(path: Path, settings: Settings) -> None:
+def create_reproduce_folder(
+    path: Path, settings: Settings, checkpoint_path: str | Path | None = None
+) -> None:
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
+
+    checkpoint_filename = Path(checkpoint_path).name if checkpoint_path else None
 
     (reproduce_dir / "config.toml").write_text(
         generate_config_toml(settings), encoding="utf-8"
@@ -451,17 +548,33 @@ def create_reproduce_folder(path: Path, settings: Settings) -> None:
     (reproduce_dir / "environment.txt").write_text(
         generate_environment_txt(), encoding="utf-8"
     )
+    (reproduce_dir / "README.md").write_text(
+        generate_reproduce_readme(settings, checkpoint_filename), encoding="utf-8"
+    )
 
     tensors, metadata = get_random_states()
     safetensors.torch.save_file(
         tensors, reproduce_dir / "random_states.safetensors", metadata=metadata
     )
 
+    # Copy Optuna study journal if provided
+    if checkpoint_path:
+        checkpoint_file = Path(checkpoint_path)
+        if checkpoint_file.exists():
+            (reproduce_dir / checkpoint_file.name).write_bytes(
+                checkpoint_file.read_bytes()
+            )
 
-def upload_reproduce_folder(repo_id: str, settings: Settings, token: str) -> None:
+
+def upload_reproduce_folder(
+    repo_id: str,
+    settings: Settings,
+    token: str,
+    checkpoint_path: str | Path | None = None,
+) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
-        create_reproduce_folder(tmp_path, settings)
+        create_reproduce_folder(tmp_path, settings, checkpoint_path=checkpoint_path)
 
         reproduce_dir = tmp_path / "reproduce"
         for file_path in reproduce_dir.iterdir():

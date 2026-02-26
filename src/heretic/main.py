@@ -8,11 +8,6 @@ import sys
 import time
 import warnings
 from dataclasses import asdict
-
-try:
-    import numpy as np
-except ImportError:
-    np = None  # ty:ignore[invalid-assignment]
 from importlib.metadata import version
 from os.path import commonprefix
 from pathlib import Path
@@ -22,13 +17,6 @@ import optuna
 import torch
 import torch.nn.functional as F
 import transformers
-from accelerate.utils import (
-    is_mlu_available,
-    is_musa_available,
-    is_npu_available,
-    is_sdaa_available,
-    is_xpu_available,
-)
 from huggingface_hub import ModelCard, ModelCardData
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -49,6 +37,7 @@ from .utils import (
     create_reproduce_folder,
     empty_cache,
     format_duration,
+    get_accelerator_info,
     get_readme_intro,
     get_trial_parameters,
     load_prompts,
@@ -59,6 +48,7 @@ from .utils import (
     prompt_path,
     prompt_select,
     prompt_text,
+    set_reproducibility,
     upload_reproduce_folder,
 )
 
@@ -183,51 +173,37 @@ def run():
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
 
-    random.seed(settings.seed)
-    torch.manual_seed(settings.seed)
-    torch.cuda.manual_seed_all(settings.seed)
-    if np is not None:
-        np.random.seed(settings.seed)
-    # Make PyTorch deterministic.
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.use_deterministic_algorithms(True, warn_only=True)
+    set_reproducibility(settings.seed, settings.deterministic)
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
-    if torch.cuda.is_available():
-        count = torch.cuda.device_count()
-        total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
+    acc = get_accelerator_info()
+    if acc["type"] == "cuda":
+        total_vram = sum(d["total_memory"] for d in acc["devices"])
         print(
-            f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):"
+            f"Detected [bold]{acc['count']}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):"
         )
-        for i in range(count):
-            vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
-            print(
-                f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/] ({vram:.2f} GB)"
-            )
-    elif is_xpu_available():
-        count = torch.xpu.device_count()
-        print(f"Detected [bold]{count}[/] XPU device(s):")
-        for i in range(count):
-            print(f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]")
-    elif is_mlu_available():
-        count = torch.mlu.device_count()  # ty:ignore[unresolved-attribute]
-        print(f"Detected [bold]{count}[/] MLU device(s):")
-        for i in range(count):
-            print(f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
-    elif is_sdaa_available():
-        count = torch.sdaa.device_count()  # ty:ignore[unresolved-attribute]
-        print(f"Detected [bold]{count}[/] SDAA device(s):")
-        for i in range(count):
-            print(f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
-    elif is_musa_available():
-        count = torch.musa.device_count()  # ty:ignore[unresolved-attribute]
-        print(f"Detected [bold]{count}[/] MUSA device(s):")
-        for i in range(count):
-            print(f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
-    elif is_npu_available():
-        print(f"NPU detected (CANN version: [bold]{torch.version.cann}[/])")  # ty:ignore[unresolved-attribute]
-    elif torch.backends.mps.is_available():
+        for i, device in enumerate(acc["devices"]):
+            vram = device["total_memory"] / (1024**3)
+            print(f"* GPU {i}: [bold]{device['name']}[/] ({vram:.2f} GB)")
+    elif acc["type"] == "xpu":
+        print(f"Detected [bold]{acc['count']}[/] XPU device(s):")
+        for i, device in enumerate(acc["devices"]):
+            print(f"* XPU {i}: [bold]{device['name']}[/]")
+    elif acc["type"] == "mlu":
+        print(f"Detected [bold]{acc['count']}[/] MLU device(s):")
+        for i, device in enumerate(acc["devices"]):
+            print(f"* MLU {i}: [bold]{device['name']}[/]")
+    elif acc["type"] == "sdaa":
+        print(f"Detected [bold]{acc['count']}[/] SDAA device(s):")
+        for i, device in enumerate(acc["devices"]):
+            print(f"* SDAA {i}: [bold]{device['name']}[/]")
+    elif acc["type"] == "musa":
+        print(f"Detected [bold]{acc['count']}[/] MUSA device(s):")
+        for i, device in enumerate(acc["devices"]):
+            print(f"* MUSA {i}: [bold]{device['name']}[/]")
+    elif acc["type"] == "npu":
+        print(f"NPU detected (CANN version: [bold]{acc['cann_version']}[/])")
+    elif acc["type"] == "mps":
         print("Detected [bold]1[/] MPS device (Apple Metal)")
     else:
         print(
@@ -792,9 +768,13 @@ def run():
                                 model.tokenizer.save_pretrained(save_directory)
 
                             if prompt_confirm(
-                                "Include 'reproduce' folder with configuration and environment details?"
+                                "Include 'reproduce' folder? (This saves your exact config, system info, and study checkpoint to help others verify your results.)"
                             ):
-                                create_reproduce_folder(Path(save_directory), settings)
+                                create_reproduce_folder(
+                                    Path(save_directory),
+                                    settings,
+                                    checkpoint_path=study_checkpoint_file,
+                                )
                                 print(
                                     f"Model and reproducibility files saved to [bold]{save_directory}[/]."
                                 )
@@ -897,9 +877,14 @@ def run():
                                 card.push_to_hub(repo_id, token=token)
 
                             if prompt_confirm(
-                                "Include 'reproduce' folder with configuration and environment details?"
+                                "Include 'reproduce' folder? (This saves your exact config, system info, and study checkpoint to help others verify your results.)"
                             ):
-                                upload_reproduce_folder(repo_id, settings, token)
+                                upload_reproduce_folder(
+                                    repo_id,
+                                    settings,
+                                    token,
+                                    checkpoint_path=study_checkpoint_file,
+                                )
                                 print(
                                     f"Model and reproducibility files uploaded to [bold]{repo_id}[/]."
                                 )

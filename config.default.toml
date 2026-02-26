@@ -95,6 +95,10 @@ n_startup_trials = 60
 # Note: exact reproducibility also depends on hardware, environment, and library versions.
 # seed = 75
 
+# Force the use of deterministic algorithms in PyTorch. 
+# WARNING: This can significantly reduce performance and may not work for all models.
+deterministic = false
+
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"
 

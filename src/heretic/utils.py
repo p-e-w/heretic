@@ -418,7 +418,7 @@ def get_random_states() -> tuple[dict[str, torch.Tensor], dict[str, str]]:
         for i, state in enumerate(cuda_states):
             tensors[f"torch_cuda_{i}"] = state
 
-    # Python / NumPy (saved as Metadata JSON)
+    # Python / NumPy (saved as Metadata JSON).
     metadata = {"python_random": json.dumps(random.getstate())}
 
     try:

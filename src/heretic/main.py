@@ -425,7 +425,7 @@ def run():
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
 
-    good_means = good_residuals.mean(dim=0)
+    good_means = good_residuals.mean(dim=0) # N_layers, hidden_dim
 
     if settings.multidirectional_som:
 
@@ -462,6 +462,8 @@ def run():
     else:
         bad_means = [bad_residuals.mean(dim=0)]
 
+    bad_means = torch.stack(bad_means).permute(1, 0, 2) # N_directions, N_layers, hidden_dim
+
     refusal_directions = [F.normalize(bad_mean - good_means, p=2, dim=1) for bad_mean in bad_means]
 
     if settings.orthogonalize_direction:
@@ -476,8 +478,7 @@ def run():
         refusal_directions = [F.normalize(refusal_direction, p=2, dim=1) for refusal_direction in refusal_directions]
 
     refusal_directions = torch.stack(refusal_directions, dim=0)
-    refusal_directions = refusal_directions.permute(1, 0, -1) # layers, directions, hidden_dim
-
+    refusal_directions = refusal_directions.permute(1, 0, 2) # layers, directions, hidden_dim
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
     if settings.print_residual_geometry:

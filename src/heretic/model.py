@@ -395,7 +395,7 @@ class Model:
                         Each AbliterationParameters instance must have max_weights and min_weights
                         as lists of length equal to the number of directions.
         """
-        num_layers, num_directions, _ = refusal_directions.shape
+        _, num_directions, _ = refusal_directions.shape
 
         if direction_index is not None:
             # If a specific direction is requested, interpolate across the direction dimension.
@@ -422,7 +422,7 @@ class Model:
             layer_refusal_directions = refusal_directions
 
         # Now, iterate through each layer to apply the ablation.
-        for layer_index in range(num_layers):
+        for layer_index in range(len(self.get_layers())):
             for component, modules in self.get_layer_modules(layer_index).items():
                 params = parameters[component]
 

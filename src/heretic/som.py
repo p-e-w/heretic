@@ -42,16 +42,17 @@ class SOMCalculator:
 
         # Initialize and train the SOM using MiniSom
         self.som = MiniSom(
-            x_size=self.som_x,
-            y_size=self.som_y,
-            input_len=n_features,
+            self.som_x,
+            self.som_y,
+            n_features,
             sigma=self.sigma,
             learning_rate=self.lr,
             random_seed=0,  # For reproducibility
+            activation_distance='euclidean',
             topology='hexagonal'
         )
         self.som.random_weights_init(data)
-        self.som.train_random(data, num_iteration=self.iterations)
+        self.som.train_random(data, self.iterations)
 
     def get_top_k_neuron_weights(self, k: int):
         """

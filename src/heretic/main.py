@@ -173,42 +173,9 @@ def run():
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
 
-    set_reproducibility(settings.seed, settings.deterministic)
+    set_reproducibility(settings.seed)
 
-    # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
-    acc = get_accelerator_info()
-    if acc["type"] == "cuda":
-        total_vram = sum(d["total_memory"] for d in acc["devices"])
-        print(
-            f"Detected [bold]{acc['count']}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):"
-        )
-        for i, device in enumerate(acc["devices"]):
-            vram = device["total_memory"] / (1024**3)
-            print(f"* GPU {i}: [bold]{device['name']}[/] ({vram:.2f} GB)")
-    elif acc["type"] == "xpu":
-        print(f"Detected [bold]{acc['count']}[/] XPU device(s):")
-        for i, device in enumerate(acc["devices"]):
-            print(f"* XPU {i}: [bold]{device['name']}[/]")
-    elif acc["type"] == "mlu":
-        print(f"Detected [bold]{acc['count']}[/] MLU device(s):")
-        for i, device in enumerate(acc["devices"]):
-            print(f"* MLU {i}: [bold]{device['name']}[/]")
-    elif acc["type"] == "sdaa":
-        print(f"Detected [bold]{acc['count']}[/] SDAA device(s):")
-        for i, device in enumerate(acc["devices"]):
-            print(f"* SDAA {i}: [bold]{device['name']}[/]")
-    elif acc["type"] == "musa":
-        print(f"Detected [bold]{acc['count']}[/] MUSA device(s):")
-        for i, device in enumerate(acc["devices"]):
-            print(f"* MUSA {i}: [bold]{device['name']}[/]")
-    elif acc["type"] == "npu":
-        print(f"NPU detected (CANN version: [bold]{acc['cann_version']}[/])")
-    elif acc["type"] == "mps":
-        print("Detected [bold]1[/] MPS device (Apple Metal)")
-    else:
-        print(
-            "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"
-        )
+    print(get_accelerator_info())
 
     # We don't need gradients as we only do inference.
     torch.set_grad_enabled(False)
@@ -768,7 +735,9 @@ def run():
                                 model.tokenizer.save_pretrained(save_directory)
 
                             if prompt_confirm(
-                                "Include 'reproduce' folder? (This saves your exact config, system info, and study checkpoint to help others verify your results.)"
+                                "Include 'reproduce' folder?\n"
+                                "This saves your exact configuration and system information, "
+                                "along with the study checkpoint, to help others verify your results."
                             ):
                                 create_reproduce_folder(
                                     Path(save_directory),
@@ -877,7 +846,9 @@ def run():
                                 card.push_to_hub(repo_id, token=token)
 
                             if prompt_confirm(
-                                "Include 'reproduce' folder? (This saves your exact config, system info, and study checkpoint to help others verify your results.)"
+                                "Include 'reproduce' folder?\n"
+                                "This saves your exact configuration and system information, "
+                                "along with the study checkpoint, to help others verify your results."
                             ):
                                 upload_reproduce_folder(
                                     repo_id,

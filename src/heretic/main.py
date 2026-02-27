@@ -449,8 +449,7 @@ def run():
                 som_y=settings.som_y,
                 iterations=settings.som_iterations,
                 lr=settings.som_lr,
-                sigma=settings.som_sigma,
-                use_win_map=settings.som_use_win_map,
+                sigma=settings.som_sigma
             )
             som_calc.fit(layer_residuals)
 

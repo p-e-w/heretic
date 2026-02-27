@@ -85,7 +85,7 @@ full_normalization_lora_rank = 3
 # of the components, then clamps the magnitudes of all components to that quantile.
 winsorization_quantile = 1.0
 
-# Use multidirectional Self-Organizing Map
+# Use multidirectional Self-Organizing Map.
 multidirectional_som = false
 
 # Number of SOM neurons in the x-axis.

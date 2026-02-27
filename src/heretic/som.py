@@ -9,7 +9,7 @@ class SOMCalculator:
     """
     A simplified class to train a Self-Organizing Map (SOM) and extract neuron weights.
     """
-    def __init__(self, som_x, som_y, iterations, lr, sigma):
+    def __init__(self, som_x: int, som_y: int, iterations: int, lr: float, sigma: float) -> None:
         """
         Initializes the SOM calculator with training parameters.
 
@@ -27,7 +27,7 @@ class SOMCalculator:
         self.sigma = sigma
         self.som = None
 
-    def fit(self, data: np.ndarray):
+    def fit(self, data: np.ndarray) -> None:
         """
         Trains the SOM on the provided 2D data.
 
@@ -54,7 +54,7 @@ class SOMCalculator:
         self.som.random_weights_init(data)
         self.som.train_random(data, self.iterations)
 
-    def get_top_k_neuron_weights(self, k: int):
+    def get_top_k_neuron_weights(self, k: int) -> np.ndarray:
         """
         Gets the weights of the top-k neurons based on their frequency of being winners.
 

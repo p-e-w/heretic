@@ -2,17 +2,20 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import math
+import subprocess
+import sys
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Type, cast
 
 import bitsandbytes as bnb
+import questionary
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear
-from torch import FloatTensor, LongTensor, Tensor
+from torch import LongTensor, Tensor
 from torch.nn import Module, ModuleList
 from transformers import (
     AutoModelForCausalLM,
@@ -85,53 +88,215 @@ class Model:
             if settings.max_memory
             else None
         )
+        self.device_map: str | dict = settings.device_map
         self.trusted_models = {settings.model: settings.trust_remote_code}
 
         if self.settings.evaluate_model is not None:
             self.trusted_models[settings.evaluate_model] = settings.trust_remote_code
 
+        abort = False
+        _vram_calibrated = False  # True after one post-load calibration pass.
         for dtype in settings.dtypes:
+            if abort:
+                break
             print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
 
-            try:
-                quantization_config = self._get_quantization_config(dtype)
+            while True:
+                try:
+                    quantization_config = self._get_quantization_config(dtype)
 
-                extra_kwargs = {}
-                # Only include quantization_config if it's not None
-                # (some models like gpt-oss have issues with explicit None).
-                if quantization_config is not None:
-                    extra_kwargs["quantization_config"] = quantization_config
+                    extra_kwargs = {}
+                    # Only include quantization_config if it's not None
+                    # (some models like gpt-oss have issues with explicit None).
+                    if quantization_config is not None:
+                        extra_kwargs["quantization_config"] = quantization_config
 
-                self.model = get_model_class(settings.model).from_pretrained(
-                    settings.model,
-                    dtype=dtype,
-                    device_map=settings.device_map,
-                    max_memory=self.max_memory,
-                    trust_remote_code=self.trusted_models.get(settings.model),
-                    **extra_kwargs,
-                )
+                    # Pass trust_remote_code=False (not None) when trust hasn't been
+                    # established yet. This prevents HF from showing its own interactive
+                    # prompt; we handle that ourselves below with clearer context.
+                    self.model = get_model_class(settings.model).from_pretrained(
+                        settings.model,
+                        dtype=dtype,
+                        device_map=self.device_map,
+                        max_memory=self.max_memory,
+                        trust_remote_code=self.trusted_models.get(settings.model)
+                        or False,
+                        **extra_kwargs,
+                    )
 
-                # If we reach this point and the model requires trust_remote_code,
-                # either the user accepted, or settings.trust_remote_code is True.
-                if self.trusted_models.get(settings.model) is None:
-                    self.trusted_models[settings.model] = True
+                    # If we reach this point and the model requires trust_remote_code,
+                    # either the user accepted, or settings.trust_remote_code is True.
+                    if self.trusted_models.get(settings.model) is None:
+                        self.trusted_models[settings.model] = True
 
-                # A test run can reveal dtype-related problems such as the infamous
-                # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
-                # (https://github.com/meta-llama/llama/issues/380).
-                self.generate(
-                    [
-                        Prompt(
-                            system=settings.system_prompt,
-                            user="What is 1+1?",
+                    # A test run can reveal dtype-related problems such as the infamous
+                    # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
+                    # (https://github.com/meta-llama/llama/issues/380).
+                    self.generate(
+                        [
+                            Prompt(
+                                system=settings.system_prompt,
+                                user="What is 1+1?",
+                            )
+                        ],
+                        max_new_tokens=1,
+                    )
+
+                    # After a successful load and warmup on multi-GPU systems, check
+                    # whether each GPU has enough free VRAM for batch inference. If not,
+                    # compute corrected per-GPU caps from the actual measured allocations
+                    # and reload once. This handles architectures (e.g. NemotronH) where
+                    # SSM workspace and other one-time allocations during the first
+                    # forward pass leave insufficient headroom for batched inference.
+                    # Only applies to hybrid SSM models — regular transformers don't
+                    # allocate persistent inference workspace on top of model weights.
+                    if (
+                        not _vram_calibrated
+                        and torch.cuda.is_available()
+                        and torch.cuda.device_count() > 1
+                        and self._has_mamba_layers()
+                    ):
+                        _HEADROOM = 6 * 1024**3  # 6 GiB minimum free per GPU
+                        gpu_count = torch.cuda.device_count()
+                        min_free = min(
+                            torch.cuda.mem_get_info(i)[0] for i in range(gpu_count)
                         )
-                    ],
-                    max_new_tokens=1,
-                )
-            except Exception as error:
-                self.model = None  # ty:ignore[invalid-assignment]
-                empty_cache()
-                print(f"[red]Failed[/] ({error})")
+                        # Skip calibration if the model was disk-offloaded — this
+                        # means total VRAM is insufficient, and rebalancing GPU caps
+                        # cannot fix a capacity problem, only a distribution problem.
+                        disk_offloaded = any(
+                            p.device.type == "meta" for p in self.model.parameters()
+                        )
+                        if min_free < _HEADROOM and not disk_offloaded:
+                            print()
+                            print(
+                                f"[yellow]Only {min_free / (1024**3):.1f} GiB free on "
+                                "most-loaded GPU — recalibrating layout for batch inference...[/]"
+                            )
+                            # Identify overloaded GPUs before releasing the model.
+                            overloaded = {
+                                i
+                                for i in range(gpu_count)
+                                if torch.cuda.mem_get_info(i)[0] < _HEADROOM
+                            }
+
+                            # Release model so we can measure true available VRAM.
+                            self.model = None  # ty:ignore[invalid-assignment]
+                            empty_cache()
+
+                            max_mem: dict[int | str, str] = {}
+                            for i in range(gpu_count):
+                                free_i, _ = torch.cuda.mem_get_info(i)
+                                # Reserve headroom for inference working memory
+                                # (SSM workspace, KV cache, activations, etc.).
+                                usable = max(free_i - _HEADROOM, 0)
+                                if i in overloaded:
+                                    # Apply correction to prevent Accelerate from
+                                    # overloading this GPU again due to layer-size
+                                    # underestimation (~30% on hybrid architectures).
+                                    stated_gib = max(int(usable / (1024**3) * 0.7), 1)
+                                else:
+                                    # Full budget — this GPU absorbs displaced layers.
+                                    stated_gib = max(int(usable / (1024**3)), 1)
+                                max_mem[i] = f"{stated_gib}GiB"
+                            caps = ", ".join(
+                                f"GPU {k}: {v}" for k, v in max_mem.items()
+                            )
+                            print(f"  [dim]Corrected caps: {caps}[/]")
+                            self.max_memory = max_mem
+                            _vram_calibrated = True
+                            print(
+                                f"* Retrying dtype [bold]{dtype}[/] with corrected caps... ",
+                                end="",
+                            )
+                            continue  # reload this dtype with corrected max_memory
+                except Exception as error:
+                    self.model = None  # ty:ignore[invalid-assignment]
+                    empty_cache()
+                    print(f"[red]Failed[/] ({error})")
+
+                    error_str = str(error).lower()
+
+                    if "trust_remote_code" in error_str:
+                        if self.trusted_models.get(settings.model) is None:
+                            # Model requires custom code — explain and ask once.
+                            print()
+                            print(
+                                "[yellow](This is expected — the model requires permission to run custom code.)[/]"
+                            )
+                            print(
+                                f"[yellow][bold]{settings.model}[/bold] ships custom architecture "
+                                "code that must be executed to load this model. "
+                                f"You can inspect the repository at "
+                                f"https://huggingface.co/{settings.model}[/]"
+                            )
+                            print()
+                            if questionary.confirm(
+                                "Trust and run this model's custom code?",
+                                default=True,
+                            ).ask():
+                                self.trusted_models[settings.model] = True
+                                print(f"* Retrying dtype [bold]{dtype}[/]... ", end="")
+                                continue  # retry this dtype with trust granted
+                            else:
+                                self.trusted_models[settings.model] = False
+                                abort = True
+                        break  # trust already decided; move to next dtype or abort
+
+                    if "mamba-ssm" in error_str:
+                        # Missing dependency — retrying other dtypes won't help.
+                        print()
+                        print(
+                            f"[bold red]mamba-ssm is required to load [cyan]{settings.model}[/cyan].[/]"
+                        )
+                        print()
+                        if questionary.confirm(
+                            "Install mamba-ssm now? (this may take several minutes)",
+                            default=True,
+                        ).ask():
+                            try:
+                                subprocess.check_call(
+                                    [
+                                        sys.executable,
+                                        "-m",
+                                        "pip",
+                                        "install",
+                                        "mamba-ssm",
+                                    ]
+                                )
+                            except subprocess.CalledProcessError:
+                                print()
+                                print("[bold red]Auto-install failed.[/]")
+                                print(
+                                    "[yellow]mamba-ssm requires the CUDA toolkit (nvcc) to build. "
+                                    "Install nvcc, then run:[/] pip install mamba-ssm"
+                                )
+                                print("[yellow]To install nvcc:[/]")
+                                print(
+                                    "  sudo apt install nvidia-cuda-toolkit   [dim]# Ubuntu/Debian[/]"
+                                )
+                                print(
+                                    "  conda install -c nvidia cuda-nvcc       [dim]# Conda[/]"
+                                )
+                                raise SystemExit(1)
+                            print()
+                            print(
+                                "[green]Installation complete. Retrying model load...[/]"
+                            )
+                            print()
+                            continue  # retry this dtype after install
+                        abort = True
+                        break
+
+                    # For all other errors, update trust cache if needed and try next dtype.
+                    if self.trusted_models.get(settings.model) is None:
+                        self.trusted_models[settings.model] = True
+                    break
+                else:
+                    # Load and test generate succeeded — exit the retry loop.
+                    break
+
+            if abort or self.model is None:
                 continue
 
             if settings.quantization == QuantizationMethod.BNB_4BIT:
@@ -151,10 +316,32 @@ class Model:
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print("* Abliterable components:")
-        for component, modules in self.get_layer_modules(0).items():
-            print(
-                f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
+        components = self.get_abliterable_components()
+        for component in components:
+            # Count how many layers contain this component.
+            layer_count = sum(
+                1
+                for i in range(len(self.get_layers()))
+                if component in self.get_layer_modules(i)
             )
+            print(f"  * [bold]{component}[/]: present in [bold]{layer_count}[/] layers")
+
+        # If the model has Mamba/SSM layers, suggest installing the fast kernels.
+        if any(c.startswith("mamba.") for c in components):
+            try:
+                import causal_conv1d  # ty:ignore[unresolved-import]  # noqa: F401
+                import mamba_ssm  # ty:ignore[unresolved-import]  # noqa: F401
+            except ImportError:
+                print()
+                print(
+                    "[yellow]This hybrid model has Mamba/SSM layers. "
+                    "For significantly faster inference, install the optimized kernels:[/]"
+                )
+                print("[yellow]  pip install causal-conv1d mamba-ssm[/]")
+                print(
+                    "[yellow]  (requires CUDA toolkit ≥ 11.6 — check with nvcc -V; "
+                    "build takes ~10 min)[/]"
+                )
 
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.
@@ -223,8 +410,15 @@ class Model:
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PeftModel)
 
-        # Check if we need special handling for quantized models
-        if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+        # Check if we need special handling for quantized models.
+        # This covers both user-applied BNB quantization and models with a built-in
+        # quantization_config (FP8, MXFP4, etc.), since LoRA cannot be merged directly
+        # into quantized weights — the base model must be reloaded in full precision first.
+        pre_quantized = (
+            getattr(self.model.config, "quantization_config", None) is not None
+            and self.settings.quantization == QuantizationMethod.NONE
+        )
+        if self.settings.quantization == QuantizationMethod.BNB_4BIT or pre_quantized:
             # Quantized models need special handling - we must reload the base model
             # in full precision to merge the LoRA adapters
 
@@ -299,7 +493,7 @@ class Model:
         self.model = get_model_class(self.settings.model).from_pretrained(
             self.settings.model,
             dtype=dtype,
-            device_map=self.settings.device_map,
+            device_map=self.device_map,
             max_memory=self.max_memory,
             trust_remote_code=self.trusted_models.get(self.settings.model),
             **extra_kwargs,
@@ -308,6 +502,16 @@ class Model:
         self._apply_lora()
 
         self.needs_reload = False
+
+    def _has_mamba_layers(self) -> bool:
+        """Returns True if any layer has a Mamba/SSM out_proj (hybrid architectures)."""
+        try:
+            for layer in self.get_layers():
+                if hasattr(layer, "mixer") and hasattr(layer.mixer, "out_proj"):
+                    return True
+        except Exception:
+            pass
+        return False
 
     def get_layers(self) -> ModuleList:
         model = self.model
@@ -319,6 +523,10 @@ class Model:
         # Most multimodal models.
         with suppress(Exception):
             return model.model.language_model.layers
+
+        # NemotronH and other backbone-based models.
+        with suppress(Exception):
+            return model.backbone.layers
 
         # Text-only models.
         return model.model.layers
@@ -340,9 +548,9 @@ class Model:
                     f"Unexpected Tensor in {component} - expected nn.Module"
                 )
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+        # Standard transformer attention out-projection.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Most dense models.
         with suppress(Exception):
@@ -367,14 +575,65 @@ class Model:
             for expert in layer.moe.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
                 try_add("mlp.down_proj", expert.output_linear)  # ty:ignore[possibly-missing-attribute]
 
-        # We need at least one module across all components for abliteration to work.
-        total_modules = sum(len(mods) for mods in modules.values())
-        assert total_modules > 0, "No abliterable modules found in layer"
+        # NemotronH hybrid layers - all use a unified `mixer` attribute.
+        # Attention layers have mixer.o_proj.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.mixer.o_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # NemotronH simple MLP layers have mixer.down_proj.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mixer.down_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # NemotronH MoE layers have mixer.experts (per-expert) and mixer.shared_experts.
+        # Following heretic's standard pattern for MoE models (Qwen3, Phi-3.5-MoE, Granite):
+        # include all expert down_proj modules. Optuna will optimize the weight.
+        with suppress(Exception):
+            for expert in layer.mixer.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
+                try_add("mlp.down_proj", expert.down_proj)  # ty:ignore[possibly-missing-attribute]
+
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mixer.shared_experts.down_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # NemotronH Mamba2 SSM layers have mixer.out_proj.
+        with suppress(Exception):
+            try_add("mamba.out_proj", layer.mixer.out_proj)  # ty:ignore[possibly-missing-attribute]
 
         return modules
 
     def get_abliterable_components(self) -> list[str]:
-        return list(self.get_layer_modules(0).keys())
+        # Scan all layers to collect the union of component types.
+        # This is necessary for hybrid architectures (e.g. NemotronH) where
+        # different layers have different component types.
+        all_components: dict[str, list[Module]] = {}
+        n_layers = len(self.get_layers())
+        skipped_layers: list[int] = []
+        for layer_index in range(n_layers):
+            layer_modules = self.get_layer_modules(layer_index)
+            if not layer_modules:
+                skipped_layers.append(layer_index)
+                continue
+            for component, modules in layer_modules.items():
+                if component not in all_components:
+                    all_components[component] = modules
+
+        if skipped_layers:
+            # Log which layers were skipped and what their structure looks like
+            # so users can report the architecture for future support.
+            sample_idx = skipped_layers[0]
+            sample_layer = self.get_layers()[sample_idx]
+            child_names = [name for name, _ in sample_layer.named_children()]
+            print(
+                f"  [yellow]Warning: {len(skipped_layers)}/{n_layers} layers have "
+                f"no recognized abliterable modules (e.g. layer {sample_idx}: "
+                f"{type(sample_layer).__name__} with children: {child_names})[/]"
+            )
+
+        assert len(all_components) > 0, (
+            "No abliterable modules found in any layer. "
+            "This model architecture may not be supported."
+        )
+
+        return list(all_components.keys())
 
     def abliterate(
         self,
@@ -511,6 +770,11 @@ class Model:
                         lora_B = U @ torch.diag(sqrt_S)
                         lora_A = torch.diag(sqrt_S) @ Vh
 
+                    # Skip modules whose base weight is on meta device (no actual data)
+                    # or contains NaN values (corrupted or incompletely loaded weights).
+                    if base_weight.device.type == "meta" or torch.isnan(W).any():
+                        continue
+
                     # Assign to adapters. The adapter name is "default", because that's
                     # what PEFT uses when no name is explicitly specified, as above.
                     # These casts are therefore valid.
@@ -600,10 +864,64 @@ class Model:
 
         return responses
 
+    def _get_hidden_states_via_hooks(self, inputs: BatchEncoding) -> list[Tensor]:
+        """
+        Capture per-layer hidden states using forward hooks.
+        Used as a fallback for models (e.g. NemotronH) that don't return
+        hidden_states through generate() or forward().
+
+        Returns a list matching the standard output_hidden_states format:
+        [embedding_output, layer_0_output, layer_1_output, ...] (n_layers + 1 entries).
+        """
+        captured: list[Tensor] = []
+
+        def make_hook(idx: int):
+            def hook(module: Module, args: Any, output: Any) -> None:
+                # Layer output is typically a tuple where the first element
+                # is the hidden state tensor of shape (batch, seq_len, hidden_dim).
+                if isinstance(output, tuple):
+                    captured.append(output[0].detach())
+                else:
+                    captured.append(output.detach())
+
+            return hook
+
+        # Also capture the input to the first layer (= embedding output)
+        # to match the standard hidden_states format of n_layers + 1 entries.
+        embedding_output: list[Tensor] = []
+
+        def embedding_hook(module: Module, args: Any) -> None:
+            # Pre-hooks receive (module, args). The first positional arg
+            # to a layer is the hidden state input (= embedding output).
+            if (
+                isinstance(args, tuple)
+                and len(args) > 0
+                and isinstance(args[0], Tensor)
+            ):
+                embedding_output.append(args[0].detach())
+
+        layers = self.get_layers()
+        handles = []
+        # Hook on the first layer to capture its input (= embedding output).
+        handles.append(layers[0].register_forward_pre_hook(embedding_hook))
+        for i, layer in enumerate(layers):
+            handles.append(layer.register_forward_hook(make_hook(i)))
+
+        try:
+            self.model(**inputs)
+        finally:
+            for handle in handles:
+                handle.remove()
+
+        # Prepend embedding output to match [embedding, layer_0, layer_1, ...] format.
+        if embedding_output:
+            return [embedding_output[0]] + captured
+        return captured
+
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
         # We only generate one token, and we return the residual vectors
         # at that token position, for each prompt and layer.
-        _, outputs = self.generate(
+        inputs, outputs = self.generate(
             prompts,
             max_new_tokens=1,
             output_hidden_states=True,
@@ -614,22 +932,48 @@ class Model:
         # of model.generate with return_dict_in_generate=True.
         outputs = cast(GenerateDecoderOnlyOutput, outputs)
 
-        # Hidden states for the first (only) generated token.
-        # This cast is valid because we passed output_hidden_states=True above.
-        hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
+        # Check if generate() returned usable hidden states.
+        # Some models (e.g. NemotronH) return a tuple of Nones instead of actual tensors.
+        has_hidden_states = (
+            outputs.hidden_states is not None
+            and len(outputs.hidden_states) > 0
+            and outputs.hidden_states[0] is not None
+        )
+
+        if has_hidden_states:
+            # Standard path: hidden states returned by generate().
+            hidden_states = outputs.hidden_states[0]  # ty:ignore[non-subscriptable]
+        else:
+            # Fallback for hybrid architectures (e.g. NemotronH) that don't
+            # return hidden_states through generate() or forward().
+            # Use forward hooks to capture per-layer outputs directly.
+            hidden_states = self._get_hidden_states_via_hooks(inputs)
 
         # The returned tensor has shape (prompt, layer, component).
+        # Move all layer tensors to the same device before stacking,
+        # since multi-GPU setups may place layers on different devices.
+        target_device = hidden_states[0].device
         residuals = torch.stack(
             # layer_hidden_states has shape (prompt, position, component),
             # so this extracts the hidden states at the end of each prompt,
             # and stacks them up over the layers.
-            [layer_hidden_states[:, -1, :] for layer_hidden_states in hidden_states],
+            [
+                layer_hidden_states[:, -1, :].to(target_device)
+                for layer_hidden_states in hidden_states
+            ],
             dim=1,
         )
 
         # Upcast the data type to avoid precision (bfloat16) or range (float16)
         # problems during calculations involving residual vectors.
         residuals = residuals.to(torch.float32)
+
+        # Warn about NaN residuals from hook-based capture on hybrid architectures.
+        nan_layers = (
+            torch.isnan(residuals).any(dim=(0, 2)).nonzero().squeeze(-1).tolist()
+        )
+        if nan_layers:
+            print(f"  [bold yellow]Warning:[/] NaN residuals in layers: {nan_layers}")
 
         if 0 <= self.settings.winsorization_quantile < 1:
             # Apply symmetric winsorization to each layer of the per-prompt residuals.
@@ -671,7 +1015,15 @@ class Model:
 
         # Logits for the first (only) generated token.
         # This cast is valid because we passed output_scores=True above.
-        logits = cast(tuple[FloatTensor], outputs.scores)[0]
+        assert outputs.scores is not None, (
+            "Model did not return scores. This model architecture may not support output_scores."
+        )
+        logits = outputs.scores[0]
+
+        if torch.isnan(logits).any():
+            print(
+                "  [bold yellow]Warning:[/] NaN values in logits (post-abliteration model corruption)"
+            )
 
         # The returned tensor has shape (prompt, token).
         return F.log_softmax(logits, dim=-1)

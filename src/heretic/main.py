@@ -54,14 +54,22 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings) -> str | None:
+def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
     """
     Prompts the user for how to proceed with saving the model.
     Provides info to the user if the model is quantized on memory use.
     Returns "merge", "adapter", or None (if cancelled/invalid).
     """
 
-    if settings.quantization == QuantizationMethod.BNB_4BIT:
+    # Also detect pre-quantized models (FP8, MXFP4, etc.) via their built-in
+    # quantization_config, which HuggingFace stores in the model's config.json.
+    pre_quantized = (
+        getattr(model.model.config, "quantization_config", None) is not None
+        and settings.quantization == QuantizationMethod.NONE
+    )
+    is_quantized = settings.quantization == QuantizationMethod.BNB_4BIT or pre_quantized
+
+    if is_quantized:
         print()
         print(
             "Model was loaded with quantization. Merging requires reloading the base model."
@@ -769,7 +777,7 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -818,7 +826,7 @@ def run():
                             )
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 

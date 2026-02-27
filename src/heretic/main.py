@@ -456,11 +456,15 @@ def run():
             # Get the weights of the top-k neurons as our "bad means"
             top_k_weights = som_calc.get_top_k_neuron_weights(k=settings.som_k)
 
-            # TODO: SOM de-duplicates neurons if they are too close to each other
-            # The logic can be reworked for this fact later
-            # For now we will duplicate them manually
+            # SOM de-duplicates neurons if they are too close to each other
+            # Temporary solution is to repeat them back
             t = torch.tensor(top_k_weights, dtype=good_means.dtype, device=good_means.device)
-            t = t.expand(settings.som_k, t.shape[-1])
+            num_found_neurons = t.shape[0]
+
+            if num_found_neurons < settings.som_k:
+                t = t.repeat(settings.som_k // num_found_neurons, 1)
+                if t.shape[0] < settings.som_k:
+                    t = torch.cat([t, t[0:settings.som_k - t.shape[0]]], dim=0)
 
             # Convert back to tensor and add to our list
             # Shape: (k, hidden_dim)

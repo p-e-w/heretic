@@ -501,7 +501,24 @@ class Model:
 
                     # Now, apply the combined delta to W based on the row normalization setting.
                     if self.settings.row_normalization == RowNormalization.PRE:
-                        total_delta_W = W_row_norms * total_delta_W
+                        # Use low-rank SVD to decompose the total_delta_W into LoRA matrices.
+                        r = self.peft_config.r
+                        # Perform SVD on the total_delta_W matrix
+                        U, S, Vh = torch.svd_lowrank(total_delta_W, q=min(2 * r + 4, min(total_delta_W.shape)), niter=6)
+
+                        # Truncate to rank 'r'
+                        U = U[:, :r]
+                        S = S[:r]
+                        Vh = Vh[:, :r].T # Vh is (r, in_features)
+
+                        # Split the singular values between lora_B and lora_A
+                        sqrt_S = torch.sqrt(S)
+                        lora_B = U @ torch.diag(sqrt_S)  # Shape: (out_features, r)
+                        lora_A = torch.diag(sqrt_S) @ Vh  # Shape: (r, in_features)
+
+                        # Apply PRE normalization: scale lora_B by the original row norms.
+                        # lora_B already has shape (out_features, r), W_row_norms is (out_features, 1)
+                        lora_B = W_row_norms * lora_B
                     elif self.settings.row_normalization == RowNormalization.FULL:
                         W = W + total_delta_W
                         W = F.normalize(W, p=2, dim=1)
@@ -516,17 +533,26 @@ class Model:
                         sqrt_S = torch.sqrt(S)
                         lora_B = U @ torch.diag(sqrt_S)
                         lora_A = torch.diag(sqrt_S) @ Vh
-                        # Assign the SVD result to the LoRA weights
-                        weight_A = cast(Tensor, module.lora_A["default"].weight)
-                        weight_B = cast(Tensor, module.lora_B["default"].weight)
-                        weight_A.data = lora_A.to(weight_A.dtype)
-                        weight_B.data = lora_B.to(weight_B.dtype)
                     else: # RowNormalization.NONE or others
-                        W = W + total_delta_W
+                        # In NONE mode, the delta is simply total_delta_W.
+                        # We decompose this delta directly using SVD.
+                        r = self.peft_config.r
+                        U, S, Vh = torch.svd_lowrank(total_delta_W, q=min(2 * r + 4, min(total_delta_W.shape)), niter=6)
 
-                        # Assign the new weight matrix back to the base layer.
-                        # Reshape W back to its original 2D shape.
-                        module.base_layer.weight.data = W.view_as(module.base_layer.weight).to(module.base_layer.weight.dtype)
+                        U = U[:, :r]
+                        S = S[:r]
+                        Vh = Vh[:, :r].T
+
+                        sqrt_S = torch.sqrt(S)
+                        lora_B = U @ torch.diag(sqrt_S)
+                        lora_A = torch.diag(sqrt_S) @ Vh
+
+                        
+                    # Assign the SVD result to the LoRA weights
+                    weight_A = cast(Tensor, module.lora_A["default"].weight)
+                    weight_B = cast(Tensor, module.lora_B["default"].weight)
+                    weight_A.data = lora_A.to(weight_A.dtype)
+                    weight_B.data = lora_B.to(weight_B.dtype)
 
     def generate(
         self,

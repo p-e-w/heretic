@@ -403,7 +403,7 @@ class Model:
             weight, index = math.modf(direction_index + 1)
             # Clamp index to be within the valid range [0, num_layers - 1]
             idx1 = int(index)
-            idx2 = (idx1 + 1)
+            idx2 = min(idx1 + 1, refusal_directions.shape[0] - 1)
             # Interpolate between the two chosen directions. The result has shape (n_directions, hidden_dim)
             interpolated_directions = torch.stack([F.normalize(
                 r_dir[idx1].lerp(

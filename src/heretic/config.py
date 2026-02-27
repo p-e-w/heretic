@@ -244,6 +244,11 @@ class Settings(BaseSettings):
         default=4, description="Number of top neurons to use for multidirectional SOM."
     )
 
+    som_use_win_map: bool = Field(
+        default=False,
+        description="Use win map for SOM neurons retrieval.",
+    )
+
     n_trials: int = Field(
         default=200,
         description="Number of abliteration trials to run during optimization.",

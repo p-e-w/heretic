@@ -106,6 +106,9 @@ som_sigma = 0.5
 # Number of top neurons to use for multidirectional SOM.
 som_k = 4
 
+# Use win map for SOM neurons retrieval.
+som_use_win_map = false
+
 # Number of abliteration trials to run during optimization.
 n_trials = 200
 

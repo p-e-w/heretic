@@ -9,7 +9,7 @@ class SOMCalculator:
     """
     A simplified class to train a Self-Organizing Map (SOM) and extract neuron weights.
     """
-    def __init__(self, som_x: int, som_y: int, iterations: int, lr: float, sigma: float) -> None:
+    def __init__(self, som_x: int, som_y: int, iterations: int, lr: float, sigma: float, use_win_map: bool = False) -> None:
         """
         Initializes the SOM calculator with training parameters.
 
@@ -26,6 +26,8 @@ class SOMCalculator:
         self.lr = lr
         self.sigma = sigma
         self.som = None
+        self.data = None # Store the data used for training
+        self.use_win_map = use_win_map
 
     def fit(self, data: np.ndarray) -> None:
         """
@@ -38,7 +40,8 @@ class SOMCalculator:
         if len(data.shape) != 2:
             raise ValueError(f"Data must be a 2D array, but got shape {data.shape}")
 
-        n_samples, n_features = data.shape
+        self.data = data # Store the data
+        _, n_features = data.shape
 
         # Initialize and train the SOM using MiniSom
         self.som = MiniSom(
@@ -67,19 +70,53 @@ class SOMCalculator:
         if self.som is None:
             raise RuntimeError("SOM has not been trained yet. Call `fit()` first.")
 
-        winners = np.array([self.som.winner(x) for x in self.som._weights.reshape(-1, self.som._weights.shape[2])])
-        counts = defaultdict(int)
-        for w in winners:
-            counts[tuple(w)] += 1
+        if self.use_win_map:
 
-        # Sort neurons by their count (descending) and get the top-k
-        sorted_neurons = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:k]
+            win_map = self.som.win_map(self.data)
 
-        # Get the coordinates of the top-k neurons
-        top_k_coords = [coord for coord, _ in sorted_neurons]
+            # The win_map only contains neurons that won at least one data point.
+            # We need to account for all neurons in the grid (som_x x som_y) and
+            # give a count of 0 to those that didn't win anything.
+            all_neurons = [(i, j) for i in range(self.som_x) for j in range(self.som_y)]
 
-        # Fetch the weights for these top-k neurons
-        # self.som.get_weights() has shape (som_x, som_y, n_features)
-        top_k_weights = np.array([self.som.get_weights()[i, j] for i, j in top_k_coords])
+            counts = defaultdict(int)
+            for neuron_coords, data_indices in win_map.items():
+                counts[neuron_coords] = len(data_indices)
 
-        return top_k_weights
+            # For neurons not in win_map, their count is 0.
+            # This ensures all neurons are considered in the ranking.
+            for neuron in all_neurons:
+                if neuron not in counts:
+                    counts[neuron] = 0
+
+            # Sort neurons by their count (descending) and get the top-k
+            sorted_neurons = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+            top_k_neurons_with_counts = sorted_neurons[:k]
+
+            # Get the coordinates of the top-k neurons
+            top_k_coords = [coord for coord, _ in top_k_neurons_with_counts]
+
+            # Fetch the weights for these top-k neurons from the SOM's weight matrix.
+            # self.som.get_weights() has shape (som_x, som_y, n_features)
+            top_k_weights = np.array([self.som.get_weights()[i, j] for i, j in top_k_coords])
+
+            return top_k_weights
+
+        else:
+
+            winners = np.array([self.som.winner(x) for x in self.som._weights.reshape(-1, self.som._weights.shape[2])])
+            counts = defaultdict(int)
+            for w in winners:
+                counts[tuple(w)] += 1
+
+            # Sort neurons by their count (descending) and get the top-k
+            sorted_neurons = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:k]
+
+            # Get the coordinates of the top-k neurons
+            top_k_coords = [coord for coord, _ in sorted_neurons]
+
+            # Fetch the weights for these top-k neurons
+            # self.som.get_weights() has shape (som_x, som_y, n_features)
+            top_k_weights = np.array([self.som.get_weights()[i, j] for i, j in top_k_coords])
+
+            return top_k_weights

@@ -207,7 +207,7 @@ def run():
         )
 
     # We don't need gradients as we only do inference.
-    torch.set_grad_enabled(False)
+    # torch.set_grad_enabled(False)
 
     # While determining the optimal batch size, we will try many different batch sizes,
     # resulting in many computation graphs being compiled. Raising the limit (default = 8)
@@ -422,7 +422,25 @@ def run():
     print("Obtaining module I/O for bad prompts...")
     bad_module_io = model.get_module_io_batched(bad_prompts)
 
-    print(good_module_io)
+    # print(good_module_io)
+
+    print()
+    print("Performing Arbitrary-Rank Ablation...")
+
+    model.ara_abliterate(
+        good_module_io,
+        bad_module_io,
+        0,
+        len(model.get_layers()),
+        1.0,
+        1.0,
+        1.0,
+    )
+
+    print()
+    print("Evaluating...")
+    evaluator.get_score()
+    return
 
     print()
     print("Calculating per-layer refusal directions...")

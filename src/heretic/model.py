@@ -4,7 +4,7 @@
 import math
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, Callable, Type, cast
+from typing import Any, Callable, Type, TypeAlias, cast
 
 import bitsandbytes as bnb
 import torch
@@ -14,6 +14,7 @@ from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
+from torch.optim import LBFGS
 from torch.utils.hooks import RemovableHandle
 from transformers import (
     AutoModelForCausalLM,
@@ -51,6 +52,13 @@ class AbliterationParameters:
     max_weight_position: float
     min_weight: float
     min_weight_distance: float
+
+
+# The list contains one element per layer.
+# Each element maps from the component name to a (possibly sparse) mapping
+# from the module index to an (input, output) tuple containing the I/O
+# tensors of shape (prompt, component).
+ModuleIO: TypeAlias = list[dict[str, dict[int, tuple[Tensor, Tensor]]]]
 
 
 class Model:
@@ -145,7 +153,7 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        self._apply_lora()
+        # self._apply_lora()
 
         # LoRA B matrices are initialized to zero by default in PEFT,
         # so we don't need to do anything manually.
@@ -520,6 +528,84 @@ class Model:
                     weight_A.data = lora_A.to(weight_A.dtype)
                     weight_B.data = lora_B.to(weight_B.dtype)
 
+    def ara_abliterate(
+        self,
+        good_module_io: ModuleIO,
+        bad_module_io: ModuleIO,
+        start_layer_index: int,
+        end_layer_index: int,
+        preserve_good_behavior_weight: float,
+        steer_bad_behavior_weight: float,
+        tie_to_original_matrix_weight: float,
+    ):
+        for layer_index in range(start_layer_index, end_layer_index):
+            for component, modules in self.get_layer_modules(layer_index).items():
+                for module_index, module in enumerate(modules):
+                    # See above for a (partial) justification of this cast.
+                    module = cast(Linear, module)
+
+                    matrix = module.weight
+                    original_matrix = matrix.detach().clone()
+
+                    good_input, good_output = good_module_io[layer_index][component][
+                        module_index
+                    ]
+                    bad_input, bad_output = bad_module_io[layer_index][component][
+                        module_index
+                    ]
+
+                    def objective(matrix: Tensor) -> Tensor:
+                        # The results of applying the operator to inputs associated
+                        # with "good" prompts should change as little as possible.
+                        preserve_good_behavior = (
+                            (good_input @ matrix.T - good_output) ** 2
+                        ).mean()
+
+                        # On average, the outputs for "bad" prompts should resemble
+                        # the original outputs for "good" prompts (which steers the
+                        # behavior for "bad" prompts towards that for "good" prompts).
+                        steer_bad_behavior = (
+                            (
+                                (bad_input @ matrix.T).mean(dim=0)
+                                - good_output.mean(dim=0)
+                            )
+                            ** 2
+                        ).mean()
+
+                        # The matrix itself should change as little as possible overall.
+                        # This prevents overfitting due to underdetermination of the
+                        # optimization problem from a relatively small number of I/O pairs.
+                        tie_to_original_matrix = (
+                            (matrix - original_matrix) ** 2
+                        ).mean()
+
+                        return (
+                            preserve_good_behavior_weight * preserve_good_behavior
+                            + steer_bad_behavior_weight * steer_bad_behavior
+                            + tie_to_original_matrix_weight * tie_to_original_matrix
+                        )
+
+                    optimizer = LBFGS(
+                        [matrix],
+                        lr=1.0,
+                        max_iter=20,  # Number of internal iterations per step, *not* the number of steps.
+                        history_size=10,
+                        line_search_fn="strong_wolfe",
+                    )
+
+                    def closure() -> Tensor:
+                        optimizer.zero_grad()
+                        loss = objective(matrix)
+                        loss.backward()
+                        return loss
+
+                    # Convergence usually happens within 2-3 steps, so this is more than enough.
+                    for step in range(5):
+                        loss = optimizer.step(closure)
+                        print(
+                            f"\\[{layer_index}/{component}/{module_index}] Step: {step}, Loss: {loss.item():.6f}"
+                        )
+
     def generate(
         self,
         prompts: list[Prompt],
@@ -657,12 +743,12 @@ class Model:
     def get_module_io(
         self,
         prompts: list[Prompt],
-    ) -> list[dict[str, dict[int, tuple[Tensor, Tensor]]]]:
+    ) -> ModuleIO:
         # The list contains one element per layer.
         # Each element maps from the component name to a (possibly sparse) mapping
         # from the module index to an (input, output) tuple containing the I/O
         # tensors of shape (prompt, component).
-        module_io: list[dict[str, dict[int, tuple[Tensor, Tensor]]]] = []
+        module_io: ModuleIO = []
 
         def get_hook(
             layer_index: int,
@@ -722,19 +808,19 @@ class Model:
     def get_module_io_batched(
         self,
         prompts: list[Prompt],
-    ) -> list[dict[str, dict[int, tuple[Tensor, Tensor]]]]:
+    ) -> ModuleIO:
         # Aggregating batch results is more complicated for module I/O
         # than for other get_*_batched methods, because the structure of the results
         # might differ between batches, as whether individual modules activate
         # can depend on the prompt (in particular for MoE models).
         # In practice, inhomogeneous results should be very rare, but to be fully
         # generic, this logic is required.
-        module_io_batches = [
+        module_io_batches: list[ModuleIO] = [
             self.get_module_io(batch)
             for batch in batchify(prompts, self.settings.batch_size)
         ]
 
-        module_io: list[dict[str, dict[int, tuple[Tensor, Tensor]]]] = []
+        module_io: ModuleIO = []
 
         for layer_index in range(len(self.get_layers())):
             module_io.append({})

@@ -95,7 +95,7 @@ som_x = 4
 som_y = 4
 
 # Number of SOM training iterations.
-som_iterations = 5000
+som_iterations = 10000
 
 # SOM learning rate.
 som_lr = 0.01

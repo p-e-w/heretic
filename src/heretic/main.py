@@ -469,10 +469,10 @@ def run():
             # Convert back to tensor and add to our list
             # Shape: (k, hidden_dim)
             bad_means.append(t)
+        
+        bad_means = torch.stack(bad_means, dim=0).permute(1, 0, 2) # N_directions, N_layers, hidden_dim
     else:
-        bad_means = [bad_residuals.mean(dim=0)]
-
-    bad_means = torch.stack(bad_means, dim=0).permute(1, 0, 2) # N_directions, N_layers, hidden_dim
+        bad_means = bad_residuals.mean(dim=0).unsqueeze(0)  # (1, N_layers, hidden_dim)
 
     refusal_directions = [F.normalize(bad_mean - good_means, p=2, dim=1) for bad_mean in bad_means]
 

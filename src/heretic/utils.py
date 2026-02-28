@@ -16,8 +16,8 @@ from typing import Any, TypeVar
 
 import huggingface_hub
 import numpy as np
-import questionary
 import pynvml
+import questionary
 import tomli_w
 import torch
 from accelerate.utils import (

@@ -66,15 +66,15 @@ def get_accelerator_info(rich: bool = True) -> str:
             vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
             report += f"* GPU {i}: {b}{name}{_b} ({vram:.2f} GB)\n"
     elif is_xpu_available():
-        count = torch.xpu.device_count()
+        count = torch.xpu.device_count()  # ty:ignore
         driver_ver = "Unknown"
         with contextlib.suppress(Exception):
-            driver_ver = torch.xpu.get_driver_version()
+            driver_ver = torch.xpu.get_driver_version()  # ty:ignore
 
         report = f"Detected {b}{count}{_b} XPU device(s)\n"
         report += f"Driver Version: {b}{driver_ver}{_b}\n"
         for i in range(count):
-            report += f"* XPU {i}: {b}{torch.xpu.get_device_name(i)}{_b}\n"
+            report += f"* XPU {i}: {b}{torch.xpu.get_device_name(i)}{_b}\n"  # ty:ignore
     elif is_mlu_available():
         count = torch.mlu.device_count()  # ty:ignore
         report = f"Detected {b}{count}{_b} MLU device(s):\n"

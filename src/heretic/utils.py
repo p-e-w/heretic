@@ -56,11 +56,11 @@ def get_accelerator_info(rich: bool = True) -> str:
             pynvml.nvmlInit()
             driver_ver = pynvml.nvmlSystemGetDriverVersion()
             pynvml.nvmlShutdown()
-        
+
         report = f"Detected {b}{count}{_b} CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM)\n"
         report += f"CUDA Version: {b}{cuda_ver}{_b}\n"
         report += f"Driver Version: {b}{driver_ver}{_b}\n"
-        
+
         for i in range(count):
             name = torch.cuda.get_device_name(i)
             vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
@@ -95,7 +95,9 @@ def get_accelerator_info(rich: bool = True) -> str:
     elif torch.backends.mps.is_available():
         report = f"Detected {b}1{_b} MPS device (Apple Metal)\n"
     else:
-        report = f"{y}No GPU or other accelerator detected. Operations will be slow.{_b}\n"
+        report = (
+            f"{y}No GPU or other accelerator detected. Operations will be slow.{_b}\n"
+        )
 
     return report.strip()
 

@@ -29,6 +29,7 @@ dependencies = [
     "huggingface-hub~=0.34",
     "kernels~=0.11",
     "numpy~=2.2",
+    "pynvml~=11.5",
     "optuna~=4.5",
     "peft~=0.14",
     "psutil~=7.1",

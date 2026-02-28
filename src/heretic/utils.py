@@ -17,6 +17,7 @@ from typing import Any, TypeVar
 import huggingface_hub
 import numpy as np
 import questionary
+import pynvml
 import tomli_w
 import torch
 from accelerate.utils import (
@@ -40,43 +41,61 @@ from .config import DatasetSpecification, Settings
 print = Console(highlight=False).print
 
 
-def get_accelerator_info() -> str:
+def get_accelerator_info(rich: bool = True) -> str:
     """The single source of truth for hardware detection and reporting."""
+    b = "[bold]" if rich else ""
+    _b = "[/]" if rich else ""
+    y = "[bold yellow]" if rich else ""
+
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
         total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
-        report = f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):\n"
+        cuda_ver = torch.version.cuda
+        driver_ver = "Unknown"
+        with contextlib.suppress(Exception):
+            pynvml.nvmlInit()
+            driver_ver = pynvml.nvmlSystemGetDriverVersion()
+            pynvml.nvmlShutdown()
+        
+        report = f"Detected {b}{count}{_b} CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM)\n"
+        report += f"CUDA Version: {b}{cuda_ver}{_b}\n"
+        report += f"Driver Version: {b}{driver_ver}{_b}\n"
+        
         for i in range(count):
+            name = torch.cuda.get_device_name(i)
             vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
-            report += (
-                f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/] ({vram:.2f} GB)\n"
-            )
+            report += f"* GPU {i}: {b}{name}{_b} ({vram:.2f} GB)\n"
     elif is_xpu_available():
         count = torch.xpu.device_count()
-        report = f"Detected [bold]{count}[/] XPU device(s):\n"
+        driver_ver = "Unknown"
+        with contextlib.suppress(Exception):
+            driver_ver = torch.xpu.get_driver_version()
+
+        report = f"Detected {b}{count}{_b} XPU device(s)\n"
+        report += f"Driver Version: {b}{driver_ver}{_b}\n"
         for i in range(count):
-            report += f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]\n"
+            report += f"* XPU {i}: {b}{torch.xpu.get_device_name(i)}{_b}\n"
     elif is_mlu_available():
         count = torch.mlu.device_count()  # ty:ignore
-        report = f"Detected [bold]{count}[/] MLU device(s):\n"
+        report = f"Detected {b}{count}{_b} MLU device(s):\n"
         for i in range(count):
-            report += f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]\n"  # ty:ignore
+            report += f"* MLU {i}: {b}{torch.mlu.get_device_name(i)}{_b}\n"  # ty:ignore
     elif is_sdaa_available():
         count = torch.sdaa.device_count()  # ty:ignore
-        report = f"Detected [bold]{count}[/] SDAA device(s):\n"
+        report = f"Detected {b}{count}{_b} SDAA device(s):\n"
         for i in range(count):
-            report += f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]\n"  # ty:ignore
+            report += f"* SDAA {i}: {b}{torch.sdaa.get_device_name(i)}{_b}\n"  # ty:ignore
     elif is_musa_available():
         count = torch.musa.device_count()  # ty:ignore
-        report = f"Detected [bold]{count}[/] MUSA device(s):\n"
+        report = f"Detected {b}{count}{_b} MUSA device(s):\n"
         for i in range(count):
-            report += f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]\n"  # ty:ignore
+            report += f"* MUSA {i}: {b}{torch.musa.get_device_name(i)}{_b}\n"  # ty:ignore
     elif is_npu_available():
-        report = f"NPU detected (CANN version: [bold]{torch.version.cann}[/])\n"  # ty:ignore
+        report = f"NPU detected (CANN version: {b}{torch.version.cann}{_b})\n"  # ty:ignore
     elif torch.backends.mps.is_available():
-        report = "Detected [bold]1[/] MPS device (Apple Metal)\n"
+        report = f"Detected {b}1{_b} MPS device (Apple Metal)\n"
     else:
-        report = "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]\n"
+        report = f"{y}No GPU or other accelerator detected. Operations will be slow.{_b}\n"
 
     return report.strip()
 
@@ -405,22 +424,17 @@ def generate_environment_txt() -> str:
         "PyTorch & Accelerators",
         "----------------------",
         f"PyTorch Version: {torch.__version__}",
-        get_accelerator_info(),
+        get_accelerator_info(rich=False),
     ]
 
     return "\n".join(lines) + "\n"
 
 
 def set_reproducibility(seed: int):
-    """Sets the seed for all RNGs and enables reasonable determinism."""
+    """Sets the seed for all RNGs."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-    # Use reasonable determinism settings.
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
 
 
 def generate_reproduce_readme(settings: Settings, checkpoint_filename: str) -> str:
@@ -438,11 +452,9 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## How to Reproduce
 
-1. Ensure you have the same versions of the models and datasets as specified in `config.toml`.
+1. Ensure your hardware and environment match the specifications in `environment.txt`.
 2. Install the exact package versions listed in `requirements.txt`.
-3. Run Heretic using the provided `config.toml`. 
-
-Specifying the `seed` in your configuration is sufficient to repeat the optimization path.
+3. Run Heretic on the same model using the provided seed (e.g., `heretic --model {settings.model} --seed {settings.seed}`).
 """
 
 

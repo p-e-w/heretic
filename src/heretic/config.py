@@ -229,7 +229,7 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "Random seed for reproducible optimization. "
-            "Applies to Python's random module, NumPy, PyTorch, and Optuna. "
+            "Applies to Python's random module, NumPy, PyTorch, and Optuna."
         ),
     )
 

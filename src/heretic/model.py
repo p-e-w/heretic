@@ -353,6 +353,12 @@ class Model:
             for expert in layer.mlp.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
                 try_add("mlp.down_proj", expert.down_proj)  # ty:ignore[possibly-missing-attribute]
 
+        # GPT-OSS style fused experts (single 3D tensor for all experts)
+        with suppress(Exception):
+            fused = layer.mlp.experts.down_proj
+            if isinstance(fused, (Tensor, torch.nn.Parameter)) and fused.ndim == 3:
+                modules.setdefault("mlp.down_proj", [])
+
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
             for expert in layer.block_sparse_moe.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]

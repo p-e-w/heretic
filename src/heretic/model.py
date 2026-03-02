@@ -153,7 +153,8 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        # self._apply_lora()
+        if not settings.use_ara:
+            self._apply_lora()
 
         # LoRA B matrices are initialized to zero by default in PEFT,
         # so we don't need to do anything manually.
@@ -285,7 +286,11 @@ class Model:
           performs full model reload with quantization config.
         """
         current_model = getattr(self.model.config, "name_or_path", None)
-        if current_model == self.settings.model and not self.needs_reload:
+        if (
+            current_model == self.settings.model
+            and not self.needs_reload
+            and not self.settings.use_ara
+        ):
             # Reset LoRA adapters to zero (identity transformation)
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
@@ -314,7 +319,8 @@ class Model:
             **extra_kwargs,
         )
 
-        self._apply_lora()
+        if not self.settings.use_ara:
+            self._apply_lora()
 
         self.needs_reload = False
 
@@ -338,6 +344,9 @@ class Model:
         modules = {}
 
         def try_add(component: str, module: Any):
+            if component not in self.settings.target_components:
+                return
+
             # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
             if isinstance(module, Module):
                 if component not in modules:
@@ -564,6 +573,14 @@ class Model:
                         # On average, the outputs for "bad" prompts should resemble
                         # the original outputs for "good" prompts (which steers the
                         # behavior for "bad" prompts towards that for "good" prompts).
+                        #
+                        # TODO: An alternative formulation could use the mean distance
+                        #       of "bad" outputs from the boundary of the core cluster
+                        #       of original "good" outputs. This would classify an output
+                        #       configuration as optimal as long as all "bad" outputs
+                        #       are inside the same cluster as the "good" outputs, even
+                        #       if their centroid is different from those of the "good"
+                        #       outputs.
                         steer_bad_behavior = (
                             (
                                 (bad_input @ matrix.T).mean(dim=0)
@@ -602,9 +619,9 @@ class Model:
                     # Convergence usually happens within 2-3 steps, so this is more than enough.
                     for step in range(5):
                         loss = optimizer.step(closure)
-                        print(
-                            f"\\[{layer_index}/{component}/{module_index}] Step: {step}, Loss: {loss.item():.6f}"
-                        )
+                        # print(
+                        #    f"\\[{layer_index}/{component}/{module_index}] Step: {step}, Loss: {loss.item():.6f}"
+                        # )
 
     def generate(
         self,

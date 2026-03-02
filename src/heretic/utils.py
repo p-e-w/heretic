@@ -250,19 +250,28 @@ def empty_cache():
     gc.collect()
 
 
-def get_trial_parameters(trial: Trial) -> dict[str, str]:
-    params = {}
+def get_trial_parameters(settings: Settings, trial: Trial) -> dict[str, str]:
+    if settings.use_ara:
+        return {
+            "start_layer_index": f"{trial.params['start_layer_index']}",
+            "end_layer_index": f"{trial.params['end_layer_index']}",
+            "preserve_good_behavior_weight": f"{trial.params['preserve_good_behavior_weight']:.4f}",
+            "steer_bad_behavior_weight": f"{trial.params['steer_bad_behavior_weight']:.4f}",
+            "tie_to_original_matrix_weight": f"{trial.params['tie_to_original_matrix_weight']:.4f}",
+        }
+    else:
+        params = {}
 
-    direction_index = trial.user_attrs["direction_index"]
-    params["direction_index"] = (
-        "per layer" if (direction_index is None) else f"{direction_index:.2f}"
-    )
+        direction_index = trial.user_attrs["direction_index"]
+        params["direction_index"] = (
+            "per layer" if (direction_index is None) else f"{direction_index:.2f}"
+        )
 
-    for component, parameters in trial.user_attrs["parameters"].items():
-        for name, value in parameters.items():
-            params[f"{component}.{name}"] = f"{value:.2f}"
+        for component, parameters in trial.user_attrs["parameters"].items():
+            for name, value in parameters.items():
+                params[f"{component}.{name}"] = f"{value:.2f}"
 
-    return params
+        return params
 
 
 def get_readme_intro(
@@ -285,7 +294,7 @@ def get_readme_intro(
         chr(10).join(
             [
                 f"| **{name}** | {value} |"
-                for name, value in get_trial_parameters(trial).items()
+                for name, value in get_trial_parameters(settings, trial).items()
             ]
         )
     }

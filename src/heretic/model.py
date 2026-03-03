@@ -376,7 +376,7 @@ class Model:
         # but hybrid models (e.g. Qwen3.5 MoE) may use linear_attn on some layers.
         with suppress(Exception):
             try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
-        # Qwen3.5 MoE GatedDeltaNet layers use linear_attn.out_proj
+        # Qwen3.5 MoE GatedDeltaNet layers use linear_attn.out_proj.
         with suppress(Exception):
             try_add("attn.out_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
 

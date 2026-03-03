@@ -144,6 +144,10 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
+        # Track original weights for fused expert parameters (nn.Parameter tensors
+        # that can't be wrapped with LoRA). Keyed by "layer_index.param_name".
+        self._fused_snapshots: dict[str, Tensor] = {}
+
         self._apply_lora()
 
         # LoRA B matrices are initialized to zero by default in PEFT,
@@ -156,19 +160,36 @@ class Model:
                 f"  * [bold]{component}[/]: [bold]{len(modules)}[/] modules per layer"
             )
 
+        # Report fused expert parameters (not LoRA-compatible).
+        fused_count = sum(
+            len(self.get_fused_expert_params(i))
+            for i in range(len(self.get_layers()))
+        )
+        if fused_count > 0:
+            print(
+                f"  * [bold]fused expert params[/]: "
+                f"[bold]{fused_count}[/] total across all layers (direct weight mod)"
+            )
+
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PreTrainedModel)
 
         # Always use LoRA adapters for abliteration (faster reload, no weight modification).
-        # We use the leaf names (e.g. "o_proj") as target modules.
-        # This may cause LoRA adapters to be attached to unrelated modules (e.g. "conv.o_proj"),
-        # but this is harmless as we only abliterate the modules we target in `abliterate()`,
-        # leaving the others at their default (identity) state.
-        # NOTE: This will need to be updated when hybrid layer support (#43) is merged.
-        target_modules = [
-            comp.split(".")[-1] for comp in self.get_abliterable_components()
-        ]
+        # Collect actual leaf module names from the model for LoRA targeting.
+        # This is more robust than splitting component keys (e.g. "attn.o_proj" -> "o_proj")
+        # because hybrid models like Qwen3.5 MoE have modules with different names
+        # across layers (e.g. "o_proj" on attention layers, "out_proj" on linear attention layers).
+        target_modules_set: set[str] = set()
+        layers = self.get_layers()
+        for layer_index in range(len(layers)):
+            layer = layers[layer_index]
+            named = {id(m): name.split(".")[-1] for name, m in layer.named_modules()}
+            for modules_list in self.get_layer_modules(layer_index).values():
+                for mod in modules_list:
+                    if id(mod) in named:
+                        target_modules_set.add(named[id(mod)])
+        target_modules = list(target_modules_set)
 
         if self.settings.row_normalization != RowNormalization.FULL:
             # Rank 1 is sufficient for directional ablation without renormalization.
@@ -281,11 +302,22 @@ class Model:
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
                     torch.nn.init.zeros_(module.weight)
+
+            # Restore fused expert parameter snapshots to original values.
+            for key, snapshot in self._fused_snapshots.items():
+                layer_idx_str, param_name = key.split(".", 1)
+                layer = self.get_layers()[int(layer_idx_str)]
+                with suppress(Exception):
+                    experts = layer.mlp.experts
+                    param = getattr(experts, param_name)
+                    param.data.copy_(snapshot.to(param.device))
+            self._fused_snapshots.clear()
             return
 
         dtype = self.model.dtype
 
         # Purge existing model object from memory to make space.
+        self._fused_snapshots.clear()
         self.model = None  # ty:ignore[invalid-assignment]
         empty_cache()
 
@@ -340,13 +372,21 @@ class Model:
                     f"Unexpected Tensor in {component} - expected nn.Module"
                 )
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+        # Attention out-projection. Most models use self_attn,
+        # but hybrid models (e.g. Qwen3.5 MoE) may use linear_attn on some layers.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+        # Qwen3.5 MoE GatedDeltaNet layers use linear_attn.out_proj
+        with suppress(Exception):
+            try_add("attn.out_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Most dense models.
         with suppress(Exception):
             try_add("mlp.down_proj", layer.mlp.down_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # Qwen3.5 MoE - shared expert (fused experts use nn.Parameter, not nn.Module).
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_expert.down_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Some MoE models (e.g. Qwen3).
         with suppress(Exception):
@@ -373,8 +413,28 @@ class Model:
 
         return modules
 
+    def get_fused_expert_params(self, layer_index: int) -> list[tuple[str, torch.nn.Parameter]]:
+        """Return fused expert parameters that can't be wrapped with LoRA.
+
+        Qwen3.5 MoE stores expert weights as raw nn.Parameter tensors of shape
+        [num_experts, out_features, in_features] instead of individual nn.Module
+        instances per expert. These require direct weight modification instead of LoRA.
+        """
+        layer = self.get_layers()[layer_index]
+        params = []
+        with suppress(Exception):
+            experts = layer.mlp.experts
+            if hasattr(experts, 'down_proj') and isinstance(experts.down_proj, torch.nn.Parameter):
+                params.append(("down_proj", experts.down_proj))
+        return params
+
     def get_abliterable_components(self) -> list[str]:
-        return list(self.get_layer_modules(0).keys())
+        # Scan all layers because hybrid models (e.g. Qwen3.5 MoE) have different
+        # components on different layers (some have self_attn, others linear_attn).
+        components: set[str] = set()
+        for layer_index in range(len(self.get_layers())):
+            components.update(self.get_layer_modules(layer_index).keys())
+        return sorted(components)
 
     def abliterate(
         self,
@@ -519,6 +579,65 @@ class Model:
                     weight_A.data = lora_A.to(weight_A.dtype)
                     weight_B.data = lora_B.to(weight_B.dtype)
 
+        # Process fused expert parameters directly (no LoRA available).
+        # These are raw nn.Parameter tensors with shape [num_experts, out, in].
+        # We apply the same abliteration math but modify weights in-place.
+        fused_layers_modified = 0
+        fused_total_experts = 0
+        fused_total_delta_norm = 0.0
+        for layer_index in range(len(self.get_layers())):
+            fused_params = self.get_fused_expert_params(layer_index)
+            if not fused_params:
+                continue
+
+            # Piggyback on the "mlp.down_proj" Optuna parameters (same MLP component).
+            params = parameters.get("mlp.down_proj")
+            if params is None:
+                continue
+
+            distance = cast(float, abs(layer_index - params.max_weight_position))
+            if distance > params.min_weight_distance:
+                continue
+
+            weight = params.max_weight + (distance / params.min_weight_distance) * (
+                params.min_weight - params.max_weight
+            )
+
+            if refusal_direction is None:
+                layer_refusal_direction = refusal_directions[layer_index + 1]
+            else:
+                layer_refusal_direction = refusal_direction
+
+            fused_layers_modified += 1
+
+            for name, param in fused_params:
+                # Snapshot original weights on first use for reset_model().
+                snapshot_key = f"{layer_index}.{name}"
+                if snapshot_key not in self._fused_snapshots:
+                    self._fused_snapshots[snapshot_key] = param.data.clone().cpu()
+
+                v = layer_refusal_direction.to(param.device)
+
+                # param shape: [num_experts, out_features, in_features]
+                # For down_proj: out_features = hidden_size, in_features = intermediate_size
+                # v has shape (hidden_size,) which matches out_features (dim 1 of each expert).
+                for expert_idx in range(param.shape[0]):
+                    W = param.data[expert_idx].to(torch.float32)
+                    # delta_W = -weight * v * (v^T @ W)  (rank-1 update)
+                    projection = v @ W  # (in_features,)
+                    delta_W = -weight * torch.outer(v, projection)
+                    param.data[expert_idx] += delta_W.to(param.dtype)
+                    fused_total_experts += 1
+                    fused_total_delta_norm += delta_W.norm().item()
+
+        if fused_layers_modified > 0:
+            avg_delta = fused_total_delta_norm / fused_total_experts
+            print(
+                f"  * Fused experts: {fused_layers_modified} layers, "
+                f"{fused_total_experts} expert slices modified, "
+                f"avg |delta_W|={avg_delta:.6f}"
+            )
+
     def generate(
         self,
         prompts: list[Prompt],
@@ -534,14 +653,28 @@ class Model:
 
         # This cast is valid because list[str] is the return type
         # for batched operation with tokenize=False.
-        chat_prompts = cast(
-            list[str],
-            self.tokenizer.apply_chat_template(
-                chats,
-                add_generation_prompt=True,
-                tokenize=False,
-            ),
-        )
+        # Pass enable_thinking=False so models with thinking mode (e.g. Qwen3.5)
+        # produce prompts without <think> tags, matching standard deployment configs.
+        # Fall back gracefully for tokenizers that don't support this kwarg.
+        try:
+            chat_prompts = cast(
+                list[str],
+                self.tokenizer.apply_chat_template(
+                    chats,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                    enable_thinking=False,
+                ),
+            )
+        except TypeError:
+            chat_prompts = cast(
+                list[str],
+                self.tokenizer.apply_chat_template(
+                    chats,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                ),
+            )
 
         if self.response_prefix:
             # Append the common response prefix to the prompts so that evaluation happens
@@ -687,14 +820,26 @@ class Model:
     def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
         # This cast is valid because str is the return type
         # for single-chat operation with tokenize=False.
-        chat_prompt = cast(
-            str,
-            self.tokenizer.apply_chat_template(
-                chat,
-                add_generation_prompt=True,
-                tokenize=False,
-            ),
-        )
+        # Pass enable_thinking=False to match standard deployment configs.
+        try:
+            chat_prompt = cast(
+                str,
+                self.tokenizer.apply_chat_template(
+                    chat,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                    enable_thinking=False,
+                ),
+            )
+        except TypeError:
+            chat_prompt = cast(
+                str,
+                self.tokenizer.apply_chat_template(
+                    chat,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                ),
+            )
 
         inputs = self.tokenizer(
             chat_prompt,

@@ -630,7 +630,7 @@ class Model:
                     fused_total_experts += 1
                     fused_total_delta_norm += delta_W.norm().item()
 
-        if fused_layers_modified > 0:
+        if fused_total_experts > 0:
             avg_delta = fused_total_delta_norm / fused_total_experts
             print(
                 f"  * Fused experts: {fused_layers_modified} layers, "

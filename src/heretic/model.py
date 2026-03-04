@@ -545,7 +545,6 @@ class Model:
         end_layer_index: int,
         preserve_good_behavior_weight: float,
         steer_bad_behavior_weight: float,
-        tie_to_original_matrix_weight: float,
     ):
         for layer_index in range(start_layer_index, end_layer_index):
             for component, modules in self.get_layer_modules(layer_index).items():
@@ -589,17 +588,9 @@ class Model:
                             ** 2
                         ).mean()
 
-                        # The matrix itself should change as little as possible overall.
-                        # This prevents overfitting due to underdetermination of the
-                        # optimization problem from a relatively small number of I/O pairs.
-                        tie_to_original_matrix = (
-                            (matrix - original_matrix) ** 2
-                        ).mean()
-
                         return (
                             preserve_good_behavior_weight * preserve_good_behavior
                             + steer_bad_behavior_weight * steer_bad_behavior
-                            + tie_to_original_matrix_weight * tie_to_original_matrix
                         )
 
                     optimizer = LBFGS(

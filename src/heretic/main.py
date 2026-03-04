@@ -484,11 +484,6 @@ def run():
                 0.0,
                 1.0,
             )
-            tie_to_original_matrix_weight = trial.suggest_float(
-                "tie_to_original_matrix_weight",
-                0.2,  # Minimum to prevent "optimizing" away the regularization term.
-                1.0,
-            )
         else:
             direction_scope = trial.suggest_categorical(
                 "direction_scope",
@@ -576,7 +571,6 @@ def run():
                 end_layer_index,
                 preserve_good_behavior_weight,
                 steer_bad_behavior_weight,
-                tie_to_original_matrix_weight,
             )
         else:
             print("* Resetting model...")
@@ -772,7 +766,6 @@ def run():
                     trial.params["end_layer_index"],
                     trial.params["preserve_good_behavior_weight"],
                     trial.params["steer_bad_behavior_weight"],
-                    trial.params["tie_to_original_matrix_weight"],
                 )
             else:
                 print("* Resetting model...")

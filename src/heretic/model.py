@@ -543,9 +543,16 @@ class Model:
         bad_module_io: ModuleIO,
         start_layer_index: int,
         end_layer_index: int,
-        preserve_good_behavior_weight: float,
-        steer_bad_behavior_weight: float,
+        optimization_balance: float,
     ):
+        preserve_good_behavior_weight = 1.0
+        steer_bad_behavior_weight = 1.0
+
+        if 0.0 < optimization_balance <= 1.0:
+            preserve_good_behavior_weight = 1.0 - optimization_balance
+        elif -1.0 <= optimization_balance < 0.0:
+            steer_bad_behavior_weight = 1.0 - abs(optimization_balance)
+
         for layer_index in range(start_layer_index, end_layer_index):
             for component, modules in self.get_layer_modules(layer_index).items():
                 for module_index, module in enumerate(modules):

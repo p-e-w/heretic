@@ -467,21 +467,16 @@ def run():
             start_layer_index = trial.suggest_int(
                 "start_layer_index",
                 0,
-                len(model.get_layers()) // 3,
+                len(model.get_layers()) // 2,
             )
             end_layer_index = trial.suggest_int(
                 "end_layer_index",
                 len(model.get_layers()) // 2,
                 len(model.get_layers()),
             )
-            preserve_good_behavior_weight = trial.suggest_float(
-                "preserve_good_behavior_weight",
-                0.0,
-                1.0,
-            )
-            steer_bad_behavior_weight = trial.suggest_float(
-                "steer_bad_behavior_weight",
-                0.0,
+            optimization_balance = trial.suggest_float(
+                "optimization_balance",
+                -1.0,
                 1.0,
             )
         else:
@@ -569,8 +564,7 @@ def run():
                 bad_module_io,
                 start_layer_index,
                 end_layer_index,
-                preserve_good_behavior_weight,
-                steer_bad_behavior_weight,
+                optimization_balance,
             )
         else:
             print("* Resetting model...")
@@ -764,8 +758,7 @@ def run():
                     bad_module_io,
                     trial.params["start_layer_index"],
                     trial.params["end_layer_index"],
-                    trial.params["preserve_good_behavior_weight"],
-                    trial.params["steer_bad_behavior_weight"],
+                    trial.params["optimization_balance"],
                 )
             else:
                 print("* Resetting model...")

@@ -264,8 +264,7 @@ def get_trial_parameters(settings: Settings, trial: Trial) -> dict[str, str]:
         return {
             "start_layer_index": f"{trial.params['start_layer_index']}",
             "end_layer_index": f"{trial.params['end_layer_index']}",
-            "preserve_good_behavior_weight": f"{trial.params['preserve_good_behavior_weight']:.4f}",
-            "steer_bad_behavior_weight": f"{trial.params['steer_bad_behavior_weight']:.4f}",
+            "optimization_balance": f"{trial.params['optimization_balance']:.4f}",
         }
     else:
         params = {}

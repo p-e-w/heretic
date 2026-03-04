@@ -28,7 +28,12 @@ class Evaluator:
         self.good_prompts = load_prompts(settings, settings.good_evaluation_prompts)
         print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
 
-        print("* Obtaining first-token probability distributions...")
+        kl_label = (
+            f"* Obtaining {settings.kl_tokens}-token probability distributions..."
+            if settings.kl_tokens > 1
+            else "* Obtaining first-token probability distributions..."
+        )
+        print(kl_label)
         self.base_logprobs = model.get_logprobs_batched(self.good_prompts)
 
         print()
@@ -93,7 +98,12 @@ class Evaluator:
         return refusal_count
 
     def get_score(self) -> tuple[tuple[float, float], float, int]:
-        print("  * Obtaining first-token probability distributions...")
+        kl_label = (
+            f"  * Obtaining {self.settings.kl_tokens}-token probability distributions..."
+            if self.settings.kl_tokens > 1
+            else "  * Obtaining first-token probability distributions..."
+        )
+        print(kl_label)
         logprobs = self.model.get_logprobs_batched(self.good_prompts)
         kl_divergence = F.kl_div(
             logprobs,
@@ -107,8 +117,11 @@ class Evaluator:
         refusals = self.count_refusals()
         print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
 
-        kl_divergence_scale = self.settings.kl_divergence_scale
-        kl_divergence_target = self.settings.kl_divergence_target
+        # Scale thresholds by kl_tokens since multi-token KL produces
+        # proportionally larger absolute values.
+        kl_tokens = self.settings.kl_tokens
+        kl_divergence_scale = self.settings.kl_divergence_scale * kl_tokens
+        kl_divergence_target = self.settings.kl_divergence_target * kl_tokens
 
         refusals_score = refusals / self.base_refusals
 

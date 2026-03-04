@@ -25,6 +25,7 @@ from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
+from torch import Tensor
 
 from .config import DatasetSpecification, Settings
 
@@ -226,6 +227,14 @@ T = TypeVar("T")
 
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
+
+
+# For each vector in the 2D-tensor `a`, computes the mean Euclidean distance
+# to the `k` nearest neighbors of the vector among the vectors in the 2D-tensor `b`.
+def mean_distances_to_knn(a: Tensor, b: Tensor, k: int) -> Tensor:
+    distances = torch.cdist(a, b)
+    nearest_distances, _ = distances.topk(k, dim=1, largest=False)
+    return nearest_distances.mean(1)
 
 
 def empty_cache():

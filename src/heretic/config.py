@@ -215,6 +215,24 @@ class Settings(BaseSettings):
         ),
     )
 
+    detect_false_refusals: bool = Field(
+        default=False,
+        description=(
+            "Whether to detect false refusals on benign (good) prompts during evaluation. "
+            "When enabled, the model is checked for refusing harmless prompts that it shouldn't refuse. "
+            "False refusals are penalized in the KL divergence component of the optimization score."
+        ),
+    )
+
+    false_refusal_weight: float = Field(
+        default=0.5,
+        description=(
+            "Weight for false refusal penalty when detect_false_refusals is enabled. "
+            "The penalty is: weight * (false_refusals / total_good_prompts). "
+            "Higher values more aggressively penalize over-abliteration."
+        ),
+    )
+
     n_trials: int = Field(
         default=200,
         description="Number of abliteration trials to run during optimization.",

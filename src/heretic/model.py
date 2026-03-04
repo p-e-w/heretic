@@ -576,11 +576,11 @@ class Model:
                             (new_good_output - good_output) ** 2
                         ).mean()
 
-                        # TODO: Justify the magic weights here and make them configurable.
+                        # TODO: Justify the magic weights here and make them configurable/optimizable.
                         #       Experimentally, steer_bad_behavior needs to be about an order
                         #       of magnitude larger than preserve_good_behavior for good results.
                         steer_bad_behavior = (
-                            0.001
+                            1.0
                             # Pull the outputs for "bad" prompts towards
                             # the original outputs for "good" prompts.
                             * mean_distances_to_knn(
@@ -588,7 +588,7 @@ class Model:
                                 good_output,
                                 10,
                             ).mean()
-                            + 0.0001
+                            + 0.5
                             # Push the outputs for "bad" prompts away from
                             # the original outputs for "bad" prompts.
                             # In combination with the above, this overcorrects

@@ -672,8 +672,8 @@ class Model:
             # Original single-token path: shape (prompt, vocab).
             return F.log_softmax(scores[0], dim=-1)
 
-        # Multi-token: stack all positions, reshape to (prompt * n_tokens, vocab)
-        # so KL div with batchmean naturally averages across all positions.
+        # Multi-token: stack all positions and reshape to (prompt * n_tokens, vocab).
+        # This allows F.kl_div with reduction="batchmean" to average across all positions.
         all_logits = torch.stack(list(scores), dim=0)  # (n_tokens, prompt, vocab)
         all_logits = all_logits.permute(1, 0, 2).reshape(-1, all_logits.shape[-1])
 

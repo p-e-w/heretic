@@ -38,7 +38,7 @@ from rich.traceback import install
 from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
-from .model import AbliterationParameters, Model, get_model_class
+from .model import AbliterationParameters, ARAParameters, Model, get_model_class
 from .utils import (
     empty_cache,
     format_duration,
@@ -474,11 +474,38 @@ def run():
                 len(model.get_layers()) // 2,
                 len(model.get_layers()),
             )
-            optimization_balance = trial.suggest_float(
-                "optimization_balance",
-                -1.0,
+            preserve_good_behavior_weight = trial.suggest_float(
+                "preserve_good_behavior_weight",
+                0.0,
                 1.0,
             )
+            steer_bad_behavior_weight = trial.suggest_float(
+                "steer_bad_behavior_weight",
+                0.001,
+                1.0,
+                log=True,
+            )
+            overcorrect_relative_weight = trial.suggest_float(
+                "overcorrect_relative_weight",
+                0.0,
+                1.0,
+            )
+            neighbor_count = trial.suggest_int(
+                "neighbor_count",
+                1,
+                10,
+            )
+
+            ara_parameters = ARAParameters(
+                start_layer_index=start_layer_index,
+                end_layer_index=end_layer_index,
+                preserve_good_behavior_weight=preserve_good_behavior_weight,
+                steer_bad_behavior_weight=steer_bad_behavior_weight,
+                overcorrect_relative_weight=overcorrect_relative_weight,
+                neighbor_count=neighbor_count,
+            )
+
+            trial.set_user_attr("ara_parameters", asdict(ara_parameters))
         else:
             direction_scope = trial.suggest_categorical(
                 "direction_scope",
@@ -559,13 +586,7 @@ def run():
             print("* Reloading model...")
             model.reset_model()
             print("* Abliterating (Arbitrary-Rank Ablation)...")
-            model.ara_abliterate(
-                good_module_io,
-                bad_module_io,
-                start_layer_index,
-                end_layer_index,
-                optimization_balance,
-            )
+            model.ara_abliterate(good_module_io, bad_module_io, ara_parameters)
         else:
             print("* Resetting model...")
             model.reset_model()
@@ -756,9 +777,7 @@ def run():
                 model.ara_abliterate(
                     good_module_io,
                     bad_module_io,
-                    trial.params["start_layer_index"],
-                    trial.params["end_layer_index"],
-                    trial.params["optimization_balance"],
+                    ARAParameters(**trial.user_attrs["ara_parameters"]),
                 )
             else:
                 print("* Resetting model...")

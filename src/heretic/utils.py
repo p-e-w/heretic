@@ -261,10 +261,11 @@ def empty_cache():
 
 def get_trial_parameters(settings: Settings, trial: Trial) -> dict[str, str]:
     if settings.use_ara:
+        parameters = trial.user_attrs["ara_parameters"]
+
         return {
-            "start_layer_index": f"{trial.params['start_layer_index']}",
-            "end_layer_index": f"{trial.params['end_layer_index']}",
-            "optimization_balance": f"{trial.params['optimization_balance']:.4f}",
+            name: (f"{value:.4f}" if isinstance(value, float) else f"{value}")
+            for name, value in parameters.items()
         }
     else:
         params = {}

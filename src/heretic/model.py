@@ -54,6 +54,16 @@ class AbliterationParameters:
     min_weight_distance: float
 
 
+@dataclass
+class ARAParameters:
+    start_layer_index: int
+    end_layer_index: int
+    preserve_good_behavior_weight: float
+    steer_bad_behavior_weight: float
+    overcorrect_relative_weight: float
+    neighbor_count: int
+
+
 # The list contains one element per layer.
 # Each element maps from the component name to a (possibly sparse) mapping
 # from the module index to an (input, output) tuple containing the I/O
@@ -541,19 +551,12 @@ class Model:
         self,
         good_module_io: ModuleIO,
         bad_module_io: ModuleIO,
-        start_layer_index: int,
-        end_layer_index: int,
-        optimization_balance: float,
+        parameters: ARAParameters,
     ):
-        preserve_good_behavior_weight = 1.0
-        steer_bad_behavior_weight = 1.0
-
-        if 0.0 < optimization_balance <= 1.0:
-            preserve_good_behavior_weight = 1.0 - optimization_balance
-        elif -1.0 <= optimization_balance < 0.0:
-            steer_bad_behavior_weight = 1.0 - abs(optimization_balance)
-
-        for layer_index in range(start_layer_index, end_layer_index):
+        for layer_index in range(
+            parameters.start_layer_index,
+            parameters.end_layer_index,
+        ):
             for component, modules in self.get_layer_modules(layer_index).items():
                 for module_index, module in enumerate(modules):
                     # See above for a (partial) justification of this cast.
@@ -576,35 +579,32 @@ class Model:
                             (new_good_output - good_output) ** 2
                         ).mean()
 
-                        # TODO: Justify the magic weights here and make them configurable/optimizable.
-                        #       Experimentally, steer_bad_behavior needs to be about an order
-                        #       of magnitude larger than preserve_good_behavior for good results.
                         steer_bad_behavior = (
-                            1.0
                             # Pull the outputs for "bad" prompts towards
                             # the original outputs for "good" prompts.
-                            * mean_distances_to_knn(
+                            mean_distances_to_knn(
                                 new_bad_output,
                                 good_output,
-                                10,
+                                parameters.neighbor_count,
                             ).mean()
-                            + 0.5
                             # Push the outputs for "bad" prompts away from
                             # the original outputs for "bad" prompts.
                             # In combination with the above, this overcorrects
                             # away from the original residuals, which results
                             # in stronger steering that can overcome more complex
                             # refusal mechanisms.
+                            + parameters.overcorrect_relative_weight
                             * -mean_distances_to_knn(
                                 new_bad_output,
                                 bad_output,
-                                10,
+                                parameters.neighbor_count,
                             ).mean()
                         )
 
                         return (
-                            preserve_good_behavior_weight * preserve_good_behavior
-                            + steer_bad_behavior_weight * steer_bad_behavior
+                            parameters.preserve_good_behavior_weight
+                            * preserve_good_behavior
+                            + parameters.steer_bad_behavior_weight * steer_bad_behavior
                         )
 
                     optimizer = LBFGS(

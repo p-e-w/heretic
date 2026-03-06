@@ -14,13 +14,14 @@ from .utils import deep_merge_dicts, parse_study_direction, print
 
 
 class Evaluator:
-    settings: Settings
-    model: Model
     """
     Manages evaluation of the model using configured scorer plugins.
 
     Loads scorers, establishes baseline scores, and runs scorers during optimization.
     """
+
+    settings: Settings
+    model: Model
 
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings

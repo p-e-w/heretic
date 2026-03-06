@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+from abc import abstractmethod
 from enum import Enum
-from typing import Dict
+from typing import Dict, Type, TypeVar
 
+from optuna import Trial
 from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
@@ -12,6 +14,7 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     TomlConfigSettingsSource,
 )
+from typing_extensions import TypeAliasType
 
 
 class QuantizationMethod(str, Enum):
@@ -59,6 +62,73 @@ class DatasetSpecification(BaseModel):
         default=None,
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
     )
+
+
+class FloatParamSpec(BaseModel):
+    low: float = Field(
+        description="Lower endpoint of the range of suggested values (inclusive).",
+    )
+
+    high: float = Field(
+        description="Upper endpoint of the range of suggested values (inclusive).",
+    )
+
+    log: bool = Field(
+        default=False,
+        description="If true, the value is sampled from the range in the log domain.",
+    )
+
+
+ParamSpec = TypeVar("ParamSpec", list, FloatParamSpec)
+ParamSpecRecursive = TypeAliasType(
+    "ParamSpecRecursive", "list | FloatParamSpec | dict[str, ParamSpecRecursive]"
+)
+
+
+class Parameter:
+    name: str
+
+    @abstractmethod
+    def is_constant(self) -> bool:
+        pass
+
+    @abstractmethod
+    def suggest(self, trial: Trial):
+        pass
+
+
+class ParamCategorical(Parameter):
+    choices: list
+
+    def __init__(self, name: str, spec: list):
+        self.name = name
+        self.choices = spec
+
+    def is_constant(self) -> bool:
+        return len(self.choices) <= 1
+
+    def suggest(self, trial: Trial) -> str:
+        if self.is_constant():
+            return self.choices[0]
+        return trial.suggest_categorical(self.name, self.choices)
+
+
+class ParamFloat(Parameter):
+    spec: FloatParamSpec
+
+    def __init__(self, name: str, spec: FloatParamSpec):
+        self.name = name
+        self.spec = spec
+
+    def is_constant(self) -> bool:
+        return self.spec.low == self.spec.high
+
+    def suggest(self, trial: Trial) -> float:
+        if self.is_constant():
+            return self.spec.low
+        return trial.suggest_float(
+            self.name, self.spec.low, self.spec.high, log=self.spec.log
+        )
 
 
 class Settings(BaseSettings):
@@ -313,6 +383,26 @@ class Settings(BaseSettings):
         description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
     )
 
+    parameters: dict[str, ParamSpecRecursive] = Field(
+        default={
+            "direction_scope": ["global", "per layer"],
+            # Discrimination between "harmful" and "harmless" inputs is usually strongest
+            # in layers slightly past the midpoint of the layer stack. See the original
+            # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
+            "direction_index": FloatParamSpec(low=0.4, high=0.9),
+            # The parameter ranges are based on experiments with various models
+            # and much wider ranges. They are not set in stone and might have to be
+            # adjusted for future models.
+            "max_weight": FloatParamSpec(low=0.8, high=1.5, log=False),
+            "max_weight_position": FloatParamSpec(low=0.6, high=1.0),
+            # For sampling purposes, min_weight is expressed as a fraction of max_weight,
+            # because multivariate TPE doesn't support variable-range parameters.
+            "min_weight": FloatParamSpec(low=0.0, high=1.0),
+            "min_weight_distance": FloatParamSpec(low=0.0, high=0.6),
+        },
+        description="Parameter ranges, per parameter or per module and parameter.",
+    )
+
     @classmethod
     def settings_customise_sources(
         cls,
@@ -335,3 +425,47 @@ class Settings(BaseSettings):
             file_secret_settings,
             TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )
+
+    def _param_spec(self, name: str, spec_type: Type[ParamSpec]) -> ParamSpec:
+        """
+        Finds the setting with the longest matching suffix.
+        For example, if we're looking for setting `foo.bar.baz` and
+        both `baz` and `bar.baz` are available, return `bar.baz`.
+        """
+        field_info = type(self).model_fields["parameters"]
+        defaults = field_info.get_default()
+        split_name = name.split(".")
+        # Get the default parameter specification.
+        most_specific_spec = defaults[split_name[-1]]
+        if most_specific_spec is None:
+            raise TypeError(f"No parameter default found for {split_name[-1]}.")
+        if not isinstance(most_specific_spec, spec_type):
+            raise TypeError(
+                f"Expected parameter default to be an instance of {spec_type.__name__}, "
+                f"but got {type(most_specific_spec).__name__} instead."
+            )
+        # Look for an override from the config.
+        split_len = len(split_name)
+        for i in range(split_len - 1, -1, -1):
+            spec = self.parameters.get(split_name[i], None)
+            for j in range(i + 1, split_len):
+                if spec is None:
+                    break
+                if not isinstance(spec, dict):
+                    # Found a setting for the prefix, but didn't match suffix.
+                    spec = None
+                    break
+                spec = spec.get(split_name[j], None)
+            if spec is not None and isinstance(spec, spec_type):
+                most_specific_spec = spec
+        # most_specific_spec can only be ParamSpec,
+        # but ty's support for narrowing generics is still limited.
+        return most_specific_spec  # ty:ignore[invalid-return-type]
+
+    def param_categorical(self, name: str) -> ParamCategorical:
+        spec = self._param_spec(name, list)
+        return ParamCategorical(name, spec)
+
+    def param_float(self, name: str) -> ParamFloat:
+        spec = self._param_spec(name, FloatParamSpec)
+        return ParamFloat(name, spec)

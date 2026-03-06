@@ -402,12 +402,15 @@ class Model:
         direction_index: float | None,
         parameters: dict[str, AbliterationParameters],
     ):
+        num_layers = len(self.get_layers())
+        last_layer_index = num_layers - 1
+
         if direction_index is None:
             refusal_direction = None
         else:
             # The index must be shifted by 1 because the first element
             # of refusal_directions is the direction for the embeddings.
-            weight, index = math.modf(direction_index + 1)
+            weight, index = math.modf(direction_index * last_layer_index + 1)
             refusal_direction = F.normalize(
                 refusal_directions[int(index)].lerp(
                     refusal_directions[int(index) + 1],
@@ -419,21 +422,26 @@ class Model:
 
         # Note that some implementations of abliteration also orthogonalize
         # the embedding matrix, but it's unclear if that has any benefits.
-        for layer_index in range(len(self.get_layers())):
+        for layer_index in range(num_layers):
             for component, modules in self.get_layer_modules(layer_index).items():
+                if component not in parameters:
+                    continue
                 params = parameters[component]
 
+                max_weight_position = params.max_weight_position * last_layer_index
+                min_weight_distance = params.min_weight_distance * last_layer_index
+
                 # Type inference fails here for some reason.
-                distance = cast(float, abs(layer_index - params.max_weight_position))
+                distance = cast(float, abs(layer_index - max_weight_position))
 
                 # Don't orthogonalize layers that are more than
                 # min_weight_distance away from max_weight_position.
-                if distance > params.min_weight_distance:
+                if distance > min_weight_distance:
                     continue
 
                 # Interpolate linearly between max_weight and min_weight
                 # over min_weight_distance.
-                weight = params.max_weight + (distance / params.min_weight_distance) * (
+                weight = params.max_weight + (distance / min_weight_distance) * (
                     params.min_weight - params.max_weight
                 )
 

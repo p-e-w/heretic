@@ -5,7 +5,8 @@ import torch.nn.functional as F
 from pydantic import BaseModel, Field
 
 from heretic.config import DatasetSpecification
-from heretic.scorer import Context, Score, Scorer
+from heretic.plugin import Context
+from heretic.scorer import Score, Scorer
 from heretic.utils import print
 
 

@@ -629,15 +629,9 @@ def run():
         if not completed_trials:
             raise KeyboardInterrupt
 
-        # For multi-objective, Optuna already computes a Pareto front.
-        # For single-objective, use the single best trial.
-        best_trials = (
-            list(study.best_trials) if len(directions) > 1 else [study.best_trial]
-        )
-
         # Best trials isn't sorted, so sort by all the scores in non-decreasing order.
         sorted_trials = sorted(
-            best_trials,
+            study.best_trials,
             key=lambda trial: (
                 tuple(
                     next(

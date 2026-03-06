@@ -10,7 +10,7 @@ from .config import ScorerConfig, Settings
 from .model import Model
 from .plugin import get_plugin_namespace, load_plugin
 from .scorer import Context, Score, Scorer
-from .utils import deep_merge_dicts, print
+from .utils import deep_merge_dicts, parse_study_direction, print
 
 
 class Evaluator:
@@ -187,7 +187,7 @@ class Evaluator:
         return [
             name
             for cfg, name in zip(self._scorer_configs, self.get_score_names())
-            if cfg.direction != StudyDirection.NOT_SET
+            if parse_study_direction(cfg.direction) != StudyDirection.NOT_SET
         ]
 
     def get_objectives(self, scores: list[Score]) -> list[Score]:
@@ -195,14 +195,14 @@ class Evaluator:
         return [
             s
             for cfg, s in zip(self._scorer_configs, scores)
-            if cfg.direction != StudyDirection.NOT_SET
+            if parse_study_direction(cfg.direction) != StudyDirection.NOT_SET
         ]
 
     def get_objective_values(self, scores: list[Score]) -> tuple[float, ...]:
         """Extract objective values as a tuple for Optuna."""
         values: list[float] = []
         for cfg, s in zip(self._scorer_configs, scores):
-            if cfg.direction == StudyDirection.NOT_SET:
+            if parse_study_direction(cfg.direction) == StudyDirection.NOT_SET:
                 continue
             values.append(float(s.value))
         return tuple(values)
@@ -210,7 +210,7 @@ class Evaluator:
     def get_objective_directions(self) -> list[StudyDirection]:
         """Get optimization directions for objectives."""
         return [
-            cfg.direction
+            parse_study_direction(cfg.direction)
             for cfg in self._scorer_configs
-            if cfg.direction != StudyDirection.NOT_SET
+            if parse_study_direction(cfg.direction) != StudyDirection.NOT_SET
         ]

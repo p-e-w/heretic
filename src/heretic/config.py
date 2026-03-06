@@ -2,10 +2,9 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Any, Dict
+from typing import Dict, Literal
 
-from optuna.study import StudyDirection
-from pydantic import Field, field_validator
+from pydantic import BaseModel, Field
 from pydantic.dataclasses import dataclass
 from pydantic_settings import (
     BaseSettings,
@@ -29,8 +28,7 @@ class RowNormalization(str, Enum):
     FULL = "full"
 
 
-@dataclass
-class DatasetSpecification:
+class DatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
     )
@@ -65,8 +63,7 @@ class DatasetSpecification:
     )
 
 
-@dataclass
-class ScorerConfig:
+class ScorerConfig(BaseModel):
     """
     Configuration for a scorer plugin.
 
@@ -75,26 +72,8 @@ class ScorerConfig:
     """
 
     plugin: str
-    direction: StudyDirection
+    direction: Literal["minimize", "maximize", "not_set"]
     instance_name: str | None = None
-
-    @field_validator("direction", mode="before")
-    @classmethod
-    def parse_direction(cls, v: Any) -> StudyDirection:
-        if isinstance(v, StudyDirection):
-            return v
-        if isinstance(v, int):
-            return StudyDirection(v)
-        if isinstance(v, str):
-            key = v.strip().upper()
-            try:
-                return StudyDirection[key]
-            except KeyError as e:
-                raise ValueError(f"Unknown direction, error: {e}")
-        else:
-            raise ValueError(
-                'Direction must be one of "minimize", "maximize", "not_set"'
-            )
 
 
 class Settings(BaseSettings):

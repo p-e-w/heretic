@@ -22,6 +22,7 @@ from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
 from optuna import Trial
+from optuna.study import StudyDirection
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
@@ -46,6 +47,14 @@ def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str
         else:
             merged[k] = v
     return merged
+
+
+def parse_study_direction(direction: str) -> StudyDirection:
+    """
+    Converts the study direction stored as a `str` to the
+    `StudyDirection.DIRECTION` object required by Optuna.
+    """
+    return StudyDirection[direction.upper()]
 
 
 def print_memory_usage():

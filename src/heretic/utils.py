@@ -313,7 +313,7 @@ def get_readme_intro(
         scores_by_name[name] = score
         score_names.append(name)
 
-    score_rows = chr(10).join(
+    score_rows = "\n".join(
         [
             (
                 f"| **{name}** | "

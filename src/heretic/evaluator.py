@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+from dataclasses import dataclass
 from typing import Any
 
 from optuna.study import StudyDirection
@@ -11,6 +12,13 @@ from .model import Model
 from .plugin import get_plugin_namespace, load_plugin
 from .scorer import Context, Score, Scorer
 from .utils import deep_merge_dicts, parse_study_direction, print
+
+
+@dataclass
+class ScorerEntry:
+    scorer: Scorer
+    name: str
+    config: ScorerConfig
 
 
 class Evaluator:
@@ -26,44 +34,38 @@ class Evaluator:
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings
         self.model = model
-        self._scorer_configs: list[ScorerConfig] = list(settings.scorers)
+        self._scorer_entries: list[ScorerEntry] = []
 
         print()
         print("Loading and initializing scorers...")
-        self.scorers = self._load_and_init_scorers()
+        self._load_and_init_scorers()
 
         # Establish baseline scores (pre-abliteration)
         self.baseline_scores = self.get_baseline_scores()
         self._print_baseline()
 
-    def _load_and_init_scorers(self) -> list[Scorer]:
+    def _load_and_init_scorers(self) -> None:
         """
         Load and instantiate all configured scorer plugins,
         then runs their initialization hooks.
         """
-        scorer_configs = self._scorer_configs
-        # The scaling factor and optimization direction (maximize, minimize, none) is set at the top level.
+        scorer_configs = list(self.settings.scorers)
         if not scorer_configs:
             raise ValueError("No scorers configured. Set 'scorers' in config.toml")
 
-        scorer_classes: list[type[Scorer]] = []
+        scorer_names: set[str] = set()
 
         # Resolve plugin classes from names and validate.
         for cfg in scorer_configs:
             scorer_cls = load_plugin(name=cfg.plugin, base_class=Scorer)
             scorer_cls.validate_contract()
-            scorer_classes.append(scorer_cls)
 
             print(
                 f"* Loaded: [bold]{scorer_cls.__name__} {'- ' + cfg.instance_name if cfg.instance_name else ''}[/bold]"
             )
 
-        scorers: list[Scorer] = []
-        self._scorer_instance_labels: list[str | None] = []
-        scorer_names: set[str] = set()
-        # Instantiate scorers.
-        for index, scorer_cls in enumerate(scorer_classes):
-            instance_name = scorer_configs[index].instance_name or None
+            # Instantiate scorers.
+            instance_name = cfg.instance_name or None
 
             raw_settings = self._get_scorer_settings_raw(
                 scorer_cls=scorer_cls, instance_name=instance_name
@@ -90,35 +92,25 @@ class Evaluator:
                 )
             scorer_names.add(scorer_key)
 
-            scorers.append(scorer)
-            self._scorer_instance_labels.append(instance_name)
+            scorer_instance_name = (
+                f"{scorer.score_name} - {instance_name}"
+                if instance_name
+                else scorer.score_name
+            )
+            self._scorer_entries.append(
+                ScorerEntry(scorer=scorer, config=cfg, name=scorer_instance_name)
+            )
 
         # Run scorer init hooks.
         ctx = Context(settings=self.settings, model=self.model)
 
-        for scorer in scorers:
-            scorer.init(ctx)
-
-        return scorers
+        for entry in self._scorer_entries:
+            entry.scorer.init(ctx)
 
     def _print_baseline(self) -> None:
         """Print baseline scores summary."""
-        for name, score in zip(self.get_score_names(), self.baseline_scores):
+        for name, score in self.baseline_scores:
             print(f"* Baseline {name}: [bold]{score.cli_display}[/]")
-
-    def _format_score_name(self, scorer: Scorer, instance_name: str | None) -> str:
-        if instance_name:
-            return f"{scorer.score_name} - {instance_name}"
-        return scorer.score_name
-
-    def get_score_names(self) -> list[str]:
-        """
-        Return stable display names for scores in scorer order.
-        """
-        return [
-            self._format_score_name(scorer, label)
-            for scorer, label in zip(self.scorers, self._scorer_instance_labels)
-        ]
 
     def _get_scorer_settings_raw(
         self, *, scorer_cls: type[Scorer], instance_name: str | None
@@ -156,61 +148,50 @@ class Evaluator:
 
         return merged_settings
 
-    def get_scores(self) -> list[Score]:
+    def get_scores(self) -> list[tuple[str, Score]]:
         """
-        Run all scorers and return their scores
-        Returns:
-            List of Score from each scorer.
-        """
-        ctx = Context(settings=self.settings, model=self.model)
-        scores: list[Score] = []
-        for scorer in self.scorers:
-            scores.append(scorer.get_score(ctx))
-        return scores
+        Run all scorers and return their scores and names
 
-    def get_baseline_scores(self) -> list[Score]:
-        """
-        Run all scorers and return their baseline scores
         Returns:
-            List of Score from each scorer.
+            List of `Score` from each scorer and its name.
         """
         ctx = Context(settings=self.settings, model=self.model)
-        scores: list[Score] = []
-        for scorer in self.scorers:
-            scores.append(scorer.get_baseline_score(ctx))
-        return scores
+        return [
+            (entry.name, entry.scorer.get_score(ctx)) for entry in self._scorer_entries
+        ]
+
+    def get_baseline_scores(self) -> list[tuple[str, Score]]:
+        """
+        Run all scorers and return their baseline scores and names
+
+        Returns:
+            List of `Score` from each scorer and its name.
+        """
+        ctx = Context(settings=self.settings, model=self.model)
+        return [
+            (entry.name, entry.scorer.get_baseline_score(ctx))
+            for entry in self._scorer_entries
+        ]
 
     def get_objective_names(self) -> list[str]:
-        """
-        Return objective names for scores used in optimization.
-        """
+        """Return objective names for scores used in optimization."""
         return [
-            name
-            for cfg, name in zip(self._scorer_configs, self.get_score_names())
-            if parse_study_direction(cfg.direction) != StudyDirection.NOT_SET
+            entry.name
+            for entry in self._scorer_entries
+            if parse_study_direction(entry.config.direction) != StudyDirection.NOT_SET
         ]
 
-    def get_objectives(self, scores: list[Score]) -> list[Score]:
-        """Filter scores to only those used in optimization."""
-        return [
-            s
-            for cfg, s in zip(self._scorer_configs, scores)
-            if parse_study_direction(cfg.direction) != StudyDirection.NOT_SET
-        ]
-
-    def get_objective_values(self, scores: list[Score]) -> tuple[float, ...]:
+    def get_objective_values(
+        self, scores: list[tuple[str, Score]]
+    ) -> tuple[float, ...]:
         """Extract objective values as a tuple for Optuna."""
-        values: list[float] = []
-        for cfg, s in zip(self._scorer_configs, scores):
-            if parse_study_direction(cfg.direction) == StudyDirection.NOT_SET:
-                continue
-            values.append(float(s.value))
-        return tuple(values)
+        objective_names = set(self.get_objective_names())
+        return tuple(score.value for name, score in scores if name in objective_names)
 
     def get_objective_directions(self) -> list[StudyDirection]:
         """Get optimization directions for objectives."""
         return [
-            parse_study_direction(cfg.direction)
-            for cfg in self._scorer_configs
-            if parse_study_direction(cfg.direction) != StudyDirection.NOT_SET
+            parse_study_direction(entry.config.direction)
+            for entry in self._scorer_entries
+            if parse_study_direction(entry.config.direction) != StudyDirection.NOT_SET
         ]

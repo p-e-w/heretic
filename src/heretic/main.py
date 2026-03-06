@@ -413,12 +413,10 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        scores = evaluator.get_scores()
-        score_names = evaluator.get_score_names()
         print()
         print("[bold]Metrics:[/]")
-        for name, score in zip(score_names, scores):
-            print(f"  * {name}: [bold]{score.cli_display}[/]")
+        for score_name, score in evaluator.get_scores():
+            print(f"  * {score_name}: [bold]{score.cli_display}[/]")
         return
 
     print()
@@ -543,11 +541,10 @@ def run():
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
         scores = evaluator.get_scores()
-        score_names = evaluator.get_score_names()
         objective_values = evaluator.get_objective_values(scores)
 
         print("  * Metrics:")
-        for name, score in zip(score_names, scores):
+        for name, score in scores:
             print(f"    * {name}: [bold]{score.cli_display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
@@ -562,10 +559,7 @@ def run():
             )
         trial.set_user_attr(
             "scores",
-            [
-                {"name": name, **score.__dict__}
-                for name, score in zip(score_names, scores)
-            ],
+            [{"name": name, **score.__dict__} for name, score in scores],
         )
         print_memory_usage()
 
@@ -876,12 +870,9 @@ def run():
                                 card.data.tags.append("uncensored")
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
-                                baseline_score_names = evaluator.get_score_names()
                                 baseline_score_displays = {
                                     name: score.md_display
-                                    for name, score in zip(
-                                        baseline_score_names, evaluator.baseline_scores
-                                    )
+                                    for name, score in evaluator.baseline_scores
                                 }
                                 card.text = (
                                     get_readme_intro(

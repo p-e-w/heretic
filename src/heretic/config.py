@@ -5,7 +5,6 @@ from enum import Enum
 from typing import Dict, Literal
 
 from pydantic import BaseModel, Field
-from pydantic.dataclasses import dataclass
 from pydantic_settings import (
     BaseSettings,
     CliSettingsSource,

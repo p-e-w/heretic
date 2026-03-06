@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Dict
 
 from optuna.study import StudyDirection
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic.dataclasses import dataclass
 from pydantic_settings import (
     BaseSettings,
@@ -29,7 +29,8 @@ class RowNormalization(str, Enum):
     FULL = "full"
 
 
-class DatasetSpecification(BaseModel):
+@dataclass
+class DatasetSpecification:
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
     )
@@ -64,7 +65,7 @@ class DatasetSpecification(BaseModel):
     )
 
 
-@dataclass(frozen=True)
+@dataclass
 class ScorerConfig:
     """
     Configuration for a scorer plugin.

@@ -161,14 +161,19 @@ class Model:
         assert isinstance(self.model, PreTrainedModel)
 
         # Always use LoRA adapters for abliteration (faster reload, no weight modification).
-        # We use the leaf names (e.g. "o_proj") as target modules.
-        # This may cause LoRA adapters to be attached to unrelated modules (e.g. "conv.o_proj"),
-        # but this is harmless as we only abliterate the modules we target in `abliterate()`,
-        # leaving the others at their default (identity) state.
-        # NOTE: This will need to be updated when hybrid layer support (#43) is merged.
-        target_modules = [
-            comp.split(".")[-1] for comp in self.get_abliterable_components()
-        ]
+        # Collect actual leaf module names from the model for LoRA targeting.
+        # This is more robust than splitting component keys (e.g. "attn.o_proj" -> "o_proj")
+        # because hybrid models like Qwen3.5 MoE have modules with different names
+        # across layers (e.g. "o_proj" on attention layers, "out_proj" on linear attention layers).
+        target_modules_set: set[str] = set()
+        layers = self.get_layers()
+        for layer_index, layer in enumerate(layers):
+            module_id_to_leaf_name = {id(m): name.split(".")[-1] for name, m in layer.named_modules()}
+            for modules_list in self.get_layer_modules(layer_index).values():
+                for mod in modules_list:
+                    if id(mod) in module_id_to_leaf_name:
+                        target_modules_set.add(module_id_to_leaf_name[id(mod)])
+        target_modules = list(target_modules_set)
 
         if self.settings.row_normalization != RowNormalization.FULL:
             # Rank 1 is sufficient for directional ablation without renormalization.
@@ -340,9 +345,14 @@ class Model:
                     f"Unexpected Tensor in {component} - expected nn.Module"
                 )
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+        # Standard self-attention out-projection (most models).
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # Qwen3.5 MoE hybrid layers use GatedDeltaNet (linear attention) instead
+        # of standard self-attention, so self_attn.o_proj doesn't exist on those layers.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Most dense models.
         with suppress(Exception):
@@ -374,7 +384,12 @@ class Model:
         return modules
 
     def get_abliterable_components(self) -> list[str]:
-        return list(self.get_layer_modules(0).keys())
+        # Scan all layers because hybrid models (e.g. Qwen3.5 MoE) have different
+        # components on different layers (some have self_attn, others linear_attn).
+        components: set[str] = set()
+        for layer_index in range(len(self.get_layers())):
+            components.update(self.get_layer_modules(layer_index).keys())
+        return sorted(components)
 
     def abliterate(
         self,

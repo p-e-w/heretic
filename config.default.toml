@@ -62,6 +62,12 @@ kl_divergence_scale = 1.0
 # This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".
 kl_divergence_target = 0.01
 
+# Number of tokens to generate when computing KL divergence.
+# Higher values give a more robust quality signal at the cost of slower evaluation.
+# The KL divergence is averaged across all token positions.
+# Recommended: 1 (fastest, default), 3-5 (good tradeoff), >5 (diminishing returns).
+kl_tokens = 1
+
 # Whether to adjust the refusal directions so that only the component that is
 # orthogonal to the good direction is subtracted during abliteration.
 orthogonalize_direction = false

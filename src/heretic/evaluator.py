@@ -28,7 +28,7 @@ class Evaluator:
         self.good_prompts = load_prompts(settings, settings.good_evaluation_prompts)
         print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
 
-        print("* Obtaining first-token probability distributions...")
+        print(f"* {self._kl_label()}")
         self.base_logprobs = model.get_logprobs_batched(self.good_prompts)
 
         print()
@@ -92,8 +92,14 @@ class Evaluator:
 
         return refusal_count
 
+    def _kl_label(self) -> str:
+        """Return a human-readable label for the KL computation step."""
+        if self.settings.kl_tokens > 1:
+            return f"Obtaining {self.settings.kl_tokens}-token probability distributions..."
+        return "Obtaining first-token probability distributions..."
+
     def get_score(self) -> tuple[tuple[float, float], float, int]:
-        print("  * Obtaining first-token probability distributions...")
+        print(f"  * {self._kl_label()}")
         logprobs = self.model.get_logprobs_batched(self.good_prompts)
         kl_divergence = F.kl_div(
             logprobs,

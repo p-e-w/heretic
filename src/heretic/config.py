@@ -70,7 +70,7 @@ class ScorerConfig:
     Configuration for a scorer plugin.
 
     TOML format:
-    - { plugin = "<plugin>", direction = <direction>, instance_name = "<optional>" }
+    - { plugin = "<plugin>", direction = "<direction>", instance_name = "<optional>" }
     """
 
     plugin: str

@@ -97,11 +97,6 @@ class ScorerConfig:
 
 
 class Settings(BaseSettings):
-    # We intentionally allow extra keys so users can provide plugin-specific
-    # configuration in TOML tables like `[scorer.RefusalRate]` which are later
-    # consumed via `settings.model_extra` (see `Evaluator._get_plugin_namespace`).
-    model_config = SettingsConfigDict(extra="allow")
-
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
     evaluate_model: str | None = Field(
@@ -283,6 +278,11 @@ class Settings(BaseSettings):
         ),
         description="Dataset of prompts that tend to result in refusals (used for calculating refusal directions).",
     )
+
+    # We intentionally allow extra keys so users can provide plugin-specific
+    # configuration in TOML tables like `[scorer.RefusalRate]` which are later
+    # consumed via `settings.model_extra` (see `Evaluator._get_plugin_namespace`).
+    model_config = SettingsConfigDict(extra="allow")
 
     @classmethod
     def settings_customise_sources(

@@ -29,22 +29,77 @@ class Evaluator:
         self._scorer_configs: list[ScorerConfig] = list(settings.scorers)
 
         print()
-        print("Loading scorers...")
-        self.scorers = self._load_scorers()
-        self._init_scorers()
+        print("Loading and initializing scorers...")
+        self.scorers = self._load_and_init_scorers()
 
         # Establish baseline scores (pre-abliteration)
         self.baseline_scores = self.get_baseline_scores()
         self._print_baseline()
 
-    def _init_scorers(self) -> None:
+    def _load_and_init_scorers(self) -> list[Scorer]:
         """
-        Optional scorer initialization hook.
+        Load and instantiate all configured scorer plugins,
+        then runs their initialization hooks.
         """
+        scorer_configs = self._scorer_configs
+        # The scaling factor and optimization direction (maximize, minimize, none) is set at the top level.
+        if not scorer_configs:
+            raise ValueError("No scorers configured. Set 'scorers' in config.toml")
+
+        scorer_classes: list[type[Scorer]] = []
+
+        # Resolve plugin classes from names and validate.
+        for cfg in scorer_configs:
+            scorer_cls = load_plugin(name=cfg.plugin, base_class=Scorer)
+            scorer_cls.validate_contract()
+            scorer_classes.append(scorer_cls)
+
+            print(
+                f"* Loaded: [bold]{scorer_cls.__name__} {'- ' + cfg.instance_name if cfg.instance_name else ''}[/bold]"
+            )
+
+        scorers: list[Scorer] = []
+        self._scorer_instance_labels: list[str | None] = []
+        scorer_names: set[str] = set()
+        # Instantiate scorers.
+        for index, scorer_cls in enumerate(scorer_classes):
+            instance_name = scorer_configs[index].instance_name or None
+
+            raw_settings = self._get_scorer_settings_raw(
+                scorer_cls=scorer_cls, instance_name=instance_name
+            )
+            scorer_settings: BaseModel | None = scorer_cls.validate_settings(
+                raw_settings
+            )
+
+            scorer = scorer_cls(
+                heretic_settings=self.settings,
+                settings=scorer_settings,
+            )
+
+            # External labeling key: ensures multiple instances can coexist/
+            scorer_key = (
+                scorer_cls.__name__
+                if not instance_name
+                else f"{scorer_cls.__name__}.{instance_name}"
+            )
+            if scorer_key in scorer_names:
+                raise ValueError(
+                    f"Duplicate scorer instance name: {scorer_key}. "
+                    "Give each instance a unique `instance_name`."
+                )
+            scorer_names.add(scorer_key)
+
+            scorers.append(scorer)
+            self._scorer_instance_labels.append(instance_name)
+
+        # Run scorer init hooks.
         ctx = Context(settings=self.settings, model=self.model)
 
-        for scorer in self.scorers:
+        for scorer in scorers:
             scorer.init(ctx)
+
+        return scorers
 
     def _print_baseline(self) -> None:
         """Print baseline scores summary."""
@@ -100,62 +155,6 @@ class Evaluator:
             merged_settings = deep_merge_dicts(merged_settings, filtered)
 
         return merged_settings
-
-    def _load_scorers(self) -> list[Scorer]:
-        """Load and instantiate all configured scorer plugins."""
-        scorer_configs = self._scorer_configs
-        # the scaling factor and optimization direction (maximize, minimize, none)
-        # is set at the top level
-        if not scorer_configs:
-            raise ValueError("No scorers configured. Set 'scorers' in config.toml")
-
-        scorer_classes: list[type[Scorer]] = []
-
-        # resolve plugin classes from names and validate
-        for cfg in scorer_configs:
-            scorer_cls = load_plugin(name=cfg.plugin, base_class=Scorer)
-            scorer_cls.validate_contract()
-            scorer_classes.append(scorer_cls)
-
-            print(
-                f"* Loaded: [bold]{scorer_cls.__name__} {'- ' + cfg.instance_name if cfg.instance_name else ''}[/bold]"
-            )
-
-        scorers: list[Scorer] = []
-        self._scorer_instance_labels: list[str | None] = []
-        scorer_names: set[str] = set()
-        # instantiate scorers
-        for index, scorer_cls in enumerate(scorer_classes):
-            instance_name = scorer_configs[index].instance_name or None
-
-            raw_settings = self._get_scorer_settings_raw(
-                scorer_cls=scorer_cls, instance_name=instance_name
-            )
-            scorer_settings: BaseModel | None = scorer_cls.validate_settings(
-                raw_settings
-            )
-
-            scorer = scorer_cls(
-                heretic_settings=self.settings,
-                settings=scorer_settings,
-            )
-
-            # External labeling key: ensures multiple instances can coexist
-            scorer_key = (
-                scorer_cls.__name__
-                if not instance_name
-                else f"{scorer_cls.__name__}.{instance_name}"
-            )
-            if scorer_key in scorer_names:
-                raise ValueError(
-                    f"Duplicate scorer instance name: {scorer_key}. "
-                    "Give each instance a unique `instance_name`."
-                )
-            scorer_names.add(scorer_key)
-
-            scorers.append(scorer)
-            self._scorer_instance_labels.append(instance_name)
-        return scorers
 
     def get_scores(self) -> list[Score]:
         """

@@ -62,6 +62,16 @@ kl_divergence_scale = 1.0
 # This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".
 kl_divergence_target = 0.01
 
+# Whether to detect false refusals on benign (good) prompts during evaluation.
+# When enabled, the model is checked for refusing harmless prompts that it shouldn't refuse.
+# False refusals are penalized in the KL divergence component of the optimization score.
+detect_false_refusals = false
+
+# Weight for false refusal penalty when detect_false_refusals is enabled.
+# The penalty is: weight * (false_refusals / total_good_prompts).
+# Higher values more aggressively penalize over-abliteration.
+false_refusal_weight = 0.5
+
 # Whether to adjust the refusal directions so that only the component that is
 # orthogonal to the good direction is subtracted during abliteration.
 orthogonalize_direction = false

@@ -139,7 +139,7 @@ def prompt_path(message: str) -> str:
         return questionary.path(message, only_directories=True).ask()
 
 
-def prompt_password(message: str) -> str:
+def prompt_password(message: str) -> str | None:
     if is_notebook():
         print()
         return getpass.getpass(message)

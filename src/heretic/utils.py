@@ -308,17 +308,17 @@ def get_readme_intro(
     scores_raw = trial.user_attrs["scores"]
     scores_by_name: dict[str, dict[str, object]] = {}
     score_names: list[str] = []
-    for item in scores_raw:
-        name = item.get("name")
-        scores_by_name[name] = item
+    for score in scores_raw:
+        name = score["name"]
+        scores_by_name[name] = score
         score_names.append(name)
 
     score_rows = chr(10).join(
         [
             (
                 f"| **{name}** | "
-                f"{scores_by_name.get(name, {}).get('md_display', '—')} | "
-                f"{baseline_score_displays.get(name, '—')} |"
+                f"{scores_by_name[name]['md_display']} | "
+                f"{baseline_score_displays[name]} |"
             )
             for name in score_names
         ]

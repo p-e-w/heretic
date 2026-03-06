@@ -636,9 +636,9 @@ def run():
                 tuple(
                     next(
                         (
-                            s["value"]
-                            for s in trial.user_attrs.get("scores", [])
-                            if s.get("name") == name
+                            score["value"]
+                            for score in trial.user_attrs["scores"]
+                            if score["name"] == name
                         ),
                         None,
                     )

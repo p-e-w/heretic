@@ -872,7 +872,6 @@ dependencies = [
     { name = "peft" },
     { name = "psutil" },
     { name = "pydantic-settings" },
-    { name = "pynvml" },
     { name = "questionary" },
     { name = "rich" },
     { name = "tomli-w" },
@@ -912,7 +911,6 @@ requires-dist = [
     { name = "peft", specifier = "~=0.14" },
     { name = "psutil", specifier = "~=7.1" },
     { name = "pydantic-settings", specifier = "~=2.10" },
-    { name = "pynvml", specifier = "~=11.5" },
     { name = "questionary", specifier = "~=2.1" },
     { name = "rich", specifier = "~=14.1" },
     { name = "scikit-learn", marker = "extra == 'research'", specifier = "~=1.7" },
@@ -2525,15 +2523,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b0/77/a5b8c569bf593b0140bde72ea885a803b82086995367bf2037de0159d924/pygments-2.19.2.tar.gz", hash = "sha256:636cb2477cec7f8952536970bc533bc43743542f70392ae026374600add5b887", size = 4968631, upload-time = "2025-06-21T13:39:12.283Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl", hash = "sha256:86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b", size = 1225217, upload-time = "2025-06-21T13:39:07.939Z" },
-]
-
-[[package]]
-name = "pynvml"
-version = "11.5.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e4/e9/9931792cb776716363fc7c3039b477d11278173d71ddc230eb9b5f4ce93f/pynvml-11.5.3.tar.gz", hash = "sha256:183d223ae487e5f00402d8da06c68c978ef8a9295793ee75559839c6ade7b229", size = 73685, upload-time = "2024-07-16T14:05:38.937Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/5b/16e50abf152be7f18120f11dfff495014a9eaff7b764626e1656f04ad262/pynvml-11.5.3-py3-none-any.whl", hash = "sha256:a5fba3ab14febda50d19dbda012ef62ae0aed45b7ccc07af0bc5be79223e450c", size = 53135, upload-time = "2024-07-16T14:05:37.23Z" },
 ]
 
 [[package]]

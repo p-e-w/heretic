@@ -8,6 +8,8 @@ import importlib.metadata
 import os
 import platform
 import random
+import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from importlib.metadata import version
@@ -16,10 +18,10 @@ from typing import Any, TypeVar
 
 import huggingface_hub
 import numpy as np
-import pynvml
 import questionary
 import tomli_w
 import torch
+from rich.text import Text
 from accelerate.utils import (
     is_mlu_available,
     is_musa_available,
@@ -41,63 +43,67 @@ from .config import DatasetSpecification, Settings
 print = Console(highlight=False).print
 
 
-def get_accelerator_info(rich: bool = True) -> str:
+def get_nvidia_driver_version() -> str:
+    """Gets the NVIDIA driver version using nvidia-smi."""
+    try:
+        output = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return output.strip().split("\n")[0]
+    except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
+        return "Unknown"
+
+
+def get_accelerator_info() -> str:
     """The single source of truth for hardware detection and reporting."""
-    b = "[bold]" if rich else ""
-    _b = "[/]" if rich else ""
-    y = "[bold yellow]" if rich else ""
 
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
         total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
         cuda_ver = torch.version.cuda
-        driver_ver = "Unknown"
-        with contextlib.suppress(Exception):
-            pynvml.nvmlInit()
-            driver_ver = pynvml.nvmlSystemGetDriverVersion()
-            pynvml.nvmlShutdown()
+        driver_ver = get_nvidia_driver_version()
 
-        report = f"Detected {b}{count}{_b} CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM)\n"
-        report += f"CUDA Version: {b}{cuda_ver}{_b}\n"
-        report += f"Driver Version: {b}{driver_ver}{_b}\n"
+        report = f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM)\n"
+        report += f"CUDA Version: [bold]{cuda_ver}[/]\n"
+        report += f"Driver Version: [bold]{driver_ver}[/]\n"
 
         for i in range(count):
             name = torch.cuda.get_device_name(i)
             vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
-            report += f"* GPU {i}: {b}{name}{_b} ({vram:.2f} GB)\n"
+            report += f"* GPU {i}: [bold]{name}[/] ({vram:.2f} GB)\n"
     elif is_xpu_available():
         count = torch.xpu.device_count()  # ty:ignore
         driver_ver = "Unknown"
         with contextlib.suppress(Exception):
             driver_ver = torch.xpu.get_driver_version()  # ty:ignore
 
-        report = f"Detected {b}{count}{_b} XPU device(s)\n"
-        report += f"Driver Version: {b}{driver_ver}{_b}\n"
+        report = f"Detected [bold]{count}[/] XPU device(s)\n"
+        report += f"Driver Version: [bold]{driver_ver}[/]\n"
         for i in range(count):
-            report += f"* XPU {i}: {b}{torch.xpu.get_device_name(i)}{_b}\n"  # ty:ignore
+            report += f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]\n"  # ty:ignore
     elif is_mlu_available():
         count = torch.mlu.device_count()  # ty:ignore
-        report = f"Detected {b}{count}{_b} MLU device(s):\n"
+        report = f"Detected [bold]{count}[/] MLU device(s):\n"
         for i in range(count):
-            report += f"* MLU {i}: {b}{torch.mlu.get_device_name(i)}{_b}\n"  # ty:ignore
+            report += f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]\n"  # ty:ignore
     elif is_sdaa_available():
         count = torch.sdaa.device_count()  # ty:ignore
-        report = f"Detected {b}{count}{_b} SDAA device(s):\n"
+        report = f"Detected [bold]{count}[/] SDAA device(s):\n"
         for i in range(count):
-            report += f"* SDAA {i}: {b}{torch.sdaa.get_device_name(i)}{_b}\n"  # ty:ignore
+            report += f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]\n"  # ty:ignore
     elif is_musa_available():
         count = torch.musa.device_count()  # ty:ignore
-        report = f"Detected {b}{count}{_b} MUSA device(s):\n"
+        report = f"Detected [bold]{count}[/] MUSA device(s):\n"
         for i in range(count):
-            report += f"* MUSA {i}: {b}{torch.musa.get_device_name(i)}{_b}\n"  # ty:ignore
+            report += f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]\n"  # ty:ignore
     elif is_npu_available():
-        report = f"NPU detected (CANN version: {b}{torch.version.cann}{_b})\n"  # ty:ignore
+        report = f"NPU detected (CANN version: [bold]{torch.version.cann}[/])\n"  # ty:ignore
     elif torch.backends.mps.is_available():
-        report = f"Detected {b}1{_b} MPS device (Apple Metal)\n"
+        report = "Detected [bold]1[/] MPS device (Apple Metal)\n"
     else:
-        report = (
-            f"{y}No GPU or other accelerator detected. Operations will be slow.{_b}\n"
-        )
+        report = "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]\n"
 
     return report.strip()
 
@@ -403,14 +409,19 @@ def generate_config_toml(settings: Settings) -> str:
 
 
 def generate_requirements_txt() -> str:
-    """Collects installed packages with exact versions."""
+    """Collects installed packages with exact versions, normalizing names."""
     dists = importlib.metadata.distributions()
-    reqs = []
+    unique_reqs = {}
     for dist in dists:
         with contextlib.suppress(Exception):
-            reqs.append(f"{dist.metadata['Name']}=={dist.version}")
+            name = dist.metadata["Name"]
+            if name:
+                # Pip considers hyphens and underscores to be equivalent.
+                # We normalize to lowercase and hyphens to ensure deduplication.
+                normalized_name = name.lower().replace("_", "-")
+                unique_reqs[normalized_name] = f"{name}=={dist.version}"
 
-    reqs = sorted(set(reqs), key=lambda x: x.lower())
+    reqs = sorted(unique_reqs.values(), key=lambda x: x.lower())
     return "\n".join(reqs) + "\n"
 
 
@@ -426,7 +437,7 @@ def generate_environment_txt() -> str:
         "PyTorch & Accelerators",
         "----------------------",
         f"PyTorch Version: {torch.__version__}",
-        get_accelerator_info(rich=False),
+        Text.from_markup(get_accelerator_info()).plain,
     ]
 
     return "\n".join(lines) + "\n"
@@ -448,7 +459,7 @@ This directory contains the necessary information and assets to reproduce the re
 ## Contents
 
 - **config.toml**: The exact configuration used, including the seed `{settings.seed}`.
-- **environment.txt**: Details about the OS, Python, and hardware used.
+- **environment.txt**: Details about the OS, Python, Heretic, PyTorch, Driver and hardware used.
 - **requirements.txt**: The exact versions of all installed Python packages.
 - **{checkpoint_filename}**: The Optuna study journal containing the history of all trials.
 
@@ -456,35 +467,48 @@ This directory contains the necessary information and assets to reproduce the re
 
 1. Ensure your hardware and environment match the specifications in `environment.txt`.
 2. Install the exact package versions listed in `requirements.txt`.
-3. Run Heretic on the same model using the provided seed (e.g., `heretic --model {settings.model} --seed {settings.seed}`).
+3. Place the provided `config.toml` in your working directory and run `heretic` without any additional arguments.
 """
 
 
 def create_reproduce_folder(
     path: Path, settings: Settings, checkpoint_path: str | Path
 ) -> None:
-    reproduce_dir = path / "reproduce"
-    reproduce_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = path / "reproduce"
+    source_truth = Path("reproduce")
 
+    # If a 'reproduce' folder already exists in the root (source of truth from optimization),
+    # And we are saving to a DIFFERENT location, copy the existing one.
+    if (
+        source_truth.exists()
+        and source_truth.is_dir()
+        and source_truth.resolve() != target_dir.resolve()
+    ):
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        shutil.copytree(source_truth, target_dir)
+        return
+
+    target_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_filename = Path(checkpoint_path).name
 
-    (reproduce_dir / "config.toml").write_text(
+    (target_dir / "config.toml").write_text(
         generate_config_toml(settings), encoding="utf-8"
     )
-    (reproduce_dir / "requirements.txt").write_text(
+    (target_dir / "requirements.txt").write_text(
         generate_requirements_txt(), encoding="utf-8"
     )
-    (reproduce_dir / "environment.txt").write_text(
+    (target_dir / "environment.txt").write_text(
         generate_environment_txt(), encoding="utf-8"
     )
-    (reproduce_dir / "README.md").write_text(
+    (target_dir / "README.md").write_text(
         generate_reproduce_readme(settings, checkpoint_filename), encoding="utf-8"
     )
 
     # Copy Optuna study journal
     checkpoint_file = Path(checkpoint_path)
     if checkpoint_file.exists():
-        (reproduce_dir / checkpoint_file.name).write_bytes(checkpoint_file.read_bytes())
+        (target_dir / checkpoint_file.name).write_bytes(checkpoint_file.read_bytes())
 
 
 def upload_reproduce_folder(
@@ -493,12 +517,19 @@ def upload_reproduce_folder(
     token: str,
     checkpoint_path: str | Path,
 ) -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
+    source_truth = Path("reproduce")
+
+    if source_truth.exists() and source_truth.is_dir():
+        upload_dir = source_truth
+    else:
+        # Fallback to creating a temporary one if root doesn't exist (unlikely given main.py)
+        tmpdir = tempfile.mkdtemp()
         tmp_path = Path(tmpdir)
         create_reproduce_folder(tmp_path, settings, checkpoint_path=checkpoint_path)
+        upload_dir = tmp_path / "reproduce"
 
-        reproduce_dir = tmp_path / "reproduce"
-        for file_path in reproduce_dir.iterdir():
+    try:
+        for file_path in upload_dir.iterdir():
             if file_path.is_file():
                 huggingface_hub.upload_file(
                     path_or_fileobj=str(file_path),
@@ -506,3 +537,6 @@ def upload_reproduce_folder(
                     repo_id=repo_id,
                     token=token,
                 )
+    finally:
+        if "tmpdir" in locals():
+            shutil.rmtree(tmpdir)

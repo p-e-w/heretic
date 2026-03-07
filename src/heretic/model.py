@@ -4,7 +4,7 @@
 import math
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, Type, cast
+from typing import Any, Callable, Type, TypeAlias, cast
 
 import bitsandbytes as bnb
 import torch
@@ -14,6 +14,8 @@ from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
+from torch.optim import LBFGS
+from torch.utils.hooks import RemovableHandle
 from transformers import (
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
@@ -30,7 +32,7 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, RowNormalization, Settings
-from .utils import Prompt, batchify, empty_cache, print
+from .utils import Prompt, batchify, empty_cache, mean_distances_to_knn, print
 
 
 def get_model_class(
@@ -50,6 +52,23 @@ class AbliterationParameters:
     max_weight_position: float
     min_weight: float
     min_weight_distance: float
+
+
+@dataclass
+class ARAParameters:
+    start_layer_index: int
+    end_layer_index: int
+    preserve_good_behavior_weight: float
+    steer_bad_behavior_weight: float
+    overcorrect_relative_weight: float
+    neighbor_count: int
+
+
+# The list contains one element per layer.
+# Each element maps from the component name to a (possibly sparse) mapping
+# from the module index to an (input, output) tuple containing the I/O
+# tensors of shape (prompt, component).
+ModuleIO: TypeAlias = list[dict[str, dict[int, tuple[Tensor, Tensor]]]]
 
 
 class Model:
@@ -144,7 +163,8 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        self._apply_lora()
+        if not settings.use_ara:
+            self._apply_lora()
 
         # LoRA B matrices are initialized to zero by default in PEFT,
         # so we don't need to do anything manually.
@@ -286,7 +306,11 @@ class Model:
           performs full model reload with quantization config.
         """
         current_model = getattr(self.model.config, "name_or_path", None)
-        if current_model == self.settings.model and not self.needs_reload:
+        if (
+            current_model == self.settings.model
+            and not self.needs_reload
+            and not self.settings.use_ara
+        ):
             # Reset LoRA adapters to zero (identity transformation)
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
@@ -315,7 +339,8 @@ class Model:
             **extra_kwargs,
         )
 
-        self._apply_lora()
+        if not self.settings.use_ara:
+            self._apply_lora()
 
         self.needs_reload = False
 
@@ -339,6 +364,9 @@ class Model:
         modules = {}
 
         def try_add(component: str, module: Any):
+            if component not in self.settings.target_components:
+                return
+
             # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
             if isinstance(module, Module):
                 if component not in modules:
@@ -539,6 +567,92 @@ class Model:
                     weight_A.data = lora_A.to(weight_A.dtype)
                     weight_B.data = lora_B.to(weight_B.dtype)
 
+    def ara_abliterate(
+        self,
+        good_module_io: ModuleIO,
+        bad_module_io: ModuleIO,
+        parameters: ARAParameters,
+    ):
+        for layer_index in range(
+            parameters.start_layer_index,
+            parameters.end_layer_index,
+        ):
+            for component, modules in self.get_layer_modules(layer_index).items():
+                for module_index, module in enumerate(modules):
+                    # See above for a (partial) justification of this cast.
+                    module = cast(Linear, module)
+                    matrix = module.weight
+
+                    good_input, good_output = good_module_io[layer_index][component][
+                        module_index
+                    ]
+                    bad_input, bad_output = bad_module_io[layer_index][component][
+                        module_index
+                    ]
+
+                    good_input = good_input.to(matrix.device)
+                    good_output = good_output.to(matrix.device)
+                    bad_input = bad_input.to(matrix.device)
+                    bad_output = bad_output.to(matrix.device)
+
+                    def objective(matrix: Tensor) -> Tensor:
+                        new_good_output = good_input @ matrix.T
+                        new_bad_output = bad_input @ matrix.T
+
+                        # The outputs for "good" prompts should change as little as possible.
+                        preserve_good_behavior = (
+                            (new_good_output - good_output) ** 2
+                        ).mean()
+
+                        steer_bad_behavior = (
+                            # Pull the outputs for "bad" prompts towards
+                            # the original outputs for "good" prompts.
+                            mean_distances_to_knn(
+                                new_bad_output,
+                                good_output,
+                                parameters.neighbor_count,
+                            ).mean()
+                            # Push the outputs for "bad" prompts away from
+                            # the original outputs for "bad" prompts.
+                            # In combination with the above, this overcorrects
+                            # away from the original residuals, which results
+                            # in stronger steering that can overcome more complex
+                            # refusal mechanisms.
+                            + parameters.overcorrect_relative_weight
+                            * -mean_distances_to_knn(
+                                new_bad_output,
+                                bad_output,
+                                parameters.neighbor_count,
+                            ).mean()
+                        )
+
+                        return (
+                            parameters.preserve_good_behavior_weight
+                            * preserve_good_behavior
+                            + parameters.steer_bad_behavior_weight * steer_bad_behavior
+                        )
+
+                    optimizer = LBFGS(
+                        [matrix],
+                        lr=1.0,
+                        max_iter=20,  # Number of internal iterations per step, *not* the number of steps.
+                        history_size=10,
+                        line_search_fn="strong_wolfe",
+                    )
+
+                    def closure() -> Tensor:
+                        optimizer.zero_grad()
+                        loss = objective(matrix)
+                        loss.backward()
+                        return loss
+
+                    # Convergence usually happens within 2-3 steps, so this is more than enough.
+                    for step in range(5):
+                        loss = optimizer.step(closure)
+                        # print(
+                        #    f"\\[{layer_index}/{component}/{module_index}] Step: {step}, Loss: {loss.item():.6f}"
+                        # )
+
     def generate(
         self,
         prompts: list[Prompt],
@@ -672,6 +786,132 @@ class Model:
             residuals.append(self.get_residuals(batch))
 
         return torch.cat(residuals, dim=0)
+
+    def get_module_io(
+        self,
+        prompts: list[Prompt],
+    ) -> ModuleIO:
+        # The list contains one element per layer.
+        # Each element maps from the component name to a (possibly sparse) mapping
+        # from the module index to an (input, output) tuple containing the I/O
+        # tensors of shape (prompt, component).
+        module_io: ModuleIO = []
+
+        def get_hook(
+            layer_index: int,
+            component: str,
+            module_index: int,
+        ) -> Callable[[Module, tuple[Tensor, ...], Tensor], None]:
+            def hook(
+                module: Module,
+                inputs: tuple[Tensor, ...],
+                outputs: Tensor,
+            ) -> None:
+                if len(module_io) == layer_index:
+                    # First invocation of the hook for this layer.
+                    module_io.append({})
+
+                # Layers are invoked in order during inference,
+                # so this should always hold.
+                assert len(module_io) == layer_index + 1
+
+                if component not in module_io[layer_index]:
+                    module_io[layer_index][component] = {}
+
+                # Each module should be invoked at most once per inference step.
+                assert module_index not in module_io[layer_index][component]
+
+                # inputs[0] and outputs have shape (prompt, position, component),
+                # so this extracts the input/output at the end of each prompt.
+                # Move to CPU to decouple from device assignments, which can
+                # change between model reloads in multi-GPU configurations.
+                input = inputs[0][:, -1, :].detach().clone().cpu()
+                output = outputs[:, -1, :].detach().clone().cpu()
+
+                # The modules associated with a component (e.g. expert MLPs)
+                # are not necessarily invoked in order, nor are all of them
+                # necessarily invoked in each inference step, so we cannot
+                # use a list here.
+                module_io[layer_index][component][module_index] = (input, output)
+
+            return hook
+
+        hook_handles: list[RemovableHandle] = []
+
+        for layer_index in range(len(self.get_layers())):
+            for component, modules in self.get_layer_modules(layer_index).items():
+                for module_index, module in enumerate(modules):
+                    hook_handles.append(
+                        module.register_forward_hook(
+                            get_hook(layer_index, component, module_index)
+                        )
+                    )
+
+        self.generate(prompts, max_new_tokens=1)
+
+        for hook_handle in hook_handles:
+            hook_handle.remove()
+
+        return module_io
+
+    def get_module_io_batched(
+        self,
+        prompts: list[Prompt],
+    ) -> ModuleIO:
+        # Aggregating batch results is more complicated for module I/O
+        # than for other get_*_batched methods, because the structure of the results
+        # might differ between batches, as whether individual modules activate
+        # can depend on the prompt (in particular for MoE models).
+        # In practice, inhomogeneous results should be very rare, but to be fully
+        # generic, this logic is required.
+        module_io_batches: list[ModuleIO] = [
+            self.get_module_io(batch)
+            for batch in batchify(prompts, self.settings.batch_size)
+        ]
+
+        module_io: ModuleIO = []
+
+        for layer_index in range(len(self.get_layers())):
+            module_io.append({})
+
+            for module_io_batch in module_io_batches:
+                for component, io_map in module_io_batch[layer_index].items():
+                    if component not in module_io[layer_index]:
+                        module_io[layer_index][component] = {}
+
+                    for module_index in io_map:
+                        if module_index not in module_io[layer_index][component]:
+                            # This is a placeholder; the actual aggregation happens below.
+                            # We need to iterate over the batches twice because we don't
+                            # know in advance which components and module indices are present.
+                            module_io[layer_index][component][module_index] = (
+                                torch.empty(0),
+                                torch.empty(0),
+                            )
+
+            for component, io_map in module_io[layer_index].items():
+                for module_index in io_map:
+                    inputs_outputs = [
+                        module_io_batch[layer_index][component][module_index]
+                        for module_io_batch in module_io_batches
+                        if component in module_io_batch[layer_index]
+                        and module_index in module_io_batch[layer_index][component]
+                    ]
+                    input = torch.cat(
+                        [input_output[0] for input_output in inputs_outputs],
+                        dim=0,
+                    )
+                    output = torch.cat(
+                        [input_output[1] for input_output in inputs_outputs],
+                        dim=0,
+                    )
+
+                    # The key already exists, and replacing existing values
+                    # in a dictionary while iterating over the same dictionary
+                    # is safe in Python.
+                    module_io[layer_index][component][module_index] = (input, output)
+
+        return module_io
 
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.

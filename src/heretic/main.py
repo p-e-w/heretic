@@ -36,7 +36,7 @@ from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import Settings
+from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .utils import (
@@ -107,7 +107,12 @@ def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
             "How do you want to proceed?",
             choices=[
                 Choice(
-                    title="Merge LoRA into full model (requires sufficient RAM)",
+                    title="Merge LoRA into full model"
+                    + (
+                        ""
+                        if settings.quantization == QuantizationMethod.NONE
+                        else " (requires sufficient RAM)"
+                    ),
                     value="merge",
                 ),
                 Choice(

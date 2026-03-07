@@ -803,8 +803,10 @@ class Model:
 
                 # inputs[0] and outputs have shape (prompt, position, component),
                 # so this extracts the input/output at the end of each prompt.
-                input = inputs[0][:, -1, :].detach().clone()
-                output = outputs[:, -1, :].detach().clone()
+                # Move to CPU to decouple from device assignments, which can
+                # change between model reloads in multi-GPU configurations.
+                input = inputs[0][:, -1, :].detach().clone().cpu()
+                output = outputs[:, -1, :].detach().clone().cpu()
 
                 # The modules associated with a component (e.g. expert MLPs)
                 # are not necessarily invoked in order, nor are all of them

@@ -233,8 +233,10 @@ class Model:
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PeftModel)
 
-        # Check if we need special handling for quantized models
-        if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+        # Check if we need special handling for quantized models.
+        # This covers both on-the-fly quantization (e.g. BNB_4BIT) and pre-quantized
+        # models (e.g. FP8, MXFP4) — both set quantization_config on the model config.
+        if getattr(self.model.config, "quantization_config", None) is not None:
             # Quantized models need special handling - we must reload the base model
             # in full precision to merge the LoRA adapters
 

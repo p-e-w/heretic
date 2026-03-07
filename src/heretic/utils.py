@@ -522,7 +522,7 @@ def upload_reproduce_folder(
     if source_truth.exists() and source_truth.is_dir():
         upload_dir = source_truth
     else:
-        # Fallback to creating a temporary one if root doesn't exist (unlikely given main.py)
+        # Fallback to creating a temporary one if root doesn't exist (unlikely given main.py).
         tmpdir = tempfile.mkdtemp()
         tmp_path = Path(tmpdir)
         create_reproduce_folder(tmp_path, settings, checkpoint_path=checkpoint_path)

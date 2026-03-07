@@ -3,6 +3,7 @@
 
 import math
 import os
+import random
 import sys
 import time
 import warnings
@@ -16,13 +17,6 @@ import optuna
 import torch
 import torch.nn.functional as F
 import transformers
-from accelerate.utils import (
-    is_mlu_available,
-    is_musa_available,
-    is_npu_available,
-    is_sdaa_available,
-    is_xpu_available,
-)
 from huggingface_hub import ModelCard, ModelCardData
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -40,17 +34,22 @@ from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .utils import (
+    create_reproduce_folder,
     empty_cache,
     format_duration,
+    get_accelerator_info,
     get_readme_intro,
     get_trial_parameters,
     load_prompts,
     print,
     print_memory_usage,
+    prompt_confirm,
     prompt_password,
     prompt_path,
     prompt_select,
     prompt_text,
+    set_reproducibility,
+    upload_reproduce_folder,
 )
 
 
@@ -171,46 +170,12 @@ def run():
         )
         return
 
-    # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
-    if torch.cuda.is_available():
-        count = torch.cuda.device_count()
-        total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
-        print(
-            f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):"
-        )
-        for i in range(count):
-            vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
-            print(
-                f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/] ({vram:.2f} GB)"
-            )
-    elif is_xpu_available():
-        count = torch.xpu.device_count()
-        print(f"Detected [bold]{count}[/] XPU device(s):")
-        for i in range(count):
-            print(f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]")
-    elif is_mlu_available():
-        count = torch.mlu.device_count()  # ty:ignore[unresolved-attribute]
-        print(f"Detected [bold]{count}[/] MLU device(s):")
-        for i in range(count):
-            print(f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
-    elif is_sdaa_available():
-        count = torch.sdaa.device_count()  # ty:ignore[unresolved-attribute]
-        print(f"Detected [bold]{count}[/] SDAA device(s):")
-        for i in range(count):
-            print(f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
-    elif is_musa_available():
-        count = torch.musa.device_count()  # ty:ignore[unresolved-attribute]
-        print(f"Detected [bold]{count}[/] MUSA device(s):")
-        for i in range(count):
-            print(f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
-    elif is_npu_available():
-        print(f"NPU detected (CANN version: [bold]{torch.version.cann}[/])")  # ty:ignore[unresolved-attribute]
-    elif torch.backends.mps.is_available():
-        print("Detected [bold]1[/] MPS device (Apple Metal)")
-    else:
-        print(
-            "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"
-        )
+    if settings.seed is None:
+        settings.seed = random.randint(0, 2**32 - 1)
+
+    set_reproducibility(settings.seed)
+
+    print(get_accelerator_info())
 
     # We don't need gradients as we only do inference.
     torch.set_grad_enabled(False)
@@ -587,6 +552,7 @@ def run():
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
             multivariate=True,
+            seed=settings.seed,
         ),
         directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
         storage=storage,
@@ -619,6 +585,10 @@ def run():
 
     if count_completed_trials() == settings.n_trials:
         study.set_user_attr("finished", True)
+
+    # Automatically create 'reproduce' folder in project root after optimization
+    # As a source of truth for potential later exports (Kaggle compatibility).
+    create_reproduce_folder(Path("."), settings, study_checkpoint_file)
 
     while True:
         # If no trials at all have been evaluated, the study must have been stopped
@@ -784,7 +754,21 @@ def run():
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
 
-                            print(f"Model saved to [bold]{save_directory}[/].")
+                            if prompt_confirm(
+                                "Include 'reproduce' folder?\n"
+                                "This saves your exact configuration and system information, "
+                                "along with the study checkpoint, to help others verify your results."
+                            ):
+                                create_reproduce_folder(
+                                    Path(save_directory),
+                                    settings,
+                                    checkpoint_path=study_checkpoint_file,
+                                )
+                                print(
+                                    f"Model and reproducibility files saved to [bold]{save_directory}[/]."
+                                )
+                            else:
+                                print(f"Model saved to [bold]{save_directory}[/].")
 
                         case "Upload the model to Hugging Face":
                             # We don't use huggingface_hub.login() because that stores the token on disk,
@@ -881,7 +865,22 @@ def run():
                                 )
                                 card.push_to_hub(repo_id, token=token)
 
-                            print(f"Model uploaded to [bold]{repo_id}[/].")
+                            if prompt_confirm(
+                                "Include 'reproduce' folder?\n"
+                                "This saves your exact configuration and system information, "
+                                "along with the study checkpoint, to help others verify your results."
+                            ):
+                                upload_reproduce_folder(
+                                    repo_id,
+                                    settings,
+                                    token,
+                                    checkpoint_path=study_checkpoint_file,
+                                )
+                                print(
+                                    f"Model and reproducibility files uploaded to [bold]{repo_id}[/]."
+                                )
+                            else:
+                                print(f"Model uploaded to [bold]{repo_id}[/].")
 
                         case "Chat with the model":
                             print()

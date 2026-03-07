@@ -1,19 +1,30 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import contextlib
 import gc
 import getpass
+import importlib.metadata
 import os
+import platform
+import random
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypeVar
 
+import huggingface_hub
+import numpy as np
 import questionary
+import tomli_w
 import torch
 from accelerate.utils import (
     is_mlu_available,
     is_musa_available,
+    is_npu_available,
     is_sdaa_available,
     is_xpu_available,
 )
@@ -25,10 +36,76 @@ from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
+from rich.text import Text
 
 from .config import DatasetSpecification, Settings
 
 print = Console(highlight=False).print
+
+
+def get_nvidia_driver_version() -> str:
+    """Gets the NVIDIA driver version using nvidia-smi."""
+    try:
+        output = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return output.strip().split("\n")[0]
+    except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
+        return "Unknown"
+
+
+def get_accelerator_info() -> str:
+    """The single source of truth for hardware detection and reporting."""
+
+    if torch.cuda.is_available():
+        count = torch.cuda.device_count()
+        total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
+        cuda_ver = torch.version.cuda
+        driver_ver = get_nvidia_driver_version()
+
+        report = f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM)\n"
+        report += f"CUDA Version: [bold]{cuda_ver}[/]\n"
+        report += f"Driver Version: [bold]{driver_ver}[/]\n"
+
+        for i in range(count):
+            name = torch.cuda.get_device_name(i)
+            vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
+            report += f"* GPU {i}: [bold]{name}[/] ({vram:.2f} GB)\n"
+    elif is_xpu_available():
+        count = torch.xpu.device_count()  # ty:ignore
+        driver_ver = "Unknown"
+        with contextlib.suppress(Exception):
+            driver_ver = torch.xpu.get_driver_version()  # ty:ignore
+
+        report = f"Detected [bold]{count}[/] XPU device(s)\n"
+        report += f"Driver Version: [bold]{driver_ver}[/]\n"
+        for i in range(count):
+            report += f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]\n"  # ty:ignore
+    elif is_mlu_available():
+        count = torch.mlu.device_count()  # ty:ignore
+        report = f"Detected [bold]{count}[/] MLU device(s):\n"
+        for i in range(count):
+            report += f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]\n"  # ty:ignore
+    elif is_sdaa_available():
+        count = torch.sdaa.device_count()  # ty:ignore
+        report = f"Detected [bold]{count}[/] SDAA device(s):\n"
+        for i in range(count):
+            report += f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]\n"  # ty:ignore
+    elif is_musa_available():
+        count = torch.musa.device_count()  # ty:ignore
+        report = f"Detected [bold]{count}[/] MUSA device(s):\n"
+        for i in range(count):
+            report += f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]\n"  # ty:ignore
+    elif is_npu_available():
+        report = f"NPU detected (CANN version: [bold]{torch.version.cann}[/])\n"  # ty:ignore
+    elif torch.backends.mps.is_available():
+        report = "Detected [bold]1[/] MPS device (Apple Metal)\n"
+    else:
+        report = "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]\n"
+
+    return report.strip()
 
 
 def print_memory_usage():
@@ -145,6 +222,18 @@ def prompt_password(message: str) -> str:
         return getpass.getpass(message)
     else:
         return questionary.password(message).ask()
+
+
+def prompt_confirm(message: str, default: bool = True) -> bool:
+    if is_notebook():
+        print()
+        choices = "[Y/n]" if default else "[y/N]"
+        result = input(f"{message} {choices} ").strip().lower()
+        if not result:
+            return default
+        return result in ("y", "yes")
+    else:
+        return questionary.confirm(message, default=default).ask()
 
 
 def format_duration(seconds: float) -> str:
@@ -312,3 +401,142 @@ def get_readme_intro(
 -----
 
 """
+
+
+def generate_config_toml(settings: Settings) -> str:
+    """Serializes the full Settings object to TOML."""
+    return tomli_w.dumps(settings.model_dump(exclude_none=True))
+
+
+def generate_requirements_txt() -> str:
+    """Collects installed packages with exact versions, normalizing names."""
+    dists = importlib.metadata.distributions()
+    unique_reqs = {}
+    for dist in dists:
+        with contextlib.suppress(Exception):
+            name = dist.metadata["Name"]
+            if name:
+                # Pip considers hyphens and underscores to be equivalent.
+                # We normalize to lowercase and hyphens to ensure deduplication.
+                normalized_name = name.lower().replace("_", "-")
+                unique_reqs[normalized_name] = f"{name}=={dist.version}"
+
+    reqs = sorted(unique_reqs.values(), key=lambda x: x.lower())
+    return "\n".join(reqs) + "\n"
+
+
+def generate_environment_txt() -> str:
+    """Collects OS, Python, and PyTorch/GPU information."""
+    lines = [
+        "Environment Snapshot",
+        "====================",
+        f"OS: {platform.platform()} ({platform.machine()})",
+        f"Python: {platform.python_version()}",
+        f"Heretic Version: {version('heretic-llm')}",
+        "",
+        "PyTorch & Accelerators",
+        "----------------------",
+        f"PyTorch Version: {torch.__version__}",
+        Text.from_markup(get_accelerator_info()).plain,
+    ]
+
+    return "\n".join(lines) + "\n"
+
+
+def set_reproducibility(seed: int):
+    """Sets the seed for all RNGs."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+
+def generate_reproduce_readme(settings: Settings, checkpoint_filename: str) -> str:
+    """Generates a README.md for the reproduce/ folder."""
+    return f"""# Reproduction Guide
+
+This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.
+
+## Contents
+
+- **config.toml**: The exact configuration used, including the seed `{settings.seed}`.
+- **environment.txt**: Details about the OS, Python, Heretic, PyTorch, Driver and hardware used.
+- **requirements.txt**: The exact versions of all installed Python packages.
+- **{checkpoint_filename}**: The Optuna study journal containing the history of all trials.
+
+## How to Reproduce
+
+1. Ensure your hardware and environment match the specifications in `environment.txt`.
+2. Install the exact package versions listed in `requirements.txt`.
+3. Place the provided `config.toml` in your working directory and run `heretic` without any additional arguments.
+"""
+
+
+def create_reproduce_folder(
+    path: Path, settings: Settings, checkpoint_path: str | Path
+) -> None:
+    target_dir = path / "reproduce"
+    source_truth = Path("reproduce")
+
+    # If a 'reproduce' folder already exists in the root (source of truth from optimization),
+    # And we are saving to a DIFFERENT location, copy the existing one.
+    if (
+        source_truth.exists()
+        and source_truth.is_dir()
+        and source_truth.resolve() != target_dir.resolve()
+    ):
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        shutil.copytree(source_truth, target_dir)
+        return
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_filename = Path(checkpoint_path).name
+
+    (target_dir / "config.toml").write_text(
+        generate_config_toml(settings), encoding="utf-8"
+    )
+    (target_dir / "requirements.txt").write_text(
+        generate_requirements_txt(), encoding="utf-8"
+    )
+    (target_dir / "environment.txt").write_text(
+        generate_environment_txt(), encoding="utf-8"
+    )
+    (target_dir / "README.md").write_text(
+        generate_reproduce_readme(settings, checkpoint_filename), encoding="utf-8"
+    )
+
+    # Copy Optuna study journal
+    checkpoint_file = Path(checkpoint_path)
+    if checkpoint_file.exists():
+        (target_dir / checkpoint_file.name).write_bytes(checkpoint_file.read_bytes())
+
+
+def upload_reproduce_folder(
+    repo_id: str,
+    settings: Settings,
+    token: str,
+    checkpoint_path: str | Path,
+) -> None:
+    source_truth = Path("reproduce")
+
+    if source_truth.exists() and source_truth.is_dir():
+        upload_dir = source_truth
+    else:
+        # Fallback to creating a temporary one if root doesn't exist (unlikely given main.py).
+        tmpdir = tempfile.mkdtemp()
+        tmp_path = Path(tmpdir)
+        create_reproduce_folder(tmp_path, settings, checkpoint_path=checkpoint_path)
+        upload_dir = tmp_path / "reproduce"
+
+    try:
+        for file_path in upload_dir.iterdir():
+            if file_path.is_file():
+                huggingface_hub.upload_file(
+                    path_or_fileobj=str(file_path),
+                    path_in_repo=f"reproduce/{file_path.name}",
+                    repo_id=repo_id,
+                    token=token,
+                )
+    finally:
+        if "tmpdir" in locals():
+            shutil.rmtree(tmpdir)

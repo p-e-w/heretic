@@ -408,7 +408,7 @@ def generate_config_toml(settings: Settings) -> str:
 
 
 def generate_requirements_txt() -> str:
-    """Collects installed packages with exact versions."""
+    """Collects installed packages with exact versions, normalizing names."""
     dists = importlib.metadata.distributions()
     unique_reqs = {}
     for dist in dists:

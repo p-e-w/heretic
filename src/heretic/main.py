@@ -570,10 +570,6 @@ def run():
     if count_completed_trials() == settings.n_trials:
         study.set_user_attr("finished", True)
 
-    # Automatically create 'reproduce' folder in project root after optimization
-    # As a source of truth for potential later exports (Kaggle compatibility).
-    create_reproduce_folder(Path("."), settings, study_checkpoint_file)
-
     while True:
         # If no trials at all have been evaluated, the study must have been stopped
         # by pressing Ctrl+C while the first trial was running. In this case, we just

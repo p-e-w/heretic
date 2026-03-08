@@ -8,7 +8,6 @@ import importlib.metadata
 import os
 import platform
 import random
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -21,6 +20,7 @@ import numpy as np
 import questionary
 import tomli_w
 import torch
+from rich.text import Text
 from accelerate.utils import (
     is_mlu_available,
     is_musa_available,
@@ -36,7 +36,6 @@ from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
-from rich.text import Text
 
 from .config import DatasetSpecification, Settings
 
@@ -409,17 +408,16 @@ def generate_config_toml(settings: Settings) -> str:
 
 
 def generate_requirements_txt() -> str:
-    """Collects installed packages with exact versions, normalizing names."""
+    """Collects installed packages with exact versions."""
     dists = importlib.metadata.distributions()
     unique_reqs = {}
     for dist in dists:
         with contextlib.suppress(Exception):
             name = dist.metadata["Name"]
             if name:
-                # Pip considers hyphens and underscores to be equivalent.
-                # We normalize to lowercase and hyphens to ensure deduplication.
-                normalized_name = name.lower().replace("_", "-")
-                unique_reqs[normalized_name] = f"{name}=={dist.version}"
+                # Use lowercase name as key to avoid case-sensitivity duplicates,
+                # but keep the original metadata name for the requirement string.
+                unique_reqs[name.lower()] = f"{name}=={dist.version}"
 
     reqs = sorted(unique_reqs.values(), key=lambda x: x.lower())
     return "\n".join(reqs) + "\n"
@@ -474,41 +472,28 @@ This directory contains the necessary information and assets to reproduce the re
 def create_reproduce_folder(
     path: Path, settings: Settings, checkpoint_path: str | Path
 ) -> None:
-    target_dir = path / "reproduce"
-    source_truth = Path("reproduce")
+    reproduce_dir = path / "reproduce"
+    reproduce_dir.mkdir(parents=True, exist_ok=True)
 
-    # If a 'reproduce' folder already exists in the root (source of truth from optimization),
-    # And we are saving to a DIFFERENT location, copy the existing one.
-    if (
-        source_truth.exists()
-        and source_truth.is_dir()
-        and source_truth.resolve() != target_dir.resolve()
-    ):
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
-        shutil.copytree(source_truth, target_dir)
-        return
-
-    target_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_filename = Path(checkpoint_path).name
 
-    (target_dir / "config.toml").write_text(
+    (reproduce_dir / "config.toml").write_text(
         generate_config_toml(settings), encoding="utf-8"
     )
-    (target_dir / "requirements.txt").write_text(
+    (reproduce_dir / "requirements.txt").write_text(
         generate_requirements_txt(), encoding="utf-8"
     )
-    (target_dir / "environment.txt").write_text(
+    (reproduce_dir / "environment.txt").write_text(
         generate_environment_txt(), encoding="utf-8"
     )
-    (target_dir / "README.md").write_text(
+    (reproduce_dir / "README.md").write_text(
         generate_reproduce_readme(settings, checkpoint_filename), encoding="utf-8"
     )
 
     # Copy Optuna study journal
     checkpoint_file = Path(checkpoint_path)
     if checkpoint_file.exists():
-        (target_dir / checkpoint_file.name).write_bytes(checkpoint_file.read_bytes())
+        (reproduce_dir / checkpoint_file.name).write_bytes(checkpoint_file.read_bytes())
 
 
 def upload_reproduce_folder(
@@ -517,19 +502,12 @@ def upload_reproduce_folder(
     token: str,
     checkpoint_path: str | Path,
 ) -> None:
-    source_truth = Path("reproduce")
-
-    if source_truth.exists() and source_truth.is_dir():
-        upload_dir = source_truth
-    else:
-        # Fallback to creating a temporary one if root doesn't exist (unlikely given main.py).
-        tmpdir = tempfile.mkdtemp()
+    with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         create_reproduce_folder(tmp_path, settings, checkpoint_path=checkpoint_path)
-        upload_dir = tmp_path / "reproduce"
 
-    try:
-        for file_path in upload_dir.iterdir():
+        reproduce_dir = tmp_path / "reproduce"
+        for file_path in reproduce_dir.iterdir():
             if file_path.is_file():
                 huggingface_hub.upload_file(
                     path_or_fileobj=str(file_path),
@@ -537,6 +515,3 @@ def upload_reproduce_folder(
                     repo_id=repo_id,
                     token=token,
                 )
-    finally:
-        if "tmpdir" in locals():
-            shutil.rmtree(tmpdir)

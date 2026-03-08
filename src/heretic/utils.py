@@ -20,7 +20,6 @@ import numpy as np
 import questionary
 import tomli_w
 import torch
-from rich.text import Text
 from accelerate.utils import (
     is_mlu_available,
     is_musa_available,
@@ -36,6 +35,7 @@ from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
+from rich.text import Text
 
 from .config import DatasetSpecification, Settings
 

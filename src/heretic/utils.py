@@ -415,9 +415,10 @@ def generate_requirements_txt() -> str:
         with contextlib.suppress(Exception):
             name = dist.metadata["Name"]
             if name:
-                # Use lowercase name as key to avoid case-sensitivity duplicates,
-                # but keep the original metadata name for the requirement string.
-                unique_reqs[name.lower()] = f"{name}=={dist.version}"
+                # Pip considers hyphens and underscores to be equivalent.
+                # We normalize to lowercase and hyphens to ensure deduplication.
+                normalized_name = name.lower().replace("_", "-")
+                unique_reqs[normalized_name] = f"{name}=={dist.version}"
 
     reqs = sorted(unique_reqs.values(), key=lambda x: x.lower())
     return "\n".join(reqs) + "\n"

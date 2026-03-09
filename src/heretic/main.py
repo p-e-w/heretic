@@ -54,14 +54,16 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings) -> str | None:
+def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
     """
     Prompts the user for how to proceed with saving the model.
     Provides info to the user if the model is quantized on memory use.
     Returns "merge", "adapter", or None (if cancelled/invalid).
     """
 
-    if settings.quantization == QuantizationMethod.BNB_4BIT:
+    is_quantized = getattr(model.model.config, "quantization_config", None) is not None
+
+    if is_quantized:
         print()
         print(
             "Model was loaded with quantization. Merging requires reloading the base model."
@@ -174,9 +176,15 @@ def run():
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
-        print(f"Detected [bold]{count}[/] CUDA device(s):")
+        total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
+        print(
+            f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):"
+        )
         for i in range(count):
-            print(f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/]")
+            vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
+            print(
+                f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/] ({vram:.2f} GB)"
+            )
     elif is_xpu_available():
         count = torch.xpu.device_count()
         print(f"Detected [bold]{count}[/] XPU device(s):")
@@ -747,7 +755,7 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -796,7 +804,7 @@ def run():
                             )
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 

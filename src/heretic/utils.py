@@ -61,12 +61,26 @@ def get_accelerator_info() -> str:
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
         total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
-        cuda_ver = torch.version.cuda
-        driver_ver = get_nvidia_driver_version()
 
-        report = f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM)\n"
-        report += f"CUDA Version: [bold]{cuda_ver}[/]\n"
-        report += f"Driver Version: [bold]{driver_ver}[/]\n"
+        # ROCm (AMD) and CUDA (NVIDIA) share the same API in PyTorch.
+        # We distinguish them by checking for the HIP version.
+        is_rocm = getattr(torch.version, "hip", None) is not None
+
+        if is_rocm:
+            label = "ROCm"
+            api_ver_label = "HIP Version"
+            api_ver = torch.version.hip  # type: ignore
+            driver_ver = "N/A"
+        else:
+            label = "CUDA"
+            api_ver_label = "CUDA Version"
+            api_ver = torch.version.cuda
+            driver_ver = get_nvidia_driver_version()
+
+        report = f"Detected [bold]{count}[/] {label} device(s) ({total_vram / (1024**3):.2f} GB total VRAM)\n"
+        report += f"{api_ver_label}: [bold]{api_ver}[/]\n"
+        if not is_rocm:
+            report += f"Driver Version: [bold]{driver_ver}[/]\n"
 
         for i in range(count):
             name = torch.cuda.get_device_name(i)
@@ -421,6 +435,18 @@ def generate_requirements_txt() -> str:
                 unique_reqs[normalized_name] = f"{name}=={dist.version}"
 
     reqs = sorted(unique_reqs.values(), key=lambda x: x.lower())
+
+    # Add hardware-specific PyTorch index URL if a version suffix is detected.
+    # E.g., "2.8.0+cu126" -> "--extra-index-url https://download.pytorch.org/whl/cu126".
+    torch_version = torch.__version__
+    if "+" in torch_version:
+        suffix = torch_version.split("+")[1]
+        # Common suffixes are cuXXX, rocmX.X, cpu.
+        if suffix:
+            reqs.insert(
+                0, f"--extra-index-url https://download.pytorch.org/whl/{suffix}"
+            )
+
     return "\n".join(reqs) + "\n"
 
 
@@ -431,7 +457,6 @@ def generate_environment_txt() -> str:
         "====================",
         f"OS: {platform.platform()} ({platform.machine()})",
         f"Python: {platform.python_version()}",
-        f"Heretic Version: {version('heretic-llm')}",
         "",
         "PyTorch & Accelerators",
         "----------------------",

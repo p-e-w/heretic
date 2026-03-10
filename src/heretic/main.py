@@ -481,19 +481,19 @@ def run():
             )
             steer_bad_behavior_weight = trial.suggest_float(
                 "steer_bad_behavior_weight",
-                0.001,
+                0.0001,
                 1.0,
                 log=True,
             )
             overcorrect_relative_weight = trial.suggest_float(
                 "overcorrect_relative_weight",
                 0.0,
-                1.0,
+                1.3,
             )
             neighbor_count = trial.suggest_int(
                 "neighbor_count",
                 1,
-                10,
+                15,
             )
 
             ara_parameters = ARAParameters(

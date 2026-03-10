@@ -36,7 +36,7 @@ from questionary import Choice
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod, Settings
+from .config import QuantizationMethod, RowNormalization, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, ARAParameters, Model, get_model_class
 from .utils import (
@@ -914,6 +914,14 @@ def run():
                                 card.data.tags.append("uncensored")
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
+                                if settings.use_ara:
+                                    card.data.tags.append("ara")
+                                elif (
+                                    settings.orthogonalize_direction
+                                    and settings.row_normalization
+                                    == RowNormalization.FULL
+                                ):
+                                    card.data.tags.append("mpoa")
                                 card.text = (
                                     get_readme_intro(
                                         settings,

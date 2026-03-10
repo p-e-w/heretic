@@ -27,7 +27,7 @@ from questionary import Choice, Style
 from rich.console import Console
 from torch import Tensor
 
-from .config import DatasetSpecification, Settings
+from .config import DatasetSpecification, RowNormalization, Settings
 
 print = Console(highlight=False).print
 
@@ -282,6 +282,18 @@ def get_trial_parameters(settings: Settings, trial: Trial) -> dict[str, str]:
         return params
 
 
+def get_method_description(settings: Settings) -> str:
+    if settings.use_ara:
+        return " with the [Arbitrary-Rank Ablation (ARA)](https://github.com/p-e-w/heretic/pull/211) method"
+    elif (
+        settings.orthogonalize_direction
+        and settings.row_normalization == RowNormalization.FULL
+    ):
+        return " with a variant of the [Magnitude-Preserving Orthogonal Ablation (MPOA)](https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration) method"
+    else:
+        return ""
+
+
 def get_readme_intro(
     settings: Settings,
     trial: Trial,
@@ -292,7 +304,9 @@ def get_readme_intro(
 
     return f"""# This is a decensored version of {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}
+    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}{
+        get_method_description(settings)
+    }
 
 ## Abliteration parameters
 

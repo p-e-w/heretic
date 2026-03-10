@@ -158,9 +158,7 @@ class Model:
                     all_components[component] = 0
                 all_components[component] += len(modules)
         for component, count in all_components.items():
-            print(
-                f"  * [bold]{component}[/]: [bold]{count}[/] modules total"
-            )
+            print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
 
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.

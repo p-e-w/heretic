@@ -437,15 +437,16 @@ def generate_requirements_txt() -> str:
     reqs = sorted(unique_reqs.values(), key=lambda x: x.lower())
 
     # Add hardware-specific PyTorch index URL if a version suffix is detected.
-    # E.g., "2.8.0+cu126" -> "--extra-index-url https://download.pytorch.org/whl/cu126".
+    # E.g., "2.8.0+cu126" -> "--index-url https://download.pytorch.org/whl/cu126".
     torch_version = torch.__version__
     if "+" in torch_version:
         suffix = torch_version.split("+")[1]
         # Common suffixes are cuXXX, rocmX.X, cpu.
         if suffix:
-            reqs.insert(
-                0, f"--extra-index-url https://download.pytorch.org/whl/{suffix}"
-            )
+            # We add PyPI as an extra index to ensure heretic's other dependencies,
+            # which are not in the hardware-specific PyTorch index, can still be found.
+            reqs.insert(0, "--extra-index-url https://pypi.org/simple")
+            reqs.insert(0, f"--index-url https://download.pytorch.org/whl/{suffix}")
 
     return "\n".join(reqs) + "\n"
 

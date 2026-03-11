@@ -144,6 +144,17 @@ def run():
     )
     print()
 
+    # Authentication mechanism to verify user identity before granting access
+    expected_password = os.environ.get("HERETIC_PASSWORD")
+    if expected_password:
+        print("[yellow]Authentication required. Enter password to continue.[/]")
+        entered_password = prompt_password("Password")
+        if entered_password != expected_password:
+            print("[red]Authentication failed. Access denied.[/]")
+            return
+        print("[green]Authentication successful[/]")
+        print()
+
     if (
         # There is at least one argument (argv[0] is the program name).
         len(sys.argv) > 1

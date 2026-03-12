@@ -432,22 +432,16 @@ def generate_requirements_txt() -> str:
                 # Pip considers hyphens and underscores to be equivalent.
                 # We normalize to lowercase and hyphens to ensure deduplication.
                 normalized_name = name.lower().replace("_", "-")
-                unique_reqs[normalized_name] = f"{name}=={dist.version}"
+
+                # Strip local version suffixes (e.g., +cu128, +rocm) for simpler installation
+                # and to avoid PEP 440 resolution issues.
+                version_str = dist.version
+                if "+" in version_str:
+                    version_str = version_str.split("+")[0]
+
+                unique_reqs[normalized_name] = f"{name}=={version_str}"
 
     reqs = sorted(unique_reqs.values(), key=lambda x: x.lower())
-
-    # Add hardware-specific PyTorch index URL if a version suffix is detected.
-    # E.g., "2.8.0+cu126" -> "--extra-index-url https://download.pytorch.org/whl/cu126".
-    torch_version = torch.__version__
-    if "+" in torch_version:
-        suffix = torch_version.split("+")[1]
-        # Common suffixes are cuXXX, rocmX.X, cpu.
-        if suffix:
-            # We add PyPI as an extra index to ensure heretic's other dependencies,
-            # which are not in the hardware-specific PyTorch index, can still be found.
-            reqs.insert(0, "--extra-index-url https://pypi.org/simple")
-            reqs.insert(0, f"--index-url https://download.pytorch.org/whl/{suffix}")
-
     return "\n".join(reqs) + "\n"
 
 
@@ -493,6 +487,9 @@ This directory contains the necessary information and assets to reproduce the re
 1. Ensure your hardware and environment match the specifications in `environment.txt`.
 2. Install the exact package versions listed in `requirements.txt`.
 3. Place the provided `config.toml` in your working directory and run `heretic` without any additional arguments.
+
+> Make sure to install correct PyTorch version from `environment.txt`. 
+> e.g., `pip install torch==2.8.0+cu126 --index-url https://download.pytorch.org/whl/cu126`
 """
 
 

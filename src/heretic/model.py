@@ -1,6 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+# ROCm PyTorch compatibility: torch.distributed.tensor doesn't exist in ROCm builds
+# PEFT checks for this in tuners_utils.py, causing AttributeError
+# Add a dummy module at the very top to prevent the crash
+import torch
+if hasattr(torch, 'distributed') and not hasattr(torch.distributed, 'tensor'):
+    class _DummyDTensor:
+        pass
+    torch.distributed.tensor = type('tensor', (), {'DTensor': _DummyDTensor})()
+
 import math
 from contextlib import suppress
 from dataclasses import dataclass
@@ -58,11 +67,12 @@ class Model:
     peft_config: LoraConfig
 
     def __init__(self, settings: Settings):
+        print("DEBUG: Model.__init__ called")
         self.settings = settings
         self.response_prefix = ""
         self.needs_reload = False
 
-        print()
+        print("DEBUG: Starting model loading...")
         print(f"Loading model [bold]{settings.model}[/]...")
 
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -169,6 +179,12 @@ class Model:
         # This is more robust than splitting component keys (e.g. "attn.o_proj" -> "o_proj")
         # because hybrid models like Qwen3.5 MoE have modules with different names
         # across layers (e.g. "o_proj" on attention layers, "out_proj" on linear attention layers).
+
+        # PEFT Workaround: Bypass the Mamba-based model check that forbids 'out_proj'
+        # Hierarchos uses this to allow LoRA on hybrid architectures like Falcon-H1.
+        import peft.tuners.tuners_utils
+        peft.tuners.tuners_utils._check_lora_target_modules_mamba = lambda *args, **kwargs: None
+
         target_modules_set: set[str] = set()
 
         for layer_index, layer in enumerate(self.get_layers()):
@@ -338,21 +354,27 @@ class Model:
         return model.model.layers
 
     def get_layer_modules(self, layer_index: int) -> dict[str, list[Module]]:
+        """
+        Returns a mapping from logical component names (e.g. "attn.o_proj",
+        "mlp.down_proj", "mamba.out_proj") to the corresponding nn.Modules
+        in a given transformer layer.
+
+        This is intentionally robust across many architectures (dense, MoE,
+        hybrid SSM/Transformer like Falcon H1R).
+        """
         layer = self.get_layers()[layer_index]
 
-        modules = {}
+        modules: dict[str, list[Module]] = {}
 
-        def try_add(component: str, module: Any):
-            # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
+        def try_add(component: str, module: Any) -> None:
+            # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA).
             if isinstance(module, Module):
-                if component not in modules:
-                    modules[component] = []
-                modules[component].append(module)
+                modules.setdefault(component, []).append(module)
             else:
-                # Assert for unexpected types (catches architecture changes)
-                assert not isinstance(module, Tensor), (
-                    f"Unexpected Tensor in {component} - expected nn.Module"
-                )
+                # Assert for unexpected types (catches architecture changes).
+                assert not isinstance(
+                    module, Tensor
+                ), f"Unexpected Tensor in {component} - expected nn.Module"
 
         # Standard self-attention out-projection (most models).
         with suppress(Exception):
@@ -363,7 +385,7 @@ class Model:
         with suppress(Exception):
             try_add("attn.o_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
 
-        # Most dense models.
+        # Most dense MLPs.
         with suppress(Exception):
             try_add("mlp.down_proj", layer.mlp.down_proj)  # ty:ignore[possibly-missing-attribute]
 
@@ -385,6 +407,21 @@ class Model:
         with suppress(Exception):
             for expert in layer.moe.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
                 try_add("mlp.down_proj", expert.output_linear)  # ty:ignore[possibly-missing-attribute]
+
+        # Falcon H1 hybrid (parallel Mamba-2 + Transformer).
+        # The mamba mixer's out_proj projects SSM output back to hidden_size,
+        # analogous to attention's o_proj — this is the projection into
+        # the residual stream where refusal directions manifest.
+        with suppress(Exception):
+            try_add("mamba.out_proj", layer.mamba.out_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # Alternative SSM naming (some implementations use different names).
+        with suppress(Exception):
+            try_add("mamba.out_proj", layer.ssm.out_proj)  # ty:ignore[possibly-missing-attribute]
+
+        # Falcon H1 uses feed_forward (SwiGLU MLP) instead of standard mlp.
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.feed_forward.down_proj)  # ty:ignore[possibly-missing-attribute]
 
         # We need at least one module across all components for abliteration to work.
         total_modules = sum(len(mods) for mods in modules.values())

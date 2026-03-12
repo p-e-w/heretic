@@ -66,8 +66,8 @@ Heretic have been well-received by users (links and emphasis added):
 > [*(Link to comment)*](https://old.reddit.com/r/LocalLLaMA/comments/1phjxca/im_calling_these_people_out_right_now/nt06tji/)
 
 Heretic supports most dense models, including many multimodal models, and
-several different MoE architectures. It does not yet support SSMs/hybrid models,
-models with inhomogeneous layers, and certain novel attention systems.
+several different MoE architectures. It also supports hybrid SSM/Transformer
+architectures such as Falcon H1R models.
 
 You can find a small collection of models that have been decensored using Heretic
 [on Hugging Face](https://huggingface.co/collections/p-e-w/the-bestiary),

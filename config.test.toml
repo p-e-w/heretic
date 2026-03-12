@@ -1,0 +1,41 @@
+# Test config for Falcon H1R minimal ablation
+model = "tiiuae/Falcon-H1R-7B"
+trust_remote_code = true
+dtypes = ["bfloat16"]
+device_map = "cpu"
+max_memory = {}
+
+# Minimal batch size for testing
+batch_size = 1
+
+# Skip prefix generation
+response_prefix = "</think></think>"
+
+# Minimal test settings
+n_trials = 1
+n_startup_trials = 1
+max_response_length = 16
+
+# System prompt for Falcon
+system_prompt = "You are Falcon, a helpful AI assistant created by Technology Innovation Institute (TII). To answer the user's question, you first think about the reasoning process and then provide the user with the answer. The reasoning process is enclosed within <think> </think> tags, i.e., <think> reasoning process here </think> answer here."
+
+# Small test datasets
+[good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:5]"
+column = "text"
+
+[bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:5]"
+column = "text"
+
+[good_evaluation_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[:2]"
+column = "text"
+
+[bad_evaluation_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "test[:2]"
+column = "text"

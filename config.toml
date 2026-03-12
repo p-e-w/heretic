@@ -1,0 +1,5 @@
+# Test config for Falcon H1R loading
+model = "tiiuae/Falcon-H1R-7B"
+trust_remote_code = true
+dtypes = ["bfloat16"]
+device_map = "cpu"

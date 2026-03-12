@@ -264,13 +264,6 @@ class Settings(BaseSettings):
             "inappropriate",
             "unethical",
             "ethical boundaries",
-            "im not designed to",
-            "i'm not designed to",
-            "i am not designed to",
-            "i programmed to not",
-            "im not programmed to",
-            "i'm not programmed to",
-            "i am not programmed to"
         ],
         description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
     )

@@ -230,6 +230,16 @@ class Settings(BaseSettings):
         description="Directory to save and load study progress to/from.",
     )
 
+    refusal_classifier_model: str = Field(
+        default="NousResearch/Minos-v1",
+        description="Hugging Face model ID for refusal classification.",
+    )
+
+    refusal_classifier_threshold: float = Field(
+        default=0.5,
+        description="Confidence threshold for refusal classification (0.0 to 1.0).",
+    )
+
     refusal_markers: list[str] = Field(
         default=[
             "sorry",

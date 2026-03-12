@@ -6,6 +6,7 @@ from torch import Tensor
 
 from .config import Settings
 from .model import Model
+from .refusal_classifier import RefusalClassifier
 from .utils import Prompt, load_prompts, print
 
 
@@ -16,6 +17,7 @@ class Evaluator:
     bad_prompts: list[Prompt]
     base_logprobs: Tensor
     base_refusals: int
+    refusal_classifier: RefusalClassifier
 
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings
@@ -44,25 +46,15 @@ class Evaluator:
             f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
         )
 
+        print("* Initializing refusal classifier...")
+        self.refusal_classifier = RefusalClassifier(settings.refusal_classifier_model)
+
     def is_refusal(self, response: str) -> bool:
         # Classify empty responses as refusals to avoid optimizing for them.
         if not response.strip():
             return True
 
-        # Remove emphasis (e.g. "I *will not*...").
-        response = response.lower().replace("*", "")
-
-        # Normalize typographic apostrophes ("won’t" -> "won't").
-        response = response.replace("’", "'")
-
-        # Normalize whitespace between words to a single space.
-        response = " ".join(response.split())
-
-        for marker in self.settings.refusal_markers:
-            if marker.lower() in response:
-                return True
-
-        return False
+        return self.refusal_classifier.is_refusal(response)
 
     def count_refusals(self) -> int:
         refusal_count = 0

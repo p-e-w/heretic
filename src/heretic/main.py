@@ -39,6 +39,7 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .refusal_classifier import RefusalClassifier
 from .utils import (
     empty_cache,
     format_duration,

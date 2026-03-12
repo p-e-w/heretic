@@ -356,90 +356,113 @@ class Model:
     def get_layer_modules(self, layer_index: int) -> dict[str, list[Module]]:
         """
         Returns a mapping from logical component names (e.g. "attn.o_proj",
-        "mlp.down_proj", "mamba.out_proj") to the corresponding nn.Modules
+        "mlp.down_proj", "ssm.out_proj") to the corresponding nn.Modules
         in a given transformer layer.
 
-        This is intentionally robust across many architectures (dense, MoE,
-        hybrid SSM/Transformer like Falcon H1R).
+        This version adds:
+        - Deduplication: avoids adding the same module object twice.
+        - Shape check: verifies that the output features match the model's hidden size,
+          ensuring we only target projections that feed into the residual stream.
+        - More comprehensive SSM detection: searches for any submodule named '*out_proj'
+          within known SSM block containers and validates its shape.
         """
         layer = self.get_layers()[layer_index]
 
         modules: dict[str, list[Module]] = {}
+        seen_ids = set()  # Track module ids to avoid duplicates
+
+        hidden_size = getattr(self.model.config, "hidden_size", None)
 
         def try_add(component: str, module: Any) -> None:
             # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA).
-            if isinstance(module, Module):
-                modules.setdefault(component, []).append(module)
-            else:
+            if not isinstance(module, Module):
                 # Assert for unexpected types (catches architecture changes).
-                assert not isinstance(
-                    module, Tensor
-                ), f"Unexpected Tensor in {component} - expected nn.Module"
+                assert not isinstance(module, Tensor), \
+                    f"Unexpected Tensor in {component} - expected nn.Module"
+                return
 
-        # Standard self-attention out-projection (most models).
-        with suppress(Exception):
-            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+            # Deduplicate by object id
+            mod_id = id(module)
+            if mod_id in seen_ids:
+                return
+            seen_ids.add(mod_id)
 
-        # Qwen3.5 MoE hybrid layers use GatedDeltaNet (linear attention) instead
-        # of standard self-attention, so self_attn.o_proj doesn't exist on those layers.
-        with suppress(Exception):
-            try_add("attn.o_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
+            # Optional shape check: only add if output features == hidden_size
+            # (skip if hidden_size is unknown or component isn't ssm.out_proj)
+            if component == "ssm.out_proj" and hidden_size is not None:
+                out_features = getattr(module, "out_features", None)
+                if out_features != hidden_size:
+                    # This projection doesn't match the expected residual size; skip
+                    return
 
-        # Most dense MLPs.
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.mlp.down_proj)  # ty:ignore[possibly-missing-attribute]
+            modules.setdefault(component, []).append(module)
 
-        # Some MoE models (e.g. Qwen3).
+        # ---- Standard self-attention out-projection ----
         with suppress(Exception):
-            for expert in layer.mlp.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
-                try_add("mlp.down_proj", expert.down_proj)  # ty:ignore[possibly-missing-attribute]
+            try_add("attn.o_proj", layer.self_attn.o_proj)
 
-        # Phi-3.5-MoE (and possibly others).
+        # Qwen3.5 MoE hybrid (linear attention)
         with suppress(Exception):
-            for expert in layer.block_sparse_moe.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
-                try_add("mlp.down_proj", expert.w2)  # ty:ignore[possibly-missing-attribute]
+            try_add("attn.o_proj", layer.linear_attn.out_proj)
 
-        # Granite MoE Hybrid - attention layers with shared_mlp.
+        # ---- MLP down-projections ----
+        # Most dense MLPs
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.shared_mlp.output_linear)  # ty:ignore[possibly-missing-attribute]
+            try_add("mlp.down_proj", layer.mlp.down_proj)
 
-        # Granite MoE Hybrid - MoE layers with experts.
+        # Some MoE models (e.g., Qwen3)
         with suppress(Exception):
-            for expert in layer.moe.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
-                try_add("mlp.down_proj", expert.output_linear)  # ty:ignore[possibly-missing-attribute]
+            for expert in layer.mlp.experts:
+                try_add("mlp.down_proj", expert.down_proj)
 
-        # Falcon H1 hybrid (parallel Mamba-2 + Transformer).
-        # The SSM mixer's out_proj projects SSM output back to hidden_size,
-        # analogous to attention's o_proj — this is the projection into
-        # the residual stream where refusal directions manifest.
-        # Primary Falcon-Mamba path (HuggingFace implementation)
+        # Phi-3.5-MoE (and possibly others)
         with suppress(Exception):
-            try_add("ssm.out_proj", layer.mixer.out_proj)  # ty:ignore[possibly-missing-attribute]
+            for expert in layer.block_sparse_moe.experts:
+                try_add("mlp.down_proj", expert.w2)
 
-        # Alternative naming for the SSM block itself
+        # Granite MoE Hybrid - attention layers with shared_mlp
         with suppress(Exception):
-            try_add("ssm.out_proj", layer.ssm.mixer.out_proj)  # ty:ignore[possibly-missing-attribute]
+            try_add("mlp.down_proj", layer.shared_mlp.output_linear)
 
-        # Specific Falcon H1 hybrid naming (if using 'mamba' as a sub-module)
+        # Granite MoE Hybrid - MoE layers with experts
         with suppress(Exception):
-            try_add("ssm.out_proj", layer.mamba.out_proj)  # ty:ignore[possibly-missing-attribute]
+            for expert in layer.moe.experts:
+                try_add("mlp.down_proj", expert.output_linear)
 
-        # Alternative SSM naming (some implementations use different names).
-        with suppress(Exception):
-            try_add("ssm.out_proj", layer.ssm.out_proj)  # ty:ignore[possibly-missing-attribute]
+        # Falcon H1 / hybrid models: feed_forward MLP variations
+        if hasattr(layer, 'feed_forward'):
+            if hasattr(layer.feed_forward, 'w2'):
+                try_add("mlp.down_proj", layer.feed_forward.w2)
+            if hasattr(layer.feed_forward, 'dense_4h_to_h'):
+                try_add("mlp.down_proj", layer.feed_forward.dense_4h_to_h)
 
-        # Falcon H1 uses feed_forward (SwiGLU MLP) instead of standard mlp.
-        # Falcon models often use 'w2' or 'dense_4h_to_h' for the downward projection.
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.feed_forward.w2)  # ty:ignore[possibly-missing-attribute]
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.feed_forward.dense_4h_to_h)  # ty:ignore[possibly-missing-attribute]
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.mlp.down_proj)  # ty:ignore[possibly-missing-attribute]
+        # ---- SSM output projections (hybrid models) ----
+        # We systematically look for common SSM block names and then search
+        # for any 'out_proj' attribute within them.
+        ssm_block_names = ['mixer', 'ssm', 'mamba', 'ssm_block']
+        for block_name in ssm_block_names:
+            block = getattr(layer, block_name, None)
+            if block is None:
+                continue
 
-        # We need at least one module across all components for abliteration to work.
+            # If the block itself has an out_proj, add it
+            if hasattr(block, 'out_proj'):
+                try_add("ssm.out_proj", block.out_proj)
+
+            # If the block contains a sub-block (e.g., block.mixer), search there too
+            # This handles cases like layer.ssm.mixer.out_proj
+            for sub_attr in ['mixer', 'ssm', 'mamba']:
+                sub_block = getattr(block, sub_attr, None)
+                if sub_block is not None and hasattr(sub_block, 'out_proj'):
+                    try_add("ssm.out_proj", sub_block.out_proj)
+
+            # Additionally, some implementations place out_proj directly inside the block
+            # but under a different name (e.g., 'output_projection'). We can optionally
+            # extend this pattern if needed.
+
+        # ---- Final check ----
         total_modules = sum(len(mods) for mods in modules.values())
-        assert total_modules > 0, "No abliterable modules found in layer"
+        assert total_modules > 0, f"No abliterable modules found in layer {layer_index}"
 
         return modules
 

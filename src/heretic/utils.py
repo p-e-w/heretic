@@ -471,6 +471,13 @@ def set_reproducibility(seed: int):
 
 def generate_reproduce_readme(settings: Settings, checkpoint_filename: str) -> str:
     """Generates a README.md for the reproduce/ folder."""
+    torch_version = torch.__version__
+    install_hint = f"pip install torch=={torch_version}"
+    if "+" in torch_version:
+        suffix = torch_version.split("+")[1]
+        if suffix:
+            install_hint += f" --index-url https://download.pytorch.org/whl/{suffix}"
+
     return f"""# Reproduction Guide
 
 This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.
@@ -489,7 +496,7 @@ This directory contains the necessary information and assets to reproduce the re
 3. Place the provided `config.toml` in your working directory and run `heretic` without any additional arguments.
 
 > Make sure to install correct PyTorch version from `environment.txt`. 
-> e.g., `pip install torch==2.8.0+cu126 --index-url https://download.pytorch.org/whl/cu126`
+> e.g., `{install_hint}`
 """
 
 

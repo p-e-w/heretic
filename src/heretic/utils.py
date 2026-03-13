@@ -55,6 +55,51 @@ def get_nvidia_driver_version() -> str:
         return "Unknown"
 
 
+def get_xpu_driver_version() -> str:
+    """Gets the Intel XPU driver version."""
+    try:
+        output = subprocess.check_output(
+            ["xpu-smi", "discovery"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        for line in output.split("\n"):
+            if "Driver Version" in line:
+                return line.split(":")[-1].strip()
+        return "Unknown"
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "Unknown"
+
+
+def get_npu_driver_version() -> str:
+    """Gets the Huawei NPU driver version."""
+    try:
+        output = subprocess.check_output(
+            ["npu-smi", "info", "-t", "board", "-i", "0"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        for line in output.split("\n"):
+            if "Software Version" in line:
+                return line.split()[-1].strip()
+        return "Unknown"
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "Unknown"
+
+
+def get_mps_driver_version() -> str:
+    """Gets the Apple Silicon (MPS) driver version via macOS version."""
+    try:
+        output = subprocess.check_output(
+            ["sw_vers", "-productVersion"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return output.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "Unknown"
+
+
 def get_accelerator_info() -> str:
     """The single source of truth for hardware detection and reporting."""
 
@@ -88,9 +133,7 @@ def get_accelerator_info() -> str:
             report += f"* GPU {i}: [bold]{name}[/] ({vram:.2f} GB)\n"
     elif is_xpu_available():
         count = torch.xpu.device_count()  # ty:ignore
-        driver_ver = "Unknown"
-        with contextlib.suppress(Exception):
-            driver_ver = torch.xpu.get_driver_version()  # ty:ignore
+        driver_ver = get_xpu_driver_version()
 
         report = f"Detected [bold]{count}[/] XPU device(s)\n"
         report += f"Driver Version: [bold]{driver_ver}[/]\n"
@@ -112,9 +155,15 @@ def get_accelerator_info() -> str:
         for i in range(count):
             report += f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]\n"  # ty:ignore
     elif is_npu_available():
-        report = f"NPU detected (CANN version: [bold]{torch.version.cann}[/])\n"  # ty:ignore
+        driver_ver = get_npu_driver_version()
+        report = (
+            f"Detected NPU device(s) (CANN version: [bold]{torch.version.cann}[/])\n"  # ty:ignore
+        )
+        report += f"Driver Version: [bold]{driver_ver}[/]\n"
     elif torch.backends.mps.is_available():
+        driver_ver = get_mps_driver_version()
         report = "Detected [bold]1[/] MPS device (Apple Metal)\n"
+        report += f"Driver Version (macOS): [bold]{driver_ver}[/]\n"
     else:
         report = "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]\n"
 

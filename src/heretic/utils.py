@@ -478,9 +478,23 @@ def generate_reproduce_readme(settings: Settings, checkpoint_filename: str) -> s
         if suffix:
             install_hint += f" --index-url https://download.pytorch.org/whl/{suffix}"
 
+    heterogeneous_warning = ""
+    if torch.cuda.is_available():
+        count = torch.cuda.device_count()
+        if count > 1:
+            device_names = {torch.cuda.get_device_name(i) for i in range(count)}
+            if len(device_names) > 1:
+                heterogeneous_warning = (
+                    "\n> [WARNING!]\n"
+                    "> **Heterogeneous GPUs Detected!**\n"
+                    "> This system uses multiple non-identical GPUs. When operations are distributed "
+                    "across different GPUs (e.g. via `device_map='auto'`), non-deterministic "
+                    "behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**\n"
+                )
+
     return f"""# Reproduction Guide
 
-This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.
+This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}
 
 ## Contents
 

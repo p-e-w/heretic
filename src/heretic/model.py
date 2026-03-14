@@ -191,6 +191,8 @@ class Model:
         )
 
         self.model = cast(PeftModel, get_peft_model(self.model, self.peft_config))
+        self.model.eval()
+        self.model.requires_grad_(False)
 
         print(f"* LoRA adapters initialized (targets: {', '.join(target_modules)})")
 
@@ -488,6 +490,20 @@ class Model:
         # Confirm abliteration occurred
         # print(f"  * [grey50]Abliteration applied to {sum(len(m) for m in self.all_components.values() if m)} modules[/]")
 
+        # NEW: Global diagnostic for KL issue
+        with torch.no_grad():
+            avg_a_norm = 0.0
+            avg_b_norm = 0.0
+            count = 0
+            for name, param in self.model.named_parameters():
+                if "lora_A" in name:
+                    avg_a_norm += param.norm().item()
+                    count += 1
+                elif "lora_B" in name:
+                    avg_b_norm += param.norm().item()
+            if count > 0:
+                print(f"  * [grey50]Active LoRA norms: A={avg_a_norm/count:.4f}, B={avg_b_norm/count:.4f}[/]")
+
     def generate(
         self,
         prompts: list[Prompt],
@@ -648,7 +664,12 @@ class Model:
         logits = cast(tuple[FloatTensor], outputs.scores)[0]
 
         # The returned tensor has shape (prompt, token).
-        return F.log_softmax(logits, dim=-1)
+        logprobs = F.log_softmax(logits, dim=-1)
+
+        # NEW: Trace logit behavior
+        print(f"      [grey50][DEBUG] Logprobs mean: {logprobs.mean():.4f}, std: {logprobs.std():.4f}[/]")
+
+        return logprobs
 
     def get_logprobs_batched(self, prompts: list[Prompt], **kwargs: Any) -> Tensor:
         logprobs = []

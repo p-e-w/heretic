@@ -318,6 +318,21 @@ class Settings(BaseSettings):
         description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
     )
 
+    hf_token: str | None = Field(
+        default=None,
+        description="Hugging Face access token for automatic upload.",
+    )
+
+    hf_repo_id: str | None = Field(
+        default=None,
+        description="Hugging Face repository ID for automatic upload.",
+    )
+
+    hf_private: bool = Field(
+        default=True,
+        description="Whether the automatically uploaded repository should be private.",
+    )
+
     @classmethod
     def settings_customise_sources(
         cls,

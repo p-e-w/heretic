@@ -633,6 +633,73 @@ def run():
     if count_completed_trials() == settings.n_trials:
         study.set_user_attr("finished", True)
 
+    if settings.hf_repo_id and settings.hf_token:
+        print()
+        print("[bold cyan]Executing automatic Hugging Face upload...[/]")
+
+        completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
+        if completed_trials:
+            best_auto_trial = min(
+                completed_trials,
+                key=lambda t: (t.user_attrs["refusals"], t.user_attrs["kl_divergence"]),
+            )
+
+            print(
+                f"* Best trial: [bold]Trial {best_auto_trial.user_attrs['index']}[/]"
+            )
+            print(
+                f"* Refusals: {best_auto_trial.user_attrs['refusals']}/{len(evaluator.bad_prompts)}"
+            )
+            print(f"* KL Divergence: {best_auto_trial.user_attrs['kl_divergence']:.4f}")
+
+            print("* Resetting and abliterating...")
+            model.reset_model()
+            model.abliterate(
+                refusal_directions,
+                best_auto_trial.user_attrs["direction_index"],
+                {
+                    k: AbliterationParameters(**v)
+                    for k, v in best_auto_trial.user_attrs["parameters"].items()
+                },
+            )
+
+            auto_strategy = (
+                "adapter"
+                if settings.quantization == QuantizationMethod.BNB_4BIT
+                else "merge"
+            )
+
+            try:
+                if auto_strategy == "adapter":
+                    print("* Uploading LoRA adapter...")
+                    model.model.push_to_hub(
+                        settings.hf_repo_id,
+                        private=settings.hf_private,
+                        token=settings.hf_token,
+                    )
+                else:
+                    print("* Merging and uploading model...")
+                    merged_model = model.get_merged_model()
+                    merged_model.push_to_hub(
+                        settings.hf_repo_id,
+                        private=settings.hf_private,
+                        token=settings.hf_token,
+                    )
+                    del merged_model
+                    empty_cache()
+                    model.tokenizer.push_to_hub(
+                        settings.hf_repo_id,
+                        private=settings.hf_private,
+                        token=settings.hf_token,
+                    )
+                print(
+                    f"[bold green]Successfully uploaded model to {settings.hf_repo_id}![/]"
+                )
+            except Exception as e:
+                print(f"[red]Auto-upload failed: {e}[/]")
+        else:
+            print("[yellow]No completed trials to upload.[/]")
+
     while True:
         # If no trials at all have been evaluated, the study must have been stopped
         # by pressing Ctrl+C while the first trial was running. In this case, we just

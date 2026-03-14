@@ -103,6 +103,11 @@ class Evaluator:
             self.good_prompts,
             use_cache=self.use_cache,
         )
+
+        # NEW: Global diagnostic for KL issue
+        diff = (logprobs - self.base_logprobs).abs().sum().item()
+        print(f"  * [grey50][DEBUG] Logprobs diff sum: {diff:.8f}[/]")
+
         kl_divergence = F.kl_div(
             logprobs,
             self.base_logprobs,

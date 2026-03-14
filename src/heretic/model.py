@@ -75,6 +75,7 @@ class Model:
         self.tokenizer = AutoTokenizer.from_pretrained(
             settings.model,
             trust_remote_code=settings.trust_remote_code,
+            token=settings.hf_token,
         )
 
         # Fallback for tokenizers that don't declare a special pad token.
@@ -107,6 +108,7 @@ class Model:
                     device_map=settings.device_map,
                     max_memory=self.max_memory,
                     trust_remote_code=settings.trust_remote_code,
+                    token=settings.hf_token,
                     **extra_kwargs,
                 )
 

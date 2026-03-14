@@ -168,10 +168,10 @@ def run():
             print(f"[bold]{error['loc'][0]}[/]: [yellow]{error['msg']}[/]")
 
         print()
-        print(
-            "Run [bold]heretic --help[/] or see [bold]config.default.toml[/] for details about configuration parameters."
-        )
         return
+
+    if settings.hf_token:
+        huggingface_hub.login(token=settings.hf_token)
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():

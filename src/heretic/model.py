@@ -66,12 +66,10 @@ class Model:
     peft_config: LoraConfig
 
     def __init__(self, settings: Settings):
-        print("DEBUG: Model.__init__ called")
         self.settings = settings
         self.response_prefix = settings.response_prefix
         self.needs_reload = False
 
-        print("DEBUG: Starting model loading...")
         print(f"Loading model [bold]{settings.model}[/]...")
 
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -316,19 +314,6 @@ class Model:
         - Debug prints to aid architecture discovery
         """
         layer = self.get_layers()[layer_index]
-
-        # --- DEBUG: print layer structure (first layer only) ---
-        if layer_index == 0:
-            print(f"\n[DEBUG] Layer {layer_index} attributes: {[a for a in dir(layer) if not a.startswith('_')]}")
-            for block_name in ['mixer', 'ssm', 'mamba', 'ssm_block', 'ssm_layer']:
-                if hasattr(layer, block_name):
-                    block = getattr(layer, block_name)
-                    print(f"  Found block '{block_name}': {type(block)}")
-                    # Recursively list submodules with 'out_proj' in name
-                    for subname, submod in block.named_modules():
-                        if 'out_proj' in subname or subname.endswith('output'):
-                            print(f"    -> potential projection: {subname}, shape: {getattr(submod, 'weight', '?').shape if hasattr(submod, 'weight') else 'no weight'}")
-        # --------------------------------------------------------
 
         modules: dict[str, list[Module]] = {}
         seen_ids = set()
@@ -640,7 +625,7 @@ class Model:
 
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.
-    def get_logprobs(self, prompts: list[Prompt]) -> Tensor:
+    def get_logprobs(self, prompts: list[Prompt], **kwargs: Any) -> Tensor:
         # We only generate one token, and we return the (log) probability distributions
         # over the vocabulary at that token position, for each prompt.
         _, outputs = self.generate(
@@ -648,6 +633,7 @@ class Model:
             max_new_tokens=1,
             output_scores=True,
             return_dict_in_generate=True,
+            **kwargs,
         )
 
         # This cast is valid because GenerateDecoderOnlyOutput is the return type
@@ -661,11 +647,11 @@ class Model:
         # The returned tensor has shape (prompt, token).
         return F.log_softmax(logits, dim=-1)
 
-    def get_logprobs_batched(self, prompts: list[Prompt]) -> Tensor:
+    def get_logprobs_batched(self, prompts: list[Prompt], **kwargs: Any) -> Tensor:
         logprobs = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            logprobs.append(self.get_logprobs(batch))
+            logprobs.append(self.get_logprobs(batch, **kwargs))
 
         return torch.cat(logprobs, dim=0)
 

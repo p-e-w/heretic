@@ -30,7 +30,10 @@ class Evaluator:
         print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
 
         print("* Obtaining first-token probability distributions...")
-        self.base_logprobs = model.get_logprobs_batched(self.good_prompts)
+        self.base_logprobs = model.get_logprobs_batched(
+            self.good_prompts,
+            use_cache=self.use_cache,
+        )
 
         print()
         print(
@@ -96,7 +99,10 @@ class Evaluator:
 
     def get_score(self) -> tuple[tuple[float, float], float, int]:
         print("  * Obtaining first-token probability distributions...")
-        logprobs = self.model.get_logprobs_batched(self.good_prompts)
+        logprobs = self.model.get_logprobs_batched(
+            self.good_prompts,
+            use_cache=self.use_cache,
+        )
         kl_divergence = F.kl_div(
             logprobs,
             self.base_logprobs,

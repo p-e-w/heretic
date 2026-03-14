@@ -142,16 +142,16 @@ class Model:
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
         print("* Abliterable components:")
-        all_components = {}
+        self.all_components = {}
         for layer_index in range(len(self.get_layers())):
             for component, modules in self.get_layer_modules(layer_index).items():
-                if component not in all_components:
-                    all_components[component] = 0
-                all_components[component] += len(modules)
-        for component, count in all_components.items():
+                if component not in self.all_components:
+                    self.all_components[component] = 0
+                self.all_components[component] += len(modules)
+        for component, count in self.all_components.items():
             print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
 
-        if "ssm.out_proj" not in all_components:
+        if "ssm.out_proj" not in self.all_components:
             print("[yellow]WARNING: No SSM components found! This model may not be fully abliterated.[/] If this is a hybrid model, check the architecture definition.")
 
     def _apply_lora(self):

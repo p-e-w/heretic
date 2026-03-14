@@ -321,6 +321,11 @@ def run():
     print()
     print_memory_usage()
 
+    use_cache = True
+    if hasattr(model, "all_components") and any(component.startswith("ssm.") for component in model.all_components):
+        print("[yellow]Hybrid model detected. Disabling KV cache for stable evaluation (shape mismatch prevention).[/]")
+        use_cache = False
+
     print()
     print(f"Loading good prompts from [bold]{settings.good_prompts.dataset}[/]...")
     good_prompts = load_prompts(settings, settings.good_prompts)
@@ -381,7 +386,7 @@ def run():
     print()
     print("Checking for common response prefix...")
     prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
-    responses = model.get_responses_batched(prefix_check_prompts)
+    responses = model.get_responses_batched(prefix_check_prompts, use_cache=use_cache)
 
     # Despite being located in os.path, commonprefix actually performs
     # a naive string operation without any path-specific logic,
@@ -419,16 +424,11 @@ def run():
 
     if recheck_prefix:
         print("* Rechecking with prefix...")
-        responses = model.get_responses_batched(prefix_check_prompts)
+        responses = model.get_responses_batched(prefix_check_prompts, use_cache=use_cache)
         additional_prefix = commonprefix(responses).rstrip(" ")
         if additional_prefix:
             model.response_prefix += additional_prefix
             print(f"* Extended prefix found: [bold]{model.response_prefix!r}[/]")
-
-    use_cache = True
-    if any(component.startswith("ssm.") for component in model.all_components):
-        print("[yellow]Hybrid model detected. Disabling KV cache for stable evaluation (shape mismatch prevention).[/]")
-        use_cache = False
 
     evaluator = Evaluator(settings, model, use_cache=use_cache)
 

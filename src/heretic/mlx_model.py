@@ -270,7 +270,7 @@ class MLXModel:
         return chat_prompts
 
     # -------------------------------------------------------------------
-    # Generation
+    # Generation (batched via mlx_lm.batch_generate)
     # -------------------------------------------------------------------
 
     def get_responses(
@@ -282,33 +282,30 @@ class MLXModel:
         mlx_lm = self._mlx_lm
 
         chat_prompts = self._tokenize_prompts(prompts)
-        responses = []
+
+        # Tokenize all prompts into token ID lists for batch_generate.
+        token_id_lists = [
+            self.tokenizer.encode(p, add_special_tokens=False) for p in chat_prompts
+        ]
 
         from mlx_lm.sample_utils import make_sampler
 
-        # Greedy decoding (temp=0) for deterministic outputs.
-        sampler = make_sampler(temp=0.0)
+        sampler = make_sampler(temp=0.0)  # Greedy for determinism.
 
-        for prompt_str in chat_prompts:
-            response = mlx_lm.generate(
-                self.mlx_model,
-                self.tokenizer,
-                prompt=prompt_str,
-                max_tokens=self.settings.max_response_length,
-                verbose=False,
-                sampler=sampler,
-            )
-            # mlx_lm.generate returns the full text including prompt.
-            # Extract only the generated part.
-            if response.startswith(prompt_str):
-                response = response[len(prompt_str):]
+        batch_response = mlx_lm.batch_generate(
+            self.mlx_model,
+            self.tokenizer,
+            prompts=token_id_lists,
+            max_tokens=self.settings.max_response_length,
+            sampler=sampler,
+        )
 
+        responses = []
+        for text in batch_response.texts:
             if skip_special_tokens:
-                # Re-decode through tokenizer to strip special tokens.
-                token_ids = self.tokenizer.encode(response, add_special_tokens=False)
-                response = self.tokenizer.decode(token_ids, skip_special_tokens=True)
-
-            responses.append(response)
+                token_ids = self.tokenizer.encode(text, add_special_tokens=False)
+                text = self.tokenizer.decode(token_ids, skip_special_tokens=True)
+            responses.append(text)
 
         return responses
 
@@ -325,7 +322,7 @@ class MLXModel:
         return responses
 
     # -------------------------------------------------------------------
-    # Hidden-state extraction (residuals)
+    # Hidden-state extraction (residuals) — batched forward pass
     # -------------------------------------------------------------------
 
     def _forward_with_hidden_states(
@@ -335,10 +332,11 @@ class MLXModel:
         Run a manual forward pass through the model layers, capturing
         the hidden state after each layer.
 
-        Returns (logits, all_hidden_states) where all_hidden_states is
-        a list (per prompt) of lists (per layer+embeddings) of mx.arrays.
+        Returns (logits_list, all_hidden_states) where all_hidden_states
+        is a list (per prompt) of lists (per layer+embeddings) of mx.arrays.
         """
         mx = self._mx
+        from mlx_lm.models.base import create_attention_mask
 
         all_hidden_states = []
         all_logits = []
@@ -349,9 +347,6 @@ class MLXModel:
             # Embedding layer
             h = self.mlx_model.model.embed_tokens(tokens)
             hidden_states = [h[:, -1, :]]  # Last token position
-
-            # Create attention mask
-            from mlx_lm.models.base import create_attention_mask
 
             mask = create_attention_mask(h, cache=None)
 
@@ -364,8 +359,6 @@ class MLXModel:
             h = self.mlx_model.model.norm(h)
 
             # LM head for logits.
-            # When tie_word_embeddings is True the model has no separate
-            # lm_head; instead it reuses the embedding matrix.
             if hasattr(self.mlx_model, "lm_head"):
                 logits = self.mlx_model.lm_head(h)
             else:
@@ -377,6 +370,23 @@ class MLXModel:
             mx.eval(*hidden_states, logits)
 
         return all_logits, all_hidden_states
+
+    def _forward_logits_only(self, input_ids_list: list[list[int]]) -> list[Any]:
+        """
+        Fast forward pass that only returns logits (no hidden states).
+        Used by get_logprobs where we don't need residuals.
+        """
+        mx = self._mx
+
+        all_logits = []
+        for input_ids in input_ids_list:
+            tokens = mx.array([input_ids])
+            # Use the model's own __call__ which is optimized
+            logits = self.mlx_model(tokens)
+            all_logits.append(logits[:, -1, :])
+            mx.eval(all_logits[-1])
+
+        return all_logits
 
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
         mx = self._mx
@@ -433,7 +443,7 @@ class MLXModel:
             self.tokenizer.encode(p, add_special_tokens=False) for p in chat_prompts
         ]
 
-        all_logits, _ = self._forward_with_hidden_states(input_ids_list)
+        all_logits = self._forward_logits_only(input_ids_list)
 
         # Stack logits: (batch, vocab_size)
         logits_mx = mx.concatenate(all_logits, axis=0)

@@ -210,8 +210,8 @@ def run():
         return
 
     # Resolve which backend to use (PyTorch or MLX).
-    backend = resolve_backend(settings)
-    use_mlx = backend == Backend.MLX
+    model_backend = resolve_backend(settings)
+    use_mlx = model_backend == Backend.MLX
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if use_mlx:
@@ -365,7 +365,7 @@ def run():
         elif choice is None or choice == "":
             return
 
-    model = create_model(settings, backend)
+    model = create_model(settings, model_backend)
     print()
     print_memory_usage()
 

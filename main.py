@@ -321,6 +321,11 @@ def run():
     print()
     print_memory_usage()
 
+    use_cache = True
+    if any(component.startswith("ssm.") for component in model.all_components):
+        print("[yellow]Hybrid model detected. Disabling KV cache for stable evaluation (shape mismatch prevention).[/]")
+        use_cache = False
+
     print()
     print(f"Loading good prompts from [bold]{settings.good_prompts.dataset}[/]...")
     good_prompts = load_prompts(settings, settings.good_prompts)
@@ -424,11 +429,6 @@ def run():
         if additional_prefix:
             model.response_prefix += additional_prefix
             print(f"* Extended prefix found: [bold]{model.response_prefix!r}[/]")
-
-    use_cache = True
-    if any(component.startswith("ssm.") for component in model.all_components):
-        print("[yellow]Hybrid model detected. Disabling KV cache for stable evaluation (shape mismatch prevention).[/]")
-        use_cache = False
 
     evaluator = Evaluator(settings, model, use_cache=use_cache)
 

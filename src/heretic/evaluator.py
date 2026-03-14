@@ -104,16 +104,22 @@ class Evaluator:
             use_cache=self.use_cache,
         )
 
-        # NEW: Global diagnostic for KL issue
-        diff = (logprobs - self.base_logprobs).abs().sum().item()
-        print(f"  * [grey50][DEBUG] Logprobs diff sum: {diff:.8f}[/]")
+        # Use float32 for metric calculation to avoid precision issues in bfloat16
+        logprobs_f32 = logprobs.float()
+        base_logprobs_f32 = self.base_logprobs.float()
 
-        kl_divergence = F.kl_div(
-            logprobs,
-            self.base_logprobs,
-            reduction="batchmean",
-            log_target=True,
-        ).item()
+        # Manual KL divergence calculation for better debugging
+        # KL(P || Q) = sum(P * (log P - log Q))
+        # where P is the base (target) and Q is the new (input)
+        # Since we use log_target=True, P = exp(target_log)
+        p_base = torch.exp(base_logprobs_f32)
+        kl_per_element = p_base * (base_logprobs_f32 - logprobs_f32)
+        kl_divergence = kl_per_element.sum().item() / logprobs_f32.shape[0]
+
+        # NEW: Global diagnostic for KL issue
+        diff = (logprobs_f32 - base_logprobs_f32).abs().sum().item()
+        print(f"  * [grey50][DEBUG] Logprobs diff sum (f32): {diff:.8f}[/]")
+        print(f"  * [grey50][DEBUG] KL sum: {kl_per_element.sum().item():.8f}[/]")
         print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
 
         print("  * Counting model refusals...")

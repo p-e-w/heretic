@@ -667,7 +667,11 @@ class Model:
         logprobs = F.log_softmax(logits, dim=-1)
 
         # NEW: Trace logit behavior
-        print(f"      [grey50][DEBUG] Logprobs mean: {logprobs.mean():.4f}, std: {logprobs.std():.4f}[/]")
+        # print(f"      [grey50][DEBUG] Logprobs mean: {logprobs.mean():.4f}, std: {logprobs.std():.4f}[/]")
+        # Sample first few tokens of first prompt
+        sample = logprobs[0, :5].tolist()
+        sample_str = ", ".join([f"{x:.4f}" for x in sample])
+        print(f"      [grey50][DEBUG] Logprobs sample [0, :5]: {sample_str}[/]")
 
         return logprobs
 

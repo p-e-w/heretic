@@ -38,6 +38,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mlx = [
+    "mlx>=0.20",
+    "mlx-lm>=0.20",
+]
 research = [
     "geom-median~=0.1",
     "imageio~=2.37",
@@ -49,6 +53,7 @@ research = [
 
 [dependency-groups]
 dev = [
+    "pytest>=8.0",
     "ruff>=0.14.5",
     "ty>=0.0.5",
 ]
@@ -69,3 +74,8 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "heretic"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that require a real MLX model on disk and Apple Silicon hardware",
+]

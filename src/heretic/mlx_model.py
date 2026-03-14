@@ -353,8 +353,13 @@ class MLXModel:
             # Final norm
             h = self.mlx_model.model.norm(h)
 
-            # LM head for logits
-            logits = self.mlx_model.lm_head(h)
+            # LM head for logits.
+            # When tie_word_embeddings is True the model has no separate
+            # lm_head; instead it reuses the embedding matrix.
+            if hasattr(self.mlx_model, "lm_head"):
+                logits = self.mlx_model.lm_head(h)
+            else:
+                logits = self.mlx_model.model.embed_tokens.as_linear(h)
 
             all_hidden_states.append(hidden_states)
             all_logits.append(logits[:, -1, :])  # Last position logits

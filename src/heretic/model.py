@@ -68,7 +68,7 @@ class Model:
     def __init__(self, settings: Settings):
         print("DEBUG: Model.__init__ called")
         self.settings = settings
-        self.response_prefix = ""
+        self.response_prefix = settings.response_prefix
         self.needs_reload = False
 
         print("DEBUG: Starting model loading...")

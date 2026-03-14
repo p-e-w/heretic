@@ -273,6 +273,11 @@ class Settings(BaseSettings):
         description="System prompt to use when prompting the model.",
     )
 
+    response_prefix: str = Field(
+        default="",
+        description="Optional response prefix to prepend to all responses (skips auto-detection if set).",
+    )
+
     good_prompts: DatasetSpecification = Field(
         default=DatasetSpecification(
             dataset="mlabonne/harmless_alpaca",

@@ -9,6 +9,7 @@ the MLX framework and mlx-lm library.
 import json
 import math
 import os
+import warnings
 from contextlib import suppress
 from typing import Any, cast
 
@@ -131,6 +132,15 @@ class MLXModel:
 
         print()
         print(f"Loading model [bold]{settings.model}[/] (MLX backend)...")
+
+        # Patch deprecated mx.metal.* calls used by mlx_lm internals
+        # to use the current API, silencing C++ deprecation warnings.
+        if hasattr(mx, "metal") and hasattr(mx, "device_info"):
+            mx.metal.device_info = mx.device_info
+        if hasattr(mx, "metal") and hasattr(mx, "get_peak_memory"):
+            mx.metal.get_peak_memory = mx.get_peak_memory
+        if hasattr(mx, "metal") and hasattr(mx, "get_active_memory"):
+            mx.metal.get_active_memory = mx.get_active_memory
 
         self.mlx_model, self.tokenizer = mlx_lm.load(
             settings.model,

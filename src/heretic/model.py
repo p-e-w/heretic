@@ -151,6 +151,9 @@ class Model:
         for component, count in all_components.items():
             print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
 
+        if "ssm.out_proj" not in all_components:
+            print("[yellow]WARNING: No SSM components found! This model may not be fully abliterated.[/] If this is a hybrid model, check the architecture definition.")
+
     def _apply_lora(self):
         assert isinstance(self.model, PreTrainedModel)
 
@@ -548,10 +551,12 @@ class Model:
         self,
         prompts: list[Prompt],
         skip_special_tokens: bool = False,
+        **kwargs: Any,
     ) -> list[str]:
         inputs, outputs = self.generate(
             prompts,
             max_new_tokens=self.settings.max_response_length,
+            **kwargs,
         )
 
         return self.tokenizer.batch_decode(

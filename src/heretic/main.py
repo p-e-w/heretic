@@ -140,8 +140,10 @@ def run():
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(
-        "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/]"
+        "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/] [bold yellow](netcats fork)[/]"
     )
+    # Added debug print to confirm we are running the local code
+    print(f"[grey50]Running heretic from: {os.path.dirname(__file__)}[/]")
     print()
 
     if (
@@ -345,10 +347,11 @@ def run():
 
             try:
                 # Warmup run to build the computation graph so that part isn't benchmarked.
-                model.get_responses(prompts)
+                # Disable cache for hybrid models to avoid common batching bugs during benchmark.
+                model.get_responses(prompts, use_cache=False)
 
                 start_time = time.perf_counter()
-                responses = model.get_responses(prompts)
+                responses = model.get_responses(prompts, use_cache=False)
                 end_time = time.perf_counter()
             except Exception as error:
                 if batch_size == 1:

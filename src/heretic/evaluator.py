@@ -17,9 +17,10 @@ class Evaluator:
     base_logprobs: Tensor
     base_refusals: int
 
-    def __init__(self, settings: Settings, model: Model):
+    def __init__(self, settings: Settings, model: Model, use_cache: bool = True):
         self.settings = settings
         self.model = model
+        self.use_cache = use_cache
 
         print()
         print(
@@ -70,6 +71,7 @@ class Evaluator:
         responses = self.model.get_responses_batched(
             self.bad_prompts,
             skip_special_tokens=True,
+            use_cache=self.use_cache,
         )
 
         for prompt, response in zip(self.bad_prompts, responses):

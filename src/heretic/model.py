@@ -571,6 +571,7 @@ class Model:
         self,
         prompts: list[Prompt],
         skip_special_tokens: bool = False,
+        **kwargs: Any,
     ) -> list[str]:
         responses = []
 
@@ -578,6 +579,7 @@ class Model:
             for response in self.get_responses(
                 batch,
                 skip_special_tokens=skip_special_tokens,
+                **kwargs,
             ):
                 responses.append(response)
 

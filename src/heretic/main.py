@@ -137,7 +137,7 @@ def run():
         os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
-    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
+    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v1.2.1-netcat-fork")
     print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(
         "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/] [bold yellow](netcats fork)[/]"
@@ -425,7 +425,12 @@ def run():
             model.response_prefix += additional_prefix
             print(f"* Extended prefix found: [bold]{model.response_prefix!r}[/]")
 
-    evaluator = Evaluator(settings, model)
+    use_cache = True
+    if any(component.startswith("ssm.") for component in model.all_components):
+        print("[yellow]Hybrid model detected. Disabling KV cache for stable evaluation (shape mismatch prevention).[/]")
+        use_cache = False
+
+    evaluator = Evaluator(settings, model, use_cache=use_cache)
 
     if settings.evaluate_model is not None:
         print()

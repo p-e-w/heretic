@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import torch
 import torch.nn.functional as F
 from torch import Tensor
 
@@ -120,7 +121,7 @@ class Evaluator:
         diff = (logprobs_f32 - base_logprobs_f32).abs().sum().item()
         print(f"  * [grey50][DEBUG] Logprobs diff sum (f32): {diff:.8f}[/]")
         print(f"  * [grey50][DEBUG] KL sum: {kl_per_element.sum().item():.8f}[/]")
-        print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
+        print(f"  * KL divergence: [bold]{kl_divergence:.8f}[/]")
 
         print("  * Counting model refusals...")
         refusals = self.count_refusals()

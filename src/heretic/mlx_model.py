@@ -439,25 +439,14 @@ class MLXModel:
         return torch.cat(logprobs, dim=0)
 
     # -------------------------------------------------------------------
-    # Weight manipulation helpers
+    # Memory-efficient abliteration
+    #
+    # For MoE models with many experts (e.g. 128), dequantizing all
+    # expert weights at once can spike memory by 16+ GB. Instead, we
+    # process one expert at a time: dequantize single expert slice,
+    # apply the rank-1 abliteration delta, requantize, write back.
+    # Peak additional memory is just one expert's weight (~16KB).
     # -------------------------------------------------------------------
-
-    def _get_weight_f32(self, module: Any):
-        """Get a module's weight as a float32 mx.array, dequantizing if needed."""
-        mx = self._mx
-
-        if hasattr(module, "scales"):
-            # QuantizedLinear or QuantizedSwitchLinear
-            biases = getattr(module, "biases", None)
-            return mx.dequantize(
-                module.weight,
-                module.scales,
-                biases,
-                module.group_size,
-                module.bits,
-            ).astype(mx.float32)
-        else:
-            return module.weight.astype(mx.float32)
 
     def _save_original_weights(self, module: Any):
         """Save a copy of the module's weight state for later restoration."""
@@ -493,23 +482,98 @@ class MLXModel:
             if "biases" in state:
                 module.biases = state["biases"]
 
-    def _set_weight_requantize(self, module: Any, W_new):
+    def _abliterate_module(self, module: Any, v: Any, ablation_weight: float):
         """
-        Write a modified float32 weight back into a module.
-        If the module was quantized, requantize to the same bit width.
+        Apply directional ablation to a single module's weights.
+
+        For quantized MoE (QuantizedSwitchLinear), processes one expert
+        at a time to avoid dequantizing all experts simultaneously.
+
+        Args:
+            module: The nn.Module whose weight to modify.
+            v: Refusal direction vector (out_dims,).
+            ablation_weight: Scalar weight for the ablation.
         """
         mx = self._mx
+        is_quantized = hasattr(module, "scales")
 
-        if hasattr(module, "scales"):
+        if is_quantized:
+            wq = module.weight
+            scales = module.scales
+            biases = getattr(module, "biases", None)
             group_size = module.group_size
             bits = module.bits
-            mode = getattr(module, "mode", "affine")
-            result = mx.quantize(W_new, group_size=group_size, bits=bits)
-            module.weight = result[0]
-            module.scales = result[1]
-            if len(result) > 2:
-                module.biases = result[2]
+
+            if wq.ndim == 3:
+                # QuantizedSwitchLinear: process one expert at a time.
+                num_experts = wq.shape[0]
+                v_row = v.reshape(1, -1)
+                lora_B = (-ablation_weight * v)  # (out_dims,)
+
+                for i in range(num_experts):
+                    # Dequantize single expert
+                    bi = biases[i:i+1] if biases is not None else None
+                    W_i = mx.dequantize(
+                        wq[i:i+1], scales[i:i+1], bi,
+                        group_size=group_size, bits=bits,
+                    ).astype(mx.float32)  # (1, out_dims, in_dims)
+
+                    # Compute rank-1 delta: delta_W = outer(lora_B, v @ W_i)
+                    vTW_i = (v_row @ W_i.squeeze(0))  # (1, in_dims)
+                    delta_W_i = lora_B.reshape(-1, 1) @ vTW_i  # (out_dims, in_dims)
+                    W_i_new = W_i.squeeze(0) + delta_W_i
+
+                    # Requantize and write back
+                    wq_i, s_i, *b_i = mx.quantize(
+                        W_i_new.reshape(1, *W_i_new.shape),
+                        group_size=group_size, bits=bits,
+                    )
+                    wq[i] = wq_i.squeeze(0)
+                    scales[i] = s_i.squeeze(0)
+                    if biases is not None and b_i:
+                        biases[i] = b_i[0].squeeze(0)
+
+                    # Evaluate periodically to free intermediates
+                    if (i + 1) % 16 == 0:
+                        mx.eval(wq, scales)
+
+                mx.eval(wq, scales)
+                module.weight = wq
+                module.scales = scales
+                if biases is not None:
+                    module.biases = biases
+            else:
+                # QuantizedLinear: dequantize, modify, requantize (single weight)
+                W = mx.dequantize(
+                    wq, scales, biases,
+                    group_size=group_size, bits=bits,
+                ).astype(mx.float32)
+
+                W_flat = W.reshape(W.shape[0], -1)
+                lora_A = (v @ W_flat).reshape(1, -1)
+                lora_B = (-ablation_weight * v).reshape(-1, 1)
+                W_new = W + (lora_B @ lora_A).reshape(W.shape)
+
+                wq_new, s_new, *b_new = mx.quantize(W_new, group_size=group_size, bits=bits)
+                mx.eval(wq_new, s_new)
+                module.weight = wq_new
+                module.scales = s_new
+                if b_new:
+                    module.biases = b_new[0]
         else:
+            # Unquantized module: modify directly
+            W = module.weight.astype(mx.float32)
+            if W.ndim == 3:
+                vT_W = mx.einsum("j,ejk->ek", v, W)
+                delta_W = -ablation_weight * v[None, :, None] * vT_W[:, None, :]
+                W_new = W + delta_W
+            else:
+                W_flat = W.reshape(W.shape[0], -1)
+                lora_A = (v @ W_flat).reshape(1, -1)
+                lora_B = (-ablation_weight * v).reshape(-1, 1)
+                W_new = W + (lora_B @ lora_A).reshape(W.shape)
+
+            mx.eval(W_new)
             module.weight = W_new.astype(module.weight.dtype)
 
     # -------------------------------------------------------------------
@@ -555,29 +619,7 @@ class MLXModel:
 
                 for module in modules:
                     self._save_original_weights(module)
-
-                    # Get weight as float32
-                    W = self._get_weight_f32(module)
-
-                    v = layer_refusal_direction
-
-                    if W.ndim == 3:
-                        # SwitchLinear: (num_experts, out_dims, in_dims)
-                        # v is (out_dims,)
-                        # Per-expert: lora_A_i = v @ W_i → (in_dims,)
-                        # delta_W_i = -weight * outer(v, v @ W_i)
-                        vT_W = mx.einsum("j,ejk->ek", v, W)  # (experts, in_dims)
-                        delta_W = -ablation_weight * v[None, :, None] * vT_W[:, None, :]
-                        W_new = W + delta_W
-                    else:
-                        # Regular Linear: (out_dims, in_dims)
-                        W_flat = W.reshape(W.shape[0], -1)
-                        lora_A = (v @ W_flat).reshape(1, -1)
-                        lora_B = (-ablation_weight * v).reshape(-1, 1)
-                        W_new = W + (lora_B @ lora_A).reshape(W.shape)
-
-                    mx.eval(W_new)
-                    self._set_weight_requantize(module, W_new)
+                    self._abliterate_module(module, layer_refusal_direction, ablation_weight)
 
     # -------------------------------------------------------------------
     # Reset

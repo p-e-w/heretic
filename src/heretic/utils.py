@@ -56,8 +56,8 @@ def print_memory_usage():
     try:
         import mlx.core as mx
 
-        p("MLX peak memory", mx.metal.get_peak_memory())
-        p("MLX active memory", mx.metal.get_active_memory())
+        p("MLX peak memory", mx.get_peak_memory())
+        p("MLX active memory", mx.get_active_memory())
     except (ImportError, AttributeError):
         pass
 

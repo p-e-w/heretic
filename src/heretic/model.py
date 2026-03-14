@@ -70,7 +70,7 @@ class Model:
         self.response_prefix = settings.response_prefix
         self.needs_reload = False
 
-        print(f"Loading model [bold]{settings.model}[/]...")
+        print(f"Loading model [bold]{settings.model}[/]... [grey50](Engine v1.2.1-hybrid-fix)[/]")
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             settings.model,
@@ -484,6 +484,9 @@ class Model:
                     weight_B = cast(Tensor, module.lora_B["default"].weight)
                     weight_A.data = lora_A.to(weight_A.dtype)
                     weight_B.data = lora_B.to(weight_B.dtype)
+
+        # Confirm abliteration occurred
+        # print(f"  * [grey50]Abliteration applied to {sum(len(m) for m in self.all_components.values() if m)} modules[/]")
 
     def generate(
         self,

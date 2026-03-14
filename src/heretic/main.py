@@ -137,10 +137,10 @@ def run():
         os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
-    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v1.2.1-netcat-fork")
-    print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
     print(
-        "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/] [bold yellow](netcats fork)[/]"
+        "█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀  [bold red]v1.2.1-hybrid-fix[/]\n"
+        "█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░\n"
+        "▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀  [grey50]https://github.com/p-e-w/heretic (netcats fork)[/]"
     )
     # Added debug print to confirm we are running the local code
     print(f"[grey50]Running heretic from: {os.path.dirname(__file__)}[/]")
@@ -466,7 +466,8 @@ def run():
         refusal_directions = (
             refusal_directions - projection_vector.unsqueeze(1) * good_directions
         )
-        refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
+    refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
+    print(f"* Refusal directions calculated (avg norm: [bold]{refusal_directions.norm(dim=1).mean():.4f}[/])")
 
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 

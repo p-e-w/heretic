@@ -110,9 +110,7 @@ class Evaluator:
         kl_divergence_scale = self.settings.kl_divergence_scale
         kl_divergence_target = self.settings.kl_divergence_target
 
-        refusals_score = (
-            refusals / self.base_refusals if self.base_refusals > 0 else float(refusals)
-        )
+        refusals_score = refusals / self.base_refusals
 
         if kl_divergence >= kl_divergence_target:
             kld_score = kl_divergence / kl_divergence_scale

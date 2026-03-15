@@ -25,8 +25,9 @@ from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
+from torch import Tensor
 
-from .config import DatasetSpecification, Settings
+from .config import DatasetSpecification, RowNormalization, Settings
 
 print = Console(highlight=False).print
 
@@ -234,6 +235,14 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
 
+# For each vector in the 2D-tensor `a`, computes the mean Euclidean distance
+# to the `k` nearest neighbors of the vector among the vectors in the 2D-tensor `b`.
+def mean_distances_to_knn(a: Tensor, b: Tensor, k: int) -> Tensor:
+    distances = torch.cdist(a, b)
+    nearest_distances, _ = distances.topk(k, dim=1, largest=False)
+    return nearest_distances.mean(1)
+
+
 def empty_cache():
     # Collecting garbage is not an idempotent operation, and to avoid OOM errors,
     # gc.collect() has to be called both before and after emptying the backend cache.
@@ -256,19 +265,39 @@ def empty_cache():
     gc.collect()
 
 
-def get_trial_parameters(trial: Trial) -> dict[str, str]:
-    params = {}
+def get_trial_parameters(settings: Settings, trial: Trial) -> dict[str, str]:
+    if settings.use_ara:
+        parameters = trial.user_attrs["ara_parameters"]
 
-    direction_index = trial.user_attrs["direction_index"]
-    params["direction_index"] = (
-        "per layer" if (direction_index is None) else f"{direction_index:.2f}"
-    )
+        return {
+            name: (f"{value:.4f}" if isinstance(value, float) else f"{value}")
+            for name, value in parameters.items()
+        }
+    else:
+        params = {}
 
-    for component, parameters in trial.user_attrs["parameters"].items():
-        for name, value in parameters.items():
-            params[f"{component}.{name}"] = f"{value:.2f}"
+        direction_index = trial.user_attrs["direction_index"]
+        params["direction_index"] = (
+            "per layer" if (direction_index is None) else f"{direction_index:.2f}"
+        )
 
-    return params
+        for component, parameters in trial.user_attrs["parameters"].items():
+            for name, value in parameters.items():
+                params[f"{component}.{name}"] = f"{value:.2f}"
+
+        return params
+
+
+def get_method_description(settings: Settings) -> str:
+    if settings.use_ara:
+        return " with the [Arbitrary-Rank Ablation (ARA)](https://github.com/p-e-w/heretic/pull/211) method"
+    elif (
+        settings.orthogonalize_direction
+        and settings.row_normalization == RowNormalization.FULL
+    ):
+        return " with a variant of the [Magnitude-Preserving Orthogonal Ablation (MPOA)](https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration) method"
+    else:
+        return ""
 
 
 def get_readme_intro(
@@ -285,7 +314,9 @@ def get_readme_intro(
 
     return f"""# This is a decensored version of {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}
+    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}{
+        get_method_description(settings)
+    }
 
 ## Abliteration parameters
 
@@ -295,7 +326,7 @@ def get_readme_intro(
         chr(10).join(
             [
                 f"| **{name}** | {value} |"
-                for name, value in get_trial_parameters(trial).items()
+                for name, value in get_trial_parameters(settings, trial).items()
             ]
         )
     }

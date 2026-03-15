@@ -649,7 +649,7 @@ class Model:
             prompts,
             use_prefix=use_prefix,
             max_new_tokens=1,
-            output_logits=True,
+            output_scores=True,
             return_dict_in_generate=True,
             **kwargs,
         )

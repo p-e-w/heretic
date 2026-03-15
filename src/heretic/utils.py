@@ -31,9 +31,41 @@ from .config import DatasetSpecification, Settings
 print = Console(highlight=False).print
 
 
+def format_file_size(size_in_bytes: int) -> str:
+    """Format a byte count into a human-readable file size string.
+
+    Automatically selects the most appropriate unit (B, KB, MB, GB, TB)
+    based on magnitude, keeping output concise for display in logs and
+    progress messages.
+
+    Examples::
+
+        format_file_size(512)           # "512 B"
+        format_file_size(4096)          # "4.00 KB"
+        format_file_size(52_428_800)    # "50.00 MB"
+        format_file_size(7_516_192_768) # "7.00 GB"
+
+    Args:
+        size_in_bytes: Non-negative byte count.
+
+    Returns:
+        A short human-readable string such as ``"3.45 GB"``.
+    """
+    if size_in_bytes < 1024:
+        return f"{size_in_bytes} B"
+
+    for unit in ("KB", "MB", "GB"):
+        size_in_bytes /= 1024
+        if size_in_bytes < 1024:
+            return f"{size_in_bytes:.2f} {unit}"
+
+    size_in_bytes /= 1024
+    return f"{size_in_bytes:.2f} TB"
+
+
 def print_memory_usage():
     def p(label: str, size_in_bytes: int):
-        print(f"[grey50]{label}: [bold]{size_in_bytes / (1024**3):.2f} GB[/][/]")
+        print(f"[grey50]{label}: [bold]{format_file_size(size_in_bytes)}[/][/]")
 
     p("Resident system RAM", Process().memory_info().rss)
 
@@ -55,13 +87,9 @@ def print_memory_usage():
 
 
 def is_notebook() -> bool:
-    # Check for specific environment variables (Colab, Kaggle).
-    # This is necessary because when running as a subprocess (e.g. !heretic),
-    # get_ipython() might not be available or might not reflect the notebook environment.
     if os.getenv("COLAB_GPU") or os.getenv("KAGGLE_KERNEL_RUN_TYPE"):
         return True
 
-    # Check IPython shell type (for library usage).
     try:
         from IPython import get_ipython  # ty:ignore[unresolved-import]
 
@@ -175,33 +203,23 @@ def load_prompts(
 
     if os.path.isdir(path):
         if Path(path, DATASET_STATE_JSON_FILENAME).exists():
-            # Dataset saved with datasets.save_to_disk; needs special handling.
-            # Path should be the subdirectory for a particular split.
             dataset = load_from_disk(path)
             assert not isinstance(dataset, DatasetDict), (
                 "Loading dataset dicts is not supported"
             )
-            # Parse the split instructions.
             instruction = ReadInstruction.from_spec(split_str)
-            # Associate the split with its number of examples (lines).
             split_name = str(dataset.split)
             name2len = {split_name: len(dataset)}
-            # Convert the instructions to absolute indices and select the first one.
             abs_instruction = instruction.to_absolute(name2len)[0]
-            # Get the dataset by applying the indices.
             dataset = dataset[abs_instruction.from_ : abs_instruction.to]
         else:
-            # Path is a local directory.
             dataset = load_dataset(
                 path,
                 split=split_str,
-                # Don't require the number of examples (lines) per split to be pre-defined.
                 verification_mode=VerificationMode.NO_CHECKS,
-                # But also don't use cached data, as the dataset may have changed on disk.
                 download_mode=DownloadMode.FORCE_REDOWNLOAD,
             )
     else:
-        # Probably a repository path; let load_dataset figure it out.
         dataset = load_dataset(path, split=split_str)
 
     prompts = list(dataset[specification.column])
@@ -235,9 +253,6 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
 
 
 def empty_cache():
-    # Collecting garbage is not an idempotent operation, and to avoid OOM errors,
-    # gc.collect() has to be called both before and after emptying the backend cache.
-    # See https://github.com/p-e-w/heretic/pull/17 for details.
     gc.collect()
 
     if torch.cuda.is_available():
@@ -278,7 +293,6 @@ def get_readme_intro(
     bad_prompts: list[Prompt],
 ) -> str:
     if Path(settings.model).exists():
-        # Hide the path, which may contain private information.
         model_link = "a model"
     else:
         model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"

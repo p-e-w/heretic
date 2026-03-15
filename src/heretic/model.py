@@ -359,6 +359,9 @@ class Model:
             if hasattr(layer, block_name):
                 block = getattr(layer, block_name)
                 for name, module in block.named_modules():
+                    # Skip LoRA internals if LoRA is already applied
+                    if "base_layer" in name or "lora_" in name:
+                        continue
                     if isinstance(module, torch.nn.Linear):
                         # The final projection in an MLP (down-proj) restores the hidden size.
                         if hidden_size is not None and module.out_features == hidden_size:
@@ -369,9 +372,15 @@ class Model:
 
         # 3. SSM/Mamba/Recurrent blocks (recursive search)
         for name, module in layer.named_modules():
+            # Skip LoRA internals if LoRA is already applied
+            if "base_layer" in name or "lora_" in name:
+                continue
             name_lower = name.lower()
             if any(x in name_lower for x in ["ssm", "mamba", "mixer", "recurrent", "hydra", "scan"]):
                 for subname, submod in module.named_modules():
+                    # Skip internals of internals
+                    if "base_layer" in subname or "lora_" in subname:
+                        continue
                     # Look for the final projection restoring hidden size
                     if isinstance(submod, torch.nn.Linear) or "Linear" in submod.__class__.__name__:
                         out_f = getattr(submod, "out_features", None)
@@ -664,13 +673,6 @@ class Model:
 
         # The returned tensor has shape (prompt, token).
         logprobs = F.log_softmax(logits, dim=-1)
-
-        # NEW: Trace logit behavior
-        # print(f"      [grey50][DEBUG] Logprobs mean: {logprobs.mean():.4f}, std: {logprobs.std():.4f}[/]")
-        # Sample first few tokens of first prompt
-        sample = logprobs[0, :5].tolist()
-        sample_str = ", ".join([f"{x:.4f}" for x in sample])
-        print(f"      [grey50][DEBUG] Logprobs sample [0, :5]: {sample_str}[/]")
 
         return logprobs
 

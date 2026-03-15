@@ -344,49 +344,41 @@ class Model:
 
             modules.setdefault(component, []).append(module)
 
-        # ---- Standard attention out-projection ----
+        # 1. Standard attention out-projections
         with suppress(Exception):
             try_add("attn.o_proj", layer.self_attn.o_proj)
-
-        # Qwen3.5 MoE hybrid (linear attention)
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.out_proj)
         with suppress(Exception):
             try_add("attn.o_proj", layer.linear_attn.out_proj)
 
-        # ---- MLP down-projections ----
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.mlp.down_proj)
+        # 2. MLP down-projections (using recursive search for all feed-forward components)
+        # We look for all Linear modules within 'mlp' or 'feed_forward' blocks
+        # that have the correct output dimension (hidden_size).
+        for block_name in ["mlp", "feed_forward", "block_sparse_moe", "moe"]:
+            if hasattr(layer, block_name):
+                block = getattr(layer, block_name)
+                for name, module in block.named_modules():
+                    if isinstance(module, torch.nn.Linear):
+                        # The final projection in an MLP (down-proj) restores the hidden size.
+                        if hidden_size is not None and module.out_features == hidden_size:
+                            try_add("mlp.down_proj", module)
+                        # Fallback: support common names if hidden_size is unknown or mismatched
+                        elif any(x in name.lower() for x in ["down_proj", "w2", "dense_4h_to_h", "output_linear", "out_proj"]):
+                            try_add("mlp.down_proj", module)
 
-        with suppress(Exception):
-            for expert in layer.mlp.experts:
-                try_add("mlp.down_proj", expert.down_proj)
-
-        with suppress(Exception):
-            for expert in layer.block_sparse_moe.experts:
-                try_add("mlp.down_proj", expert.w2)
-
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.shared_mlp.output_linear)
-
-        with suppress(Exception):
-            for expert in layer.moe.experts:
-                try_add("mlp.down_proj", expert.output_linear)
-
-        if hasattr(layer, 'feed_forward'):
-            if hasattr(layer.feed_forward, 'w2'):
-                try_add("mlp.down_proj", layer.feed_forward.w2)
-            if hasattr(layer.feed_forward, 'dense_4h_to_h'):
-                try_add("mlp.down_proj", layer.feed_forward.dense_4h_to_h)
-
-        # More robust search for SSM/Mamba/Recurrent blocks
+        # 3. SSM/Mamba/Recurrent blocks (recursive search)
         for name, module in layer.named_modules():
             name_lower = name.lower()
-            # Common names for SSM/Mamba/Recurrent components in hybrid models
             if any(x in name_lower for x in ["ssm", "mamba", "mixer", "recurrent", "hydra", "scan"]):
-                # Within these blocks, look for the final projection module.
-                # It's usually named 'out_proj', 'output', 'proj', or 'dense'.
                 for subname, submod in module.named_modules():
-                    if subname.endswith(("out_proj", "output", "proj", "dense")) and isinstance(submod, Module):
-                        try_add("ssm.out_proj", submod)
+                    # Look for the final projection restoring hidden size
+                    if isinstance(submod, torch.nn.Linear) or "Linear" in submod.__class__.__name__:
+                        out_f = getattr(submod, "out_features", None)
+                        if hidden_size is not None and out_f == hidden_size:
+                            try_add("ssm.out_proj", submod)
+                        elif subname.endswith(("out_proj", "output", "proj", "dense")):
+                            try_add("ssm.out_proj", submod)
 
         # ---- Final check ----
         total_modules = sum(len(mods) for mods in modules.values())
@@ -509,6 +501,7 @@ class Model:
     def generate(
         self,
         prompts: list[Prompt],
+        use_prefix: bool = True,
         **kwargs: Any,
     ) -> tuple[BatchEncoding, GenerateDecoderOnlyOutput | LongTensor]:
         chats = [
@@ -530,7 +523,7 @@ class Model:
             ),
         )
 
-        if self.response_prefix:
+        if use_prefix and self.response_prefix:
             # Append the common response prefix to the prompts so that evaluation happens
             # at the point where responses start to differ for different prompts.
             chat_prompts = [prompt + self.response_prefix for prompt in chat_prompts]
@@ -557,10 +550,12 @@ class Model:
         self,
         prompts: list[Prompt],
         skip_special_tokens: bool = False,
+        use_prefix: bool = True,
         **kwargs: Any,
     ) -> list[str]:
         inputs, outputs = self.generate(
             prompts,
+            use_prefix=use_prefix,
             max_new_tokens=self.settings.max_response_length,
             **kwargs,
         )
@@ -591,11 +586,12 @@ class Model:
 
         return responses
 
-    def get_residuals(self, prompts: list[Prompt]) -> Tensor:
+    def get_residuals(self, prompts: list[Prompt], use_prefix: bool = True) -> Tensor:
         # We only generate one token, and we return the residual vectors
         # at that token position, for each prompt and layer.
         _, outputs = self.generate(
             prompts,
+            use_prefix=use_prefix,
             max_new_tokens=1,
             output_hidden_states=True,
             return_dict_in_generate=True,
@@ -636,23 +632,24 @@ class Model:
 
         return residuals
 
-    def get_residuals_batched(self, prompts: list[Prompt]) -> Tensor:
+    def get_residuals_batched(self, prompts: list[Prompt], use_prefix: bool = True) -> Tensor:
         residuals = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            residuals.append(self.get_residuals(batch))
+            residuals.append(self.get_residuals(batch, use_prefix=use_prefix))
 
         return torch.cat(residuals, dim=0)
 
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.
-    def get_logprobs(self, prompts: list[Prompt], **kwargs: Any) -> Tensor:
+    def get_logprobs(self, prompts: list[Prompt], use_prefix: bool = True, **kwargs: Any) -> Tensor:
         # We only generate one token, and we return the (log) probability distributions
-        # over the vocabulary at that token position, for each prompt.
+        # for that token.
         _, outputs = self.generate(
             prompts,
+            use_prefix=use_prefix,
             max_new_tokens=1,
-            output_scores=True,
+            output_logits=True,
             return_dict_in_generate=True,
             **kwargs,
         )
@@ -677,11 +674,11 @@ class Model:
 
         return logprobs
 
-    def get_logprobs_batched(self, prompts: list[Prompt], **kwargs: Any) -> Tensor:
+    def get_logprobs_batched(self, prompts: list[Prompt], use_prefix: bool = True, **kwargs: Any) -> Tensor:
         logprobs = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            logprobs.append(self.get_logprobs(batch, **kwargs))
+            logprobs.append(self.get_logprobs(batch, use_prefix=use_prefix, **kwargs))
 
         return torch.cat(logprobs, dim=0)
 

@@ -448,9 +448,9 @@ def run():
     print()
     print("Calculating per-layer refusal directions...")
     print("* Obtaining residuals for good prompts...")
-    good_residuals = model.get_residuals_batched(good_prompts)
+    good_residuals = model.get_residuals_batched(good_prompts, use_prefix=False)
     print("* Obtaining residuals for bad prompts...")
-    bad_residuals = model.get_residuals_batched(bad_prompts)
+    bad_residuals = model.get_residuals_batched(bad_prompts, use_prefix=False)
 
     good_means = good_residuals.mean(dim=0)
     bad_means = bad_residuals.mean(dim=0)

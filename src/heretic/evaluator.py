@@ -127,19 +127,9 @@ class Evaluator:
         refusals = self.count_refusals()
         print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
 
-        kl_divergence_scale = self.settings.kl_divergence_scale
-        kl_divergence_target = self.settings.kl_divergence_target
-
+        kld_score = kl_divergence / self.settings.kl_divergence_scale
         refusals_score = refusals / self.base_refusals
-
-        if kl_divergence >= kl_divergence_target:
-            kld_score = kl_divergence / kl_divergence_scale
-        else:
-            kld_score = refusals_score * kl_divergence_target / kl_divergence_scale
-
-        score = (
-            kld_score,
-            refusals_score,
-        )
-
-        return score, kl_divergence, refusals
+        
+        # We still return a tuple for multi-objective optimization.
+        # Optuna will try to minimize both.
+        return (kld_score, refusals_score), kl_divergence, refusals

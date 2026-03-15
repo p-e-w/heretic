@@ -717,12 +717,7 @@ class Model:
             max_new_tokens=4096,
         )  # ty:ignore[call-non-callable]
 
-        # This cast is valid because str is the return type
-        # when passing a sequence of token IDs.
-        return cast(
-            str,
-            self.tokenizer.decode(
-                outputs[0, inputs["input_ids"].shape[1] :],
-                skip_special_tokens=True,
-            ),
+        return self.tokenizer.decode(
+            outputs[0, inputs["input_ids"].shape[1] :],
+            skip_special_tokens=True,
         )

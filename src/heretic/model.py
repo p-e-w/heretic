@@ -362,9 +362,10 @@ class Model:
                     # Skip LoRA internals if LoRA is already applied
                     if "base_layer" in name or "lora_" in name:
                         continue
-                    if isinstance(module, torch.nn.Linear):
+                    # Flexible check: match nn.Linear, PEFT wrappers, or custom Linear projections
+                    if isinstance(module, (torch.nn.Linear, Linear)) or "Linear" in module.__class__.__name__:
                         # The final projection in an MLP (down-proj) restores the hidden size.
-                        if hidden_size is not None and module.out_features == hidden_size:
+                        if hidden_size is not None and getattr(module, "out_features", None) == hidden_size:
                             try_add("mlp.down_proj", module)
                         # Fallback: support common names if hidden_size is unknown or mismatched
                         elif any(x in name.lower() for x in ["down_proj", "w2", "dense_4h_to_h", "output_linear", "out_proj"]):
@@ -382,7 +383,7 @@ class Model:
                     if "base_layer" in subname or "lora_" in subname:
                         continue
                     # Look for the final projection restoring hidden size
-                    if isinstance(submod, torch.nn.Linear) or "Linear" in submod.__class__.__name__:
+                    if isinstance(submod, (torch.nn.Linear, Linear)) or "Linear" in submod.__class__.__name__:
                         out_f = getattr(submod, "out_features", None)
                         if hidden_size is not None and out_f == hidden_size:
                             try_add("ssm.out_proj", submod)

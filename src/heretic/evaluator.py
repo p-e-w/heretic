@@ -101,6 +101,8 @@ class Evaluator:
             reduction="batchmean",
             log_target=True,
         ).item()
+        # Clamp to non-negative (KL divergence cannot be negative by definition)
+        kl_divergence = max(0.0, kl_divergence)
         print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
 
         print("  * Counting model refusals...")

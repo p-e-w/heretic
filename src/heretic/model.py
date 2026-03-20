@@ -360,8 +360,9 @@ class Model:
 
         # Qwen3.5 MoE hybrid layers use GatedDeltaNet (linear attention) instead
         # of standard self-attention, so self_attn.o_proj doesn't exist on those layers.
+        # Uses a separate component key so LoRA also targets "out_proj" modules.
         with suppress(Exception):
-            try_add("attn.o_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
+            try_add("attn.out_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Most dense models.
         with suppress(Exception):

@@ -38,6 +38,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+judge-llama-cpp = [
+    "llama-cpp-python~=0.3",
+]
 research = [
     "geom-median~=0.1",
     "imageio~=2.37",

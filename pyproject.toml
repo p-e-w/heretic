@@ -28,6 +28,7 @@ dependencies = [
     "hf-transfer~=0.1",
     "huggingface-hub~=0.34",
     "kernels~=0.11",
+    "lm-eval[hf]~=0.4.11",
     "optuna~=4.5",
     "peft~=0.14",
     "psutil~=7.1",

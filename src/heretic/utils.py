@@ -325,7 +325,10 @@ def get_readme_intro(
 
 | Metric | This model | Original model ({model_link}) |
 | :----- | :--------: | :---------------------------: |
-| **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
+| **{"PIQA acc_norm" if settings.use_piqa else "KL divergence"}** | {
+        (-1 if settings.use_piqa else 1) * trial.user_attrs["kl_divergence"]:.4f} | {
+        "*Unknown*" if settings.use_piqa else "0 *(by definition)*"
+    } |
 | **Refusals** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
         len(bad_prompts)
     } |

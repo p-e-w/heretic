@@ -689,7 +689,7 @@ def run():
                 title=(
                     f"[Trial {trial.user_attrs['index']:>3}] "
                     f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                    f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
+                    f"{'PIQA acc_norm' if settings.use_piqa else 'KL divergence'}: {(-1 if settings.use_piqa else 1) * trial.user_attrs['kl_divergence']:.4f}"
                 ),
                 value=trial,
             )

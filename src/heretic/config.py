@@ -192,6 +192,14 @@ class Settings(BaseSettings):
         ),
     )
 
+    use_piqa: bool = Field(
+        default=True,
+        description=(
+            "Whether to use the Physical Interaction: Question Answering (PIQA) benchmark "
+            "as the quality metric instead of the Kullback-Leibler divergence."
+        ),
+    )
+
     orthogonalize_direction: bool = Field(
         default=False,
         description=(

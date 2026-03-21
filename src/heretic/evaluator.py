@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import lm_eval
 import torch.nn.functional as F
+from lm_eval.models.huggingface import HFLM
 from torch import Tensor
 
 from .config import Settings
@@ -21,15 +23,16 @@ class Evaluator:
         self.settings = settings
         self.model = model
 
-        print()
-        print(
-            f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."
-        )
-        self.good_prompts = load_prompts(settings, settings.good_evaluation_prompts)
-        print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
+        if not settings.use_piqa:
+            print()
+            print(
+                f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."
+            )
+            self.good_prompts = load_prompts(settings, settings.good_evaluation_prompts)
+            print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
 
-        print("* Obtaining first-token probability distributions...")
-        self.base_logprobs = model.get_logprobs_batched(self.good_prompts)
+            print("* Obtaining first-token probability distributions...")
+            self.base_logprobs = model.get_logprobs_batched(self.good_prompts)
 
         print()
         print(
@@ -93,33 +96,52 @@ class Evaluator:
         return refusal_count
 
     def get_score(self) -> tuple[tuple[float, float], float, int]:
-        print("  * Obtaining first-token probability distributions...")
-        logprobs = self.model.get_logprobs_batched(self.good_prompts)
-        kl_divergence = F.kl_div(
-            logprobs,
-            self.base_logprobs,
-            reduction="batchmean",
-            log_target=True,
-        ).item()
-        print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
+        if self.settings.use_piqa:
+            print("  * Running PIQA benchmark...")
+            hflm = HFLM(pretrained=self.model.model, tokenizer=self.model.tokenizer)  # ty:ignore[invalid-argument-type]
+            results = lm_eval.simple_evaluate(
+                model=hflm,
+                tasks=["piqa"],
+                batch_size="auto",
+            )
+            piqa_acc_norm: float = results["results"]["piqa"]["acc_norm,none"]
+            print(f"  * PIQA acc_norm: [bold]{piqa_acc_norm:.4f}[/]")
+        else:
+            print("  * Obtaining first-token probability distributions...")
+            logprobs = self.model.get_logprobs_batched(self.good_prompts)
+            kl_divergence = F.kl_div(
+                logprobs,
+                self.base_logprobs,
+                reduction="batchmean",
+                log_target=True,
+            ).item()
+            print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
 
         print("  * Counting model refusals...")
         refusals = self.count_refusals()
         print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
 
-        kl_divergence_scale = self.settings.kl_divergence_scale
-        kl_divergence_target = self.settings.kl_divergence_target
-
         refusals_score = refusals / self.base_refusals
 
-        if kl_divergence >= kl_divergence_target:
-            kld_score = kl_divergence / kl_divergence_scale
+        if self.settings.use_piqa:
+            score = (
+                -piqa_acc_norm,
+                refusals_score,
+            )
+
+            return score, -piqa_acc_norm, refusals
         else:
-            kld_score = refusals_score * kl_divergence_target / kl_divergence_scale
+            kl_divergence_scale = self.settings.kl_divergence_scale
+            kl_divergence_target = self.settings.kl_divergence_target
 
-        score = (
-            kld_score,
-            refusals_score,
-        )
+            if kl_divergence >= kl_divergence_target:
+                kld_score = kl_divergence / kl_divergence_scale
+            else:
+                kld_score = refusals_score * kl_divergence_target / kl_divergence_scale
 
-        return score, kl_divergence, refusals
+            score = (
+                kld_score,
+                refusals_score,
+            )
+
+            return score, kl_divergence, refusals

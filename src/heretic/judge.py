@@ -12,8 +12,8 @@ from .config import GGMLType, Settings
 from .utils import print
 
 # Map GGMLType enum values to the integer constants used by llama-cpp-python.
-# Values from the ggml_type enum in ggml.h:
-# https://github.com/ggml-org/ggml/blob/v0.9.8/include/ggml.h
+# Values are from the ggml_type enum in
+# https://github.com/ggml-org/ggml/blob/v0.9.8/include/ggml.h.
 _GGML_TYPE_IDS: dict[GGMLType, int] = {
     GGMLType.F32: 0,
     GGMLType.F16: 1,
@@ -160,9 +160,9 @@ class Judge:
             if self.settings.judge_verbose:
                 # Diagnostics were already visible; no point retrying.
                 raise
-            # llama-cpp-python suppresses C-level diagnostic output from llama.cpp
-            # when verbose=False. Retry with verbose=True so the user can see the
-            # actual error (e.g. unsupported model architecture).
+            # The llama-cpp-python package suppresses C-level diagnostic output
+            # from llama.cpp when verbose=False. Retry with verbose=True so the
+            # user can see the actual error (e.g. unsupported model architecture).
             print(
                 f"[yellow]Judge model loading failed: {escape(str(original_error))}[/]\n"
                 "[yellow]Retrying with diagnostic output enabled...[/]"

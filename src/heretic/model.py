@@ -5,6 +5,11 @@ import math
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Type, cast
+import os
+import glob
+import json
+import shutil
+from safetensors import safe_open, save_file
 
 import bitsandbytes as bnb
 import torch
@@ -278,6 +283,96 @@ class Model:
             # Mark for full reload if user switches trials later.
             self.needs_reload = True
             return merged_model
+
+
+    def save_sharded(self, model_path: str, save_directory: str) -> None:
+
+        assert isinstance(self.model, PeftModel)
+
+        lora_state_dict = self.model.state_dict()
+
+        # 1. resolve the local path
+        if not os.path.exists(model_path):
+            print("Model path not found locally, attempting to locate in HF cache.")
+            hf_hub_location = os.environ.get("HF_HUB_CACHE", os.path.join(os.environ.get("HOME", ""), ".cache/huggingface/hub"))
+            
+            model_name_cached = "models--" + model_path.replace("/", "--")
+            model_path = os.path.join(hf_hub_location, model_name_cached)
+
+        if not os.path.exists(model_path):
+            raise ValueError(f"Could not find model at {model_path}")
+
+        # Parse LoRA keys to find matching base layers
+        lora_pairs = {}
+        for key in lora_state_dict.keys():
+            if "lora_A" in key:
+                base_key = key.replace(".lora_A.weight", "").replace("base_model.model.", "")
+                lora_pairs[base_key] = {
+                    'A': lora_state_dict[key],
+                    'B': lora_state_dict.get(key.replace("lora_A", "lora_B"))
+                }
+
+        # Get all safetensors shards
+        model_files = sorted(glob.glob(os.path.join(model_path, "*.safetensors")))
+        if not model_files:
+            raise ValueError(f"No safetensors found in {model_path}")
+
+        # Process each shard
+        print("Merging shards")
+        for shard_file in model_files:
+            shard_name = os.path.basename(shard_file)
+            merged_tensors = {}
+            
+            with safe_open(shard_file, framework="pt", device='cpu') as f:
+                for key in f.keys():
+                    tensor = f.get_tensor(key)
+                    
+                    # Check if tensor is quantized
+                    if tensor.dtype not in [torch.float32, torch.float16, torch.bfloat16]:
+                        raise ValueError(
+                            f"Tensor {key} has dtype {tensor.dtype} - "
+                            "quantized base weights not supported for merging"
+                        )
+                    
+                    # Check if this layer has LoRA weights
+                    if key in lora_pairs:
+                        lora_item = lora_pairs.pop(key)
+                        lora_A = lora_item['A']
+                        lora_B = lora_item['B']
+                        
+                        # Verify shapes
+                        assert lora_A.shape[0] == tensor.shape[0], \
+                            f"Shape mismatch for {key}: tensor {tensor.shape}, lora_A {lora_A.shape}"
+                        
+                        # Merge: W_merged = W + (B @ A)
+                        lora_weight = lora_B @ lora_A
+                        
+                        # Ensure same dtype for merging
+                        lora_weight = lora_weight.to(tensor.dtype)
+                        
+                        # Add to original weight
+                        tensor = tensor + lora_weight
+                        
+                    merged_tensors[key] = tensor
+            
+            # Save merged shard
+            output_shard = os.path.join(save_directory, shard_name)
+            save_file(merged_tensors, output_shard, metadata={"format": "pt"})
+            del merged_tensors
+        
+        # Copy non-safetensors files
+        for file in os.listdir(model_path):
+            if not file.endswith('.safetensors'):
+                src = os.path.join(model_path, file)
+                dst = os.path.join(save_directory, file)
+                if os.path.isfile(src):
+                    shutil.copy2(src, dst)
+
+        assert len(lora_pairs) == 0, "Not all LoRA keys have been injected"
+
+        print(f"Merged model saved to {save_directory}")
+
+        # Because no writing to the model is made, we can continue without reloading
 
     def reset_model(self):
         """

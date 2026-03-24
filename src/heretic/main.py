@@ -77,6 +77,9 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
             "[yellow]WARNING: CPU merging requires dequantizing the entire model to system RAM.[/]"
         )
         print("[yellow]This can lead to system freezes if you run out of memory.[/]")
+        print(
+            "[yellow] However, you can choose to save the model shard-by-shard. It is slightly slower, but requires <10 GB of RAM for most models.[/]"
+        )
 
         try:
             # Estimate memory requirements by loading the model structure on the "meta" device.
@@ -95,13 +98,13 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
                 footprint_bytes = meta_model.get_memory_footprint()
                 footprint_gb = footprint_bytes / (1024**3)
                 print(
-                    f"[yellow]Estimated RAM required (excluding overhead): [bold]~{footprint_gb:.2f} GB[/][/]"
+                    f"[yellow]Estimated RAM in non-sharded mode required (excluding overhead): [bold]~{footprint_gb:.2f} GB[/][/]"
                 )
         except Exception:
             # Fallback if meta loading fails (e.g. owing to custom model code
             # or bitsandbytes quantization config issues on the meta device).
             print(
-                "[yellow]Rule of thumb: You need approximately 3x the parameter count in GB RAM.[/]"
+                "[yellow]Rule of thumb: In non-sharded mode, you need approximately 3x the parameter count in GB RAM.[/]"
             )
             print(
                 "[yellow]Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
@@ -119,6 +122,15 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
                         else " (requires sufficient RAM)"
                     ),
                     value="merge",
+                ),
+                Choice(
+                    title="Merge LoRA into full model (sharded)"
+                    + (
+                        ""
+                        if settings.quantization == QuantizationMethod.NONE
+                        else " (very low RAM usage)"
+                    ),
+                    value="merge_sharded",
                 ),
                 Choice(
                     title="Cancel",
@@ -787,6 +799,9 @@ def run():
                             if strategy == "adapter":
                                 print("Saving LoRA adapter...")
                                 model.model.save_pretrained(save_directory)
+                            elif strategy == "merge_sharded":
+                                print("Saving merged model file by file...")
+                                model.save_sharded(settings.model, save_directory)
                             else:
                                 print("Saving merged model...")
                                 merged_model = model.get_merged_model()

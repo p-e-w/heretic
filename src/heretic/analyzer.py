@@ -3,9 +3,11 @@
 
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
+from numpy.typing import NDArray
 from rich.progress import track
 from rich.table import Table
 from torch import Tensor
@@ -156,11 +158,9 @@ class Analyzer:
         try:
             import imageio.v3 as iio  # ty:ignore[unresolved-import]
             import matplotlib.pyplot as plt  # ty:ignore[unresolved-import]
-            import numpy as np  # ty:ignore[unresolved-import]
             from geom_median.numpy import (  # ty:ignore[unresolved-import]
                 compute_geometric_median,
             )
-            from numpy.typing import NDArray  # ty:ignore[unresolved-import]
             from pacmap import PaCMAP  # ty:ignore[unresolved-import]
         except ImportError:
             print()

@@ -680,25 +680,28 @@ class Model:
     # We work with logprobs rather than probabilities for numerical stability
     # when computing the KL divergence.
     def get_logprobs(self, prompts: list[Prompt]) -> Tensor:
-        # We only generate one token, and we return the (log) probability distributions
-        # over the vocabulary at that token position, for each prompt.
+        n_tokens = self.settings.kl_tokens
+
         _, outputs = self.generate(
             prompts,
-            max_new_tokens=1,
+            max_new_tokens=n_tokens,
             output_scores=True,
             return_dict_in_generate=True,
         )
 
-        # This cast is valid because GenerateDecoderOnlyOutput is the return type
-        # of model.generate with return_dict_in_generate=True.
         outputs = cast(GenerateDecoderOnlyOutput, outputs)
+        scores = cast(tuple[FloatTensor], outputs.scores)
 
-        # Logits for the first (only) generated token.
-        # This cast is valid because we passed output_scores=True above.
-        logits = cast(tuple[FloatTensor], outputs.scores)[0]
+        if n_tokens == 1:
+            # Original single-token path: shape (prompt, vocab).
+            return F.log_softmax(scores[0], dim=-1)
 
-        # The returned tensor has shape (prompt, token).
-        return F.log_softmax(logits, dim=-1)
+        # Multi-token: stack all positions and reshape to (prompt * n_tokens, vocab).
+        # This allows F.kl_div with reduction="batchmean" to average across all positions.
+        all_logits = torch.stack(list(scores), dim=0)  # (n_tokens, prompt, vocab)
+        all_logits = all_logits.permute(1, 0, 2).reshape(-1, all_logits.shape[-1])
+
+        return F.log_softmax(all_logits, dim=-1)
 
     def get_logprobs_batched(self, prompts: list[Prompt]) -> Tensor:
         logprobs = []

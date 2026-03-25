@@ -746,6 +746,11 @@ def run():
                             if not save_directory:
                                 continue
 
+                            include_reproduce = prompt_confirm(
+                                """Include 'reproduce' folder?
+This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
+                            )
+
                             strategy = obtain_merge_strategy(settings)
                             if strategy is None:
                                 continue
@@ -761,10 +766,7 @@ def run():
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
 
-                            if prompt_confirm(
-                                """Include 'reproduce' folder?
-This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
-                            ):
+                            if include_reproduce:
                                 create_reproduce_folder(
                                     Path(save_directory),
                                     settings,
@@ -813,6 +815,11 @@ This saves your exact configuration and system information, along with the study
                             strategy = obtain_merge_strategy(settings)
                             if strategy is None:
                                 continue
+
+                            include_reproduce = prompt_confirm(
+                                """Include 'reproduce' folder?
+This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
+                            )
 
                             if strategy == "adapter":
                                 print("Uploading LoRA adapter...")
@@ -873,10 +880,7 @@ This saves your exact configuration and system information, along with the study
                                 )
                                 card.push_to_hub(repo_id, token=token)
 
-                            if prompt_confirm(
-                                """Include 'reproduce' folder?
-This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
-                            ):
+                            if include_reproduce:
                                 upload_reproduce_folder(
                                     repo_id,
                                     settings,

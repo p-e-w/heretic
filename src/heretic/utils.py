@@ -113,19 +113,19 @@ def get_accelerator_info() -> str:
 
         if is_rocm:
             label = "ROCm"
-            api_ver_label = "HIP Version"
-            api_ver = torch.version.hip  # ty:ignore[unresolved-attribute]
-            driver_ver = "N/A"
+            api_version_label = "HIP Version"
+            api_version = torch.version.hip  # ty:ignore[unresolved-attribute]
+            driver_version = "N/A"
         else:
             label = "CUDA"
-            api_ver_label = "CUDA Version"
-            api_ver = torch.version.cuda
-            driver_ver = get_nvidia_driver_version()
+            api_version_label = "CUDA Version"
+            api_version = torch.version.cuda
+            driver_version = get_nvidia_driver_version()
 
         report = f"Detected [bold]{count}[/] {label} device(s) ({total_vram / (1024**3):.2f} GB total VRAM)\n"
-        report += f"{api_ver_label}: [bold]{api_ver}[/]\n"
+        report += f"{api_version_label}: [bold]{api_version}[/]\n"
         if not is_rocm:
-            report += f"Driver Version: [bold]{driver_ver}[/]\n"
+            report += f"Driver Version: [bold]{driver_version}[/]\n"
 
         for i in range(count):
             name = torch.cuda.get_device_name(i)
@@ -133,10 +133,10 @@ def get_accelerator_info() -> str:
             report += f"* GPU {i}: [bold]{name}[/] ({vram:.2f} GB)\n"
     elif is_xpu_available():
         count = torch.xpu.device_count()  # ty:ignore[unresolved-attribute]
-        driver_ver = get_xpu_driver_version()
+        driver_version = get_xpu_driver_version()
 
         report = f"Detected [bold]{count}[/] XPU device(s)\n"
-        report += f"Driver Version: [bold]{driver_ver}[/]\n"
+        report += f"Driver Version: [bold]{driver_version}[/]\n"
         for i in range(count):
             report += f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]\n"  # ty:ignore[unresolved-attribute]
     elif is_mlu_available():
@@ -155,15 +155,15 @@ def get_accelerator_info() -> str:
         for i in range(count):
             report += f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]\n"  # ty:ignore[unresolved-attribute]
     elif is_npu_available():
-        driver_ver = get_npu_driver_version()
+        driver_version = get_npu_driver_version()
         report = (
             f"Detected NPU device(s) (CANN version: [bold]{torch.version.cann}[/])\n"  # ty:ignore[unresolved-attribute]
         )
-        report += f"Driver Version: [bold]{driver_ver}[/]\n"
+        report += f"Driver Version: [bold]{driver_version}[/]\n"
     elif torch.backends.mps.is_available():
-        driver_ver = get_mps_driver_version()
+        driver_version = get_mps_driver_version()
         report = "Detected [bold]1[/] MPS device (Apple Metal)\n"
-        report += f"Driver Version (macOS): [bold]{driver_ver}[/]\n"
+        report += f"Driver Version (macOS): [bold]{driver_version}[/]\n"
     else:
         report = "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]\n"
 
@@ -472,11 +472,11 @@ def generate_config_toml(settings: Settings) -> str:
 
 def generate_requirements_txt() -> str:
     """Collects installed packages with exact versions, normalizing names."""
-    dists = importlib.metadata.distributions()
-    unique_reqs = {}
-    for dist in dists:
+    distributions = importlib.metadata.distributions()
+    unique_requirements = {}
+    for distribution in distributions:
         with contextlib.suppress(Exception):
-            name = dist.metadata["Name"]
+            name = distribution.metadata["Name"]
             if name:
                 # Pip considers hyphens and underscores to be equivalent.
                 # We normalize to lowercase and hyphens to ensure deduplication.
@@ -484,14 +484,14 @@ def generate_requirements_txt() -> str:
 
                 # Strip local version suffixes (e.g., +cu128, +rocm) for simpler installation
                 # and to avoid PEP 440 resolution issues.
-                version_str = dist.version
+                version_str = distribution.version
                 if "+" in version_str:
                     version_str = version_str.split("+")[0]
 
-                unique_reqs[normalized_name] = f"{name}=={version_str}"
+                unique_requirements[normalized_name] = f"{name}=={version_str}"
 
-    reqs = sorted(unique_reqs.values(), key=lambda x: x.lower())
-    return "\n".join(reqs) + "\n"
+    requirements = sorted(unique_requirements.values(), key=lambda x: x.lower())
+    return "\n".join(requirements) + "\n"
 
 
 def generate_environment_txt() -> str:

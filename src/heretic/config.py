@@ -61,6 +61,18 @@ class DatasetSpecification(BaseModel):
     )
 
 
+class BenchmarkSpecification(BaseModel):
+    task: str = Field(
+        description="Task ID of the benchmark in the Language Model Evaluation Harness."
+    )
+
+    name: str = Field(description="Name of the benchmark for presentation purposes.")
+
+    description: str = Field(
+        description="Description of the benchmark for presentation purposes."
+    )
+
+
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
@@ -236,6 +248,67 @@ class Settings(BaseSettings):
     study_checkpoint_dir: str = Field(
         default="checkpoints",
         description="Directory to save and load study progress to/from.",
+    )
+
+    benchmarks: list[BenchmarkSpecification] = Field(
+        default=[
+            BenchmarkSpecification(
+                task="agieval",
+                name="AGIEval",
+                description="A Human-Centric Benchmark for Evaluating Foundation Models",
+            ),
+            BenchmarkSpecification(
+                task="bbh",
+                name="BIG-Bench Hard (BBH)",
+                description="Challenging BIG-Bench Tasks and Whether Chain-of-Thought Can Solve Them",
+            ),
+            BenchmarkSpecification(
+                task="commonsense_qa",
+                name="CommonsenseQA",
+                description="A Question Answering Challenge Targeting Commonsense Knowledge",
+            ),
+            BenchmarkSpecification(
+                task="eq_bench",
+                name="EQ-Bench",
+                description="An Emotional Intelligence Benchmark for Large Language Models",
+            ),
+            BenchmarkSpecification(
+                task="gsm8k",
+                name="GSM8K",
+                description="Training Verifiers to Solve Math Word Problems",
+            ),
+            BenchmarkSpecification(
+                task="hellaswag",
+                name="HellaSwag",
+                description="Can a Machine Really Finish Your Sentence?",
+            ),
+            BenchmarkSpecification(
+                task="ifeval",
+                name="IFEval",
+                description="Instruction-Following Evaluation for Large Language Models",
+            ),
+            BenchmarkSpecification(
+                task="mmlu",
+                name="MMLU",
+                description="Measuring Massive Multitask Language Understanding",
+            ),
+            BenchmarkSpecification(
+                task="mmlu_pro",
+                name="MMLU-Pro",
+                description="A More Robust and Challenging Multi-Task Language Understanding Benchmark",
+            ),
+            BenchmarkSpecification(
+                task="piqa",
+                name="PIQA",
+                description="Reasoning about Physical Commonsense in Natural Language",
+            ),
+            BenchmarkSpecification(
+                task="winogrande",
+                name="WinoGrande",
+                description="An Adversarial Winograd Schema Challenge at Scale",
+            ),
+        ],
+        description="Benchmarks to offer to the user for evaluating abliterated models.",
     )
 
     refusal_markers: list[str] = Field(

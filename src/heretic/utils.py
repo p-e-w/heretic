@@ -114,7 +114,8 @@ def get_accelerator_info() -> str:
         if is_rocm:
             label = "ROCm"
             api_ver_label = "HIP Version"
-            api_ver = torch.version.hip  # ty:ignore[unresolved-attribute]            driver_ver = "N/A"
+            api_ver = torch.version.hip  # ty:ignore[attr-defined]
+            driver_ver = "N/A"
         else:
             label = "CUDA"
             api_ver_label = "CUDA Version"
@@ -131,32 +132,32 @@ def get_accelerator_info() -> str:
             vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
             report += f"* GPU {i}: [bold]{name}[/] ({vram:.2f} GB)\n"
     elif is_xpu_available():
-        count = torch.xpu.device_count()  # ty:ignore
+        count = torch.xpu.device_count()  # ty:ignore[unresolved-attribute]
         driver_ver = get_xpu_driver_version()
 
         report = f"Detected [bold]{count}[/] XPU device(s)\n"
         report += f"Driver Version: [bold]{driver_ver}[/]\n"
         for i in range(count):
-            report += f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]\n"  # ty:ignore
+            report += f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]\n"  # ty:ignore[unresolved-attribute]
     elif is_mlu_available():
-        count = torch.mlu.device_count()  # ty:ignore
+        count = torch.mlu.device_count()  # ty:ignore[unresolved-attribute]
         report = f"Detected [bold]{count}[/] MLU device(s):\n"
         for i in range(count):
-            report += f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]\n"  # ty:ignore
+            report += f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]\n"  # ty:ignore[unresolved-attribute]
     elif is_sdaa_available():
-        count = torch.sdaa.device_count()  # ty:ignore
+        count = torch.sdaa.device_count()  # ty:ignore[unresolved-attribute]
         report = f"Detected [bold]{count}[/] SDAA device(s):\n"
         for i in range(count):
-            report += f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]\n"  # ty:ignore
+            report += f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]\n"  # ty:ignore[unresolved-attribute]
     elif is_musa_available():
-        count = torch.musa.device_count()  # ty:ignore
+        count = torch.musa.device_count()  # ty:ignore[unresolved-attribute]
         report = f"Detected [bold]{count}[/] MUSA device(s):\n"
         for i in range(count):
-            report += f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]\n"  # ty:ignore
+            report += f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]\n"  # ty:ignore[unresolved-attribute]
     elif is_npu_available():
         driver_ver = get_npu_driver_version()
         report = (
-            f"Detected NPU device(s) (CANN version: [bold]{torch.version.cann}[/])\n"  # ty:ignore
+            f"Detected NPU device(s) (CANN version: [bold]{torch.version.cann}[/])\n"  # ty:ignore[unresolved-attribute]
         )
         report += f"Driver Version: [bold]{driver_ver}[/]\n"
     elif torch.backends.mps.is_available():

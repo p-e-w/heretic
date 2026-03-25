@@ -48,7 +48,7 @@ from .utils import (
     prompt_path,
     prompt_select,
     prompt_text,
-    set_reproducibility,
+    set_seed,
     upload_reproduce_folder,
 )
 
@@ -173,7 +173,7 @@ def run():
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
 
-    set_reproducibility(settings.seed)
+    set_seed(settings.seed)
 
     print(get_accelerator_info())
 

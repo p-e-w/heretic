@@ -114,8 +114,7 @@ def get_accelerator_info() -> str:
         if is_rocm:
             label = "ROCm"
             api_ver_label = "HIP Version"
-            api_ver = torch.version.hip  # type: ignore
-            driver_ver = "N/A"
+            api_ver = torch.version.hip  # ty:ignore[unresolved-attribute]            driver_ver = "N/A"
         else:
             label = "CUDA"
             api_ver_label = "CUDA Version"
@@ -511,7 +510,7 @@ def generate_environment_txt() -> str:
     return "\n".join(lines) + "\n"
 
 
-def set_reproducibility(seed: int):
+def set_seed(seed: int):
     """Sets the seed for all RNGs."""
     random.seed(seed)
     np.random.seed(seed)

@@ -7,6 +7,7 @@ import getpass
 import importlib.metadata
 import os
 import platform
+import sys
 import random
 import subprocess
 import tempfile
@@ -534,13 +535,30 @@ def generate_requirements_txt() -> str:
     return "\n".join(requirements) + "\n"
 
 
+def get_python_env_info() -> str:
+    """Detects the type of Python environment (Conda, Venv, etc.) and build info."""
+    implementation = platform.python_implementation()
+    compiler = platform.python_compiler()
+
+    # Check for Conda.
+    if "CONDA_PREFIX" in os.environ:
+        env_type = "Conda"
+    # Check for Virtualenv/Venv.
+    elif hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix:
+        env_type = "Virtualenv/Venv"
+    else:
+        env_type = "System"
+
+    return f"{platform.python_version()} ({implementation}, {compiler}) [{env_type}]"
+
+
 def generate_environment_txt() -> str:
     """Collects OS, Python, CPU, and PyTorch/GPU information."""
     return f"""Environment Snapshot
 ====================
 OS: {platform.platform()} ({platform.machine()})
 CPU: {get_cpu_info()}
-Python: {platform.python_version()}
+Python: {get_python_env_info()}
 
 PyTorch & Accelerators
 ----------------------

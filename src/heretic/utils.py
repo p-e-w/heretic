@@ -7,9 +7,9 @@ import getpass
 import importlib.metadata
 import os
 import platform
-import sys
 import random
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from importlib.metadata import version

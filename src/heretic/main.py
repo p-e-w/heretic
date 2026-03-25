@@ -228,6 +228,17 @@ def run():
     # recompile too often.
     torch._dynamo.config.cache_size_limit = 64
 
+    # Enable INFO logging for LLM judge and evaluator monitoring
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    # Quiet noisy libraries
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     # Silence warning spam from Transformers.
     # In my entire career I've never seen a useful warning from that library.
     transformers.logging.set_verbosity_error()
@@ -312,7 +323,15 @@ def run():
         )
 
         print()
-        choice = prompt_select("How would you like to proceed?", choices)
+        if not sys.stdin.isatty():
+            # Auto-continue in non-interactive mode (e.g. nohup).
+            if existing_study.user_attrs["finished"]:
+                print("[yellow]Study already finished. Run interactively to select a trial.[/]")
+                return
+            choice = "continue"
+            print("[green]Auto-continuing interrupted run (non-interactive mode).[/]")
+        else:
+            choice = prompt_select("How would you like to proceed?", choices)
 
         if choice == "continue":
             settings = Settings.model_validate_json(

@@ -114,7 +114,7 @@ def get_accelerator_info() -> str:
         if is_rocm:
             label = "ROCm"
             api_ver_label = "HIP Version"
-            api_ver = torch.version.hip  # ty:ignore[attr-defined]
+            api_ver = torch.version.hip  # ty:ignore[unresolved-attribute]
             driver_ver = "N/A"
         else:
             label = "CUDA"

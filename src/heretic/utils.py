@@ -470,6 +470,45 @@ def generate_config_toml(settings: Settings) -> str:
     return tomli_w.dumps(settings.model_dump(exclude_none=True))
 
 
+def get_cpu_info() -> str:
+    """Gets the CPU brand name and instruction set capability."""
+    brand = platform.processor()
+    try:
+        if platform.system() == "Windows":
+            brand = (
+                subprocess.check_output(
+                    [
+                        "powershell",
+                        "-Command",
+                        "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name",
+                    ],
+                    text=True,
+                )
+                .strip()
+                .split("\n")[0]
+            )
+        elif platform.system() == "Linux":
+            brand = subprocess.check_output(
+                "grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2",
+                shell=True,
+                text=True,
+            ).strip()
+        elif platform.system() == "Darwin":
+            brand = subprocess.check_output(
+                ["sysctl", "-n", "machdep.cpu.brand_string"], text=True
+            ).strip()
+    except Exception:
+        pass
+
+    capability = "Unknown"
+    try:
+        capability = torch.backends.cpu.get_cpu_capability()
+    except Exception:
+        pass
+
+    return f"{brand} (Capability: {capability})"
+
+
 def generate_requirements_txt() -> str:
     """Collects installed packages with exact versions, normalizing names."""
     distributions = importlib.metadata.distributions()
@@ -495,10 +534,11 @@ def generate_requirements_txt() -> str:
 
 
 def generate_environment_txt() -> str:
-    """Collects OS, Python, and PyTorch/GPU information."""
+    """Collects OS, Python, CPU, and PyTorch/GPU information."""
     return f"""Environment Snapshot
 ====================
 OS: {platform.platform()} ({platform.machine()})
+CPU: {get_cpu_info()}
 Python: {platform.python_version()}
 
 PyTorch & Accelerators

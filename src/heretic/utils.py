@@ -100,7 +100,7 @@ def get_mps_driver_version() -> str:
         return "Unknown"
 
 
-def get_accelerator_info() -> str:
+def get_accelerator_info(include_warnings: bool = True) -> str:
     """The single source of truth for hardware detection and reporting."""
 
     if torch.cuda.is_available():
@@ -165,7 +165,8 @@ def get_accelerator_info() -> str:
         report = "Detected [bold]1[/] MPS device (Apple Metal)\n"
         report += f"Driver Version (macOS): [bold]{driver_version}[/]\n"
     else:
-        report = "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]\n"
+        suffix = " Operations will be slow." if include_warnings else ""
+        report = f"[bold yellow]No GPU or other accelerator detected.{suffix}[/]\n"
 
     return report.strip()
 
@@ -544,7 +545,7 @@ Python: {platform.python_version()}
 PyTorch & Accelerators
 ----------------------
 PyTorch Version: {torch.__version__}
-{Text.from_markup(get_accelerator_info()).plain}
+{Text.from_markup(get_accelerator_info(include_warnings=False)).plain}
 """
 
 

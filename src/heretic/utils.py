@@ -496,19 +496,16 @@ def generate_requirements_txt() -> str:
 
 def generate_environment_txt() -> str:
     """Collects OS, Python, and PyTorch/GPU information."""
-    lines = [
-        "Environment Snapshot",
-        "====================",
-        f"OS: {platform.platform()} ({platform.machine()})",
-        f"Python: {platform.python_version()}",
-        "",
-        "PyTorch & Accelerators",
-        "----------------------",
-        f"PyTorch Version: {torch.__version__}",
-        Text.from_markup(get_accelerator_info()).plain,
-    ]
+    return f"""Environment Snapshot
+====================
+OS: {platform.platform()} ({platform.machine()})
+Python: {platform.python_version()}
 
-    return "\n".join(lines) + "\n"
+PyTorch & Accelerators
+----------------------
+PyTorch Version: {torch.__version__}
+{Text.from_markup(get_accelerator_info()).plain}
+"""
 
 
 def set_seed(seed: int):
@@ -533,13 +530,11 @@ def generate_reproduce_readme(settings: Settings, checkpoint_filename: str) -> s
         if count > 1:
             device_names = {torch.cuda.get_device_name(i) for i in range(count)}
             if len(device_names) > 1:
-                heterogeneous_warning = (
-                    "\n> [WARNING!]\n"
-                    "> **Heterogeneous GPUs Detected!**\n"
-                    "> This system uses multiple non-identical GPUs. When operations are distributed "
-                    "across different GPUs (e.g. via `device_map='auto'`), non-deterministic "
-                    "behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**\n"
-                )
+                heterogeneous_warning = """
+> [WARNING!]
+> **Heterogeneous GPUs Detected!**
+> This system uses multiple non-identical GPUs. When operations are distributed across different GPUs (e.g. via `device_map='auto'`), non-deterministic behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**
+"""
 
     return f"""# Reproduction Guide
 

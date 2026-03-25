@@ -762,9 +762,8 @@ def run():
                                 model.tokenizer.save_pretrained(save_directory)
 
                             if prompt_confirm(
-                                "Include 'reproduce' folder?\n"
-                                "This saves your exact configuration and system information, "
-                                "along with the study checkpoint, to help others verify your results."
+                                """Include 'reproduce' folder?
+This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
                             ):
                                 create_reproduce_folder(
                                     Path(save_directory),
@@ -875,9 +874,8 @@ def run():
                                 card.push_to_hub(repo_id, token=token)
 
                             if prompt_confirm(
-                                "Include 'reproduce' folder?\n"
-                                "This saves your exact configuration and system information, "
-                                "along with the study checkpoint, to help others verify your results."
+                                """Include 'reproduce' folder?
+This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
                             ):
                                 upload_reproduce_folder(
                                     repo_id,

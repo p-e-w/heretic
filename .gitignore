@@ -15,8 +15,9 @@ wheels/
 # Editors
 /.vscode/
 
-# Configuration files
+# Configuration files (may contain API keys)
 /config.toml
+/judge.toml
 
 # Environment variables
 .env

@@ -1,0 +1,25 @@
+# LLM judge configuration (hot-reloadable — changes take effect without restart).
+#
+# Copy to judge.toml and edit.  Environment variables override file values.
+#
+# Env var mapping:
+#   LLM_JUDGE_API_BASE, LLM_JUDGE_API_KEY, LLM_JUDGE_MODELS (comma-separated),
+#   LLM_JUDGE_BATCH_SIZE, LLM_JUDGE_CONCURRENCY, LLM_JUDGE_TIMEOUT,
+#   LLM_JUDGE_MAX_RETRIES, LLM_JUDGE_PRICING (model:in:out,...)
+#
+# Config file path can be changed via LLM_JUDGE_CONFIG env var (default: judge.toml).
+
+api_base = "http://localhost:8317/v1/chat/completions"
+# api_key = ""   # prefer LLM_JUDGE_API_KEY env var
+
+models = ["gpt-mini", "spark", "gemini-flash"]
+
+batch_size  = 10    # items per API call
+concurrency = 6     # parallel batch workers
+timeout     = 90    # seconds per HTTP request
+max_retries = 3     # retries per model before fallback
+
+[pricing]   # USD per 1M tokens: [input, output]
+gpt-mini      = [0.15, 0.60]
+spark         = [0.50, 2.00]
+gemini-flash  = [0.15, 0.60]

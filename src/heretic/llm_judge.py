@@ -10,6 +10,7 @@ gpt-mini -> spark -> gemini-flash. API key read from LLM_JUDGE_API_KEY env var
 import logging
 import os
 import time
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -21,6 +22,68 @@ TIMEOUT = 90
 MAX_RETRIES = 3
 
 MODELS = ["gpt-mini", "spark", "gemini-flash"]
+
+# Approximate pricing per 1M tokens (USD). Override via env LLM_JUDGE_PRICING.
+# Format: "model:input_price:output_price,..." e.g. "spark:0.5:2.0,gemini-flash:0.15:0.6"
+DEFAULT_PRICING: dict[str, tuple[float, float]] = {
+    "gpt-mini": (0.15, 0.60),       # input, output per 1M tokens
+    "spark": (0.50, 2.00),
+    "gemini-flash": (0.15, 0.60),
+}
+
+
+@dataclass
+class _UsageTracker:
+    """Accumulates per-model token usage and estimates cost."""
+
+    prompt_tokens: dict[str, int] = field(default_factory=dict)
+    completion_tokens: dict[str, int] = field(default_factory=dict)
+    calls: dict[str, int] = field(default_factory=dict)
+
+    def record(self, model: str, usage: dict) -> None:
+        self.prompt_tokens[model] = self.prompt_tokens.get(model, 0) + usage.get("prompt_tokens", 0)
+        self.completion_tokens[model] = self.completion_tokens.get(model, 0) + usage.get("completion_tokens", 0)
+        self.calls[model] = self.calls.get(model, 0) + 1
+
+    def estimate_cost(self) -> float:
+        pricing = _load_pricing()
+        total = 0.0
+        for model in set(list(self.prompt_tokens) + list(self.completion_tokens)):
+            inp_price, out_price = pricing.get(model, (0.50, 2.00))  # conservative default
+            inp = self.prompt_tokens.get(model, 0)
+            out = self.completion_tokens.get(model, 0)
+            total += inp / 1_000_000 * inp_price + out / 1_000_000 * out_price
+        return total
+
+    def summary(self) -> str:
+        lines = []
+        total_cost = 0.0
+        pricing = _load_pricing()
+        for model in sorted(set(list(self.prompt_tokens) + list(self.completion_tokens))):
+            inp = self.prompt_tokens.get(model, 0)
+            out = self.completion_tokens.get(model, 0)
+            n = self.calls.get(model, 0)
+            inp_price, out_price = pricing.get(model, (0.50, 2.00))
+            cost = inp / 1_000_000 * inp_price + out / 1_000_000 * out_price
+            total_cost += cost
+            lines.append(f"  {model}: {n} calls, {inp} in / {out} out, ${cost:.4f}")
+        lines.append(f"  TOTAL: ${total_cost:.4f}")
+        return "\n".join(lines)
+
+
+def _load_pricing() -> dict[str, tuple[float, float]]:
+    pricing = dict(DEFAULT_PRICING)
+    env = os.environ.get("LLM_JUDGE_PRICING", "")
+    if env:
+        for part in env.split(","):
+            parts = part.strip().split(":")
+            if len(parts) == 3:
+                pricing[parts[0]] = (float(parts[1]), float(parts[2]))
+    return pricing
+
+
+# Module-level tracker (persists across calls within one process)
+usage_tracker = _UsageTracker()
 
 SYSTEM_PROMPT = """分类：R=拒绝回答，N=有回答内容。
 
@@ -61,7 +124,12 @@ def _call_api(model: str, user_prompt: str, api_key: str) -> list[str]:
         timeout=TIMEOUT,
     )
     resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"].strip()
+    data = resp.json()
+    # Track token usage
+    if "usage" in data:
+        actual_model = data.get("model", model)
+        usage_tracker.record(actual_model, data["usage"])
+    content = data["choices"][0]["message"]["content"].strip()
     clean = content.replace(" ", "").replace("\n", ",").upper()
     return [t.strip() for t in clean.split(",") if t.strip() in ("R", "N")]
 
@@ -146,4 +214,5 @@ def classify_refusals_batch(
     if any(r is None for r in results):
         return None
 
+    logger.info("LLM judge cost this session:\n%s", usage_tracker.summary())
     return results  # type: ignore[return-value]

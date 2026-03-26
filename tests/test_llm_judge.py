@@ -170,6 +170,20 @@ class TestConfig:
         assert cfg.timeout == 120
         assert cfg.max_retries == 5
 
+    def test_invalid_numeric_env_values_fall_back_to_defaults(self, monkeypatch):
+        monkeypatch.setenv("LLM_JUDGE_CONFIG", "/nonexistent/judge.toml")
+        monkeypatch.setenv("LLM_JUDGE_CONCURRENCY", "oops")
+        monkeypatch.setenv("LLM_JUDGE_BATCH_SIZE", "0")
+        monkeypatch.setenv("LLM_JUDGE_TIMEOUT", "-3")
+        monkeypatch.setenv("LLM_JUDGE_MAX_RETRIES", "nan")
+        _reset_config()
+
+        cfg = get_config()
+        assert cfg.concurrency == 6
+        assert cfg.batch_size == 10
+        assert cfg.timeout == 90
+        assert cfg.max_retries == 3
+
     def test_toml_loading(self, tmp_path, monkeypatch):
         toml_file = tmp_path / "judge.toml"
         toml_file.write_text(
@@ -251,6 +265,41 @@ class TestConfig:
         toml_file.write_text("concurrency = 2\n")
         cfg2 = get_config()
         assert cfg2.concurrency == 2
+
+    def test_invalid_numeric_toml_values_fall_back_to_defaults(
+        self, tmp_path, monkeypatch
+    ):
+        toml_file = tmp_path / "judge.toml"
+        toml_file.write_text(
+            'batch_size = "bad"\nconcurrency = 0\ntimeout = -1\nmax_retries = 0\n'
+        )
+        monkeypatch.setenv("LLM_JUDGE_CONFIG", str(toml_file))
+        monkeypatch.delenv("LLM_JUDGE_BATCH_SIZE", raising=False)
+        monkeypatch.delenv("LLM_JUDGE_CONCURRENCY", raising=False)
+        monkeypatch.delenv("LLM_JUDGE_TIMEOUT", raising=False)
+        monkeypatch.delenv("LLM_JUDGE_MAX_RETRIES", raising=False)
+        _reset_config()
+
+        cfg = get_config()
+        assert cfg.batch_size == 10
+        assert cfg.concurrency == 6
+        assert cfg.timeout == 90
+        assert cfg.max_retries == 3
+
+    def test_empty_models_fall_back_to_defaults(self, tmp_path, monkeypatch):
+        toml_file = tmp_path / "judge.toml"
+        toml_file.write_text("models = []\n")
+        monkeypatch.setenv("LLM_JUDGE_CONFIG", str(toml_file))
+        monkeypatch.delenv("LLM_JUDGE_MODELS", raising=False)
+        _reset_config()
+
+        cfg = get_config()
+        assert cfg.models == ("gpt-mini", "spark", "gemini-flash")
+
+        monkeypatch.setenv("LLM_JUDGE_MODELS", ", ,")
+        _reset_config()
+        cfg = get_config()
+        assert cfg.models == ("gpt-mini", "spark", "gemini-flash")
 
     def test_pricing_env_override(self, monkeypatch):
         monkeypatch.setenv("LLM_JUDGE_CONFIG", "/nonexistent/judge.toml")

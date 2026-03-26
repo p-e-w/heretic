@@ -95,6 +95,64 @@ def _parse_env_pricing(env: str, base: dict[str, tuple[float, float]]) -> None:
         logger.warning("Failed to parse LLM_JUDGE_PRICING='%s', using defaults", env)
 
 
+def _normalize_models(raw_models: object, source: str) -> tuple[str, ...]:
+    """Return a non-empty tuple of model names."""
+    if isinstance(raw_models, list | tuple):
+        models = tuple(str(model).strip() for model in raw_models if str(model).strip())
+    elif isinstance(raw_models, str):
+        models = tuple(
+            model.strip() for model in raw_models.split(",") if model.strip()
+        )
+    else:
+        models = ()
+
+    if models:
+        return models
+
+    logger.warning("Invalid or empty %s, using default models", source)
+    return _DEFAULT_MODELS
+
+
+def _parse_positive_int(
+    file_cfg: dict,
+    *,
+    env_key: str,
+    file_key: str,
+    default: int,
+) -> int:
+    """Return a positive integer from env/file config or the default."""
+    if env_key in os.environ:
+        raw_value = os.environ[env_key]
+        source = env_key
+    elif file_key in file_cfg:
+        raw_value = file_cfg[file_key]
+        source = file_key
+    else:
+        return default
+
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid LLM judge %s=%r, using default %d",
+            source,
+            raw_value,
+            default,
+        )
+        return default
+
+    if value <= 0:
+        logger.warning(
+            "LLM judge %s must be > 0, got %d; using default %d",
+            source,
+            value,
+            default,
+        )
+        return default
+
+    return value
+
+
 def _load_config() -> JudgeConfig:
     """Build a fresh ``JudgeConfig`` from TOML file + env overrides.
 
@@ -103,13 +161,19 @@ def _load_config() -> JudgeConfig:
     file_cfg: dict = {}
     path = _config_path()
 
-    if tomllib is not None and os.path.isfile(path):
-        try:
-            with open(path, "rb") as f:
-                file_cfg = tomllib.load(f)
-            logger.debug("Loaded LLM judge config from %s", path)
-        except Exception:
-            logger.warning("Failed to load %s, using defaults", path, exc_info=True)
+    if os.path.isfile(path):
+        if tomllib is None:
+            logger.warning(
+                "Cannot load %s because Python < 3.11 requires tomli; using defaults",
+                path,
+            )
+        else:
+            try:
+                with open(path, "rb") as f:
+                    file_cfg = tomllib.load(f)
+                logger.debug("Loaded LLM judge config from %s", path)
+            except Exception:
+                logger.warning("Failed to load %s, using defaults", path, exc_info=True)
 
     # Pricing: defaults -> TOML [pricing] -> LLM_JUDGE_PRICING env
     pricing = dict(_DEFAULT_PRICING)
@@ -125,18 +189,10 @@ def _load_config() -> JudgeConfig:
     # Models: defaults -> TOML -> LLM_JUDGE_MODELS env
     models = _DEFAULT_MODELS
     if "models" in file_cfg and isinstance(file_cfg["models"], list):
-        models = tuple(str(m) for m in file_cfg["models"])
+        models = _normalize_models(file_cfg["models"], "judge.toml models")
     env_models = os.environ.get("LLM_JUDGE_MODELS", "")
     if env_models:
-        models = tuple(m.strip() for m in env_models.split(",") if m.strip())
-
-    def _int(env_key: str, file_key: str, default: int) -> int:
-        env_val = os.environ.get(env_key, "")
-        if env_val:
-            return int(env_val)
-        if file_key in file_cfg:
-            return int(file_cfg[file_key])
-        return default
+        models = _normalize_models(env_models, "LLM_JUDGE_MODELS")
 
     return JudgeConfig(
         api_base=os.environ.get(
@@ -148,10 +204,30 @@ def _load_config() -> JudgeConfig:
             str(file_cfg.get("api_key", "")),
         ),
         models=models,
-        batch_size=_int("LLM_JUDGE_BATCH_SIZE", "batch_size", _DEFAULT_BATCH_SIZE),
-        concurrency=_int("LLM_JUDGE_CONCURRENCY", "concurrency", _DEFAULT_CONCURRENCY),
-        timeout=_int("LLM_JUDGE_TIMEOUT", "timeout", _DEFAULT_TIMEOUT),
-        max_retries=_int("LLM_JUDGE_MAX_RETRIES", "max_retries", _DEFAULT_MAX_RETRIES),
+        batch_size=_parse_positive_int(
+            file_cfg,
+            env_key="LLM_JUDGE_BATCH_SIZE",
+            file_key="batch_size",
+            default=_DEFAULT_BATCH_SIZE,
+        ),
+        concurrency=_parse_positive_int(
+            file_cfg,
+            env_key="LLM_JUDGE_CONCURRENCY",
+            file_key="concurrency",
+            default=_DEFAULT_CONCURRENCY,
+        ),
+        timeout=_parse_positive_int(
+            file_cfg,
+            env_key="LLM_JUDGE_TIMEOUT",
+            file_key="timeout",
+            default=_DEFAULT_TIMEOUT,
+        ),
+        max_retries=_parse_positive_int(
+            file_cfg,
+            env_key="LLM_JUDGE_MAX_RETRIES",
+            file_key="max_retries",
+            default=_DEFAULT_MAX_RETRIES,
+        ),
         pricing=pricing,
     )
 

@@ -40,11 +40,11 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .system import get_accelerator_info
 from .utils import (
     create_reproduce_folder,
     empty_cache,
     format_duration,
-    get_accelerator_info,
     get_readme_intro,
     get_trial_parameters,
     load_prompts,

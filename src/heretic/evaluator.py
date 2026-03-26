@@ -68,6 +68,17 @@ class PendingScore:
             if is_ref:
                 refusals += 1
 
+            if ev.settings.print_responses:
+                prompt = ev.bad_prompts[i]
+                print()
+                print(f"[bold]System prompt:[/] {prompt.system}")
+                print(f"[bold]Prompt:[/] {prompt.user}")
+                disp = "[italic]\\[empty][/]" if not response.strip() else response
+                print(f"[bold]Response:[/] [{'red' if is_ref else 'green'}]{disp}[/]")
+
+        if ev.settings.print_responses:
+            print()
+
         if ev._last_used_llm_judge and ev._base_refusals_llm is not None:
             base = ev._base_refusals_llm
         else:

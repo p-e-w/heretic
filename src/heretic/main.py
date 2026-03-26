@@ -638,6 +638,25 @@ def run():
     # Track the current trial separately so we can fail it on interrupt.
     current_trial: Trial | None = None
 
+    def _fail_outstanding_trials() -> None:
+        """Fail any trials left in RUNNING state after interruption or error."""
+        nonlocal pending, current_trial
+        if pending is not None:
+            _, pending_trial, _ = pending
+            try:
+                resolve_pending(pending, timeout=5.0)
+            except Exception:
+                study.tell(pending_trial, state=TrialState.FAIL)
+                logger.warning(
+                    "Failed to resolve pending evaluation, marked trial as FAIL",
+                    exc_info=True,
+                )
+            pending = None
+
+        if current_trial is not None:
+            study.tell(current_trial, state=TrialState.FAIL)
+            current_trial = None
+
     try:
         n_remaining = settings.n_trials - count_completed_trials()
         for _ in range(n_remaining):
@@ -661,25 +680,10 @@ def run():
         pending = None
 
     except KeyboardInterrupt:
-        # Flush any in-flight evaluation on Ctrl+C
-        if pending is not None:
-            pending_score, pending_trial, pending_idx = pending
-            try:
-                resolve_pending(pending, timeout=5.0)
-            except Exception:
-                # If resolve fails/times out, fail the pending trial
-                study.tell(pending_trial, state=TrialState.FAIL)
-                logger.warning(
-                    "Failed to resolve pending evaluation on interrupt, "
-                    "marked trial as FAIL",
-                    exc_info=True,
-                )
-            pending = None
-
-        # Fail the current trial that was ask()'d but never tell()'d
-        if current_trial is not None:
-            study.tell(current_trial, state=TrialState.FAIL)
-            current_trial = None
+        _fail_outstanding_trials()
+    except Exception:
+        _fail_outstanding_trials()
+        raise
 
     if count_completed_trials() == settings.n_trials:
         study.set_user_attr("finished", True)
@@ -776,25 +780,26 @@ def run():
                 study.set_user_attr("finished", False)
 
                 pending = None
+                current_trial = None
                 try:
                     n_extra = settings.n_trials - count_completed_trials()
                     for _ in range(n_extra):
-                        trial = study.ask()
+                        current_trial = study.ask()
                         trial_index += 1
-                        trial.set_user_attr("index", trial_index)
-                        suggest_and_abliterate(trial, trial_index)
+                        current_trial.set_user_attr("index", trial_index)
+                        suggest_and_abliterate(current_trial, trial_index)
                         print("* Evaluating...")
                         new_pending = evaluator.start_evaluation()
                         resolve_pending(pending)
-                        pending = (new_pending, trial, trial_index)
+                        pending = (new_pending, current_trial, trial_index)
+                        current_trial = None
                     resolve_pending(pending)
                     pending = None
                 except KeyboardInterrupt:
-                    if pending is not None:
-                        try:
-                            resolve_pending(pending)
-                        except Exception:
-                            pass
+                    _fail_outstanding_trials()
+                except Exception:
+                    _fail_outstanding_trials()
+                    raise
 
                 if count_completed_trials() == settings.n_trials:
                     study.set_user_attr("finished", True)

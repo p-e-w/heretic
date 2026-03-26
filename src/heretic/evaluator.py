@@ -116,6 +116,20 @@ class Evaluator:
         self._base_refusals_substring: int = 0
         self._last_used_llm_judge: bool = False
 
+        # Check LLM judge dependency upfront so users know immediately
+        if settings.use_llm_judge:
+            try:
+                import httpx  # noqa: F401
+            except ImportError:
+                print(
+                    "[bold yellow]WARNING: use_llm_judge is enabled but httpx is not installed.[/]"
+                )
+                print("[yellow]Install with: pip install heretic-llm\\[llm-judge][/]")
+                print(
+                    "[yellow]Falling back to substring matching for refusal classification.[/]"
+                )
+                settings.use_llm_judge = False
+
         print()
         print(
             f"Loading good evaluation prompts from [bold]{settings.good_evaluation_prompts.dataset}[/]..."

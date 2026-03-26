@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+from __future__ import annotations
+
 import logging
+from concurrent.futures import Future, ThreadPoolExecutor
 
 import torch.nn.functional as F
 from torch import Tensor
@@ -11,6 +14,61 @@ from .model import Model
 from .utils import Prompt, load_prompts, print
 
 logger = logging.getLogger(__name__)
+
+
+class PendingScore:
+    """Holds GPU results and a background LLM judge future for pipelined evaluation."""
+
+    def __init__(
+        self,
+        evaluator: Evaluator,
+        kl_divergence: float,
+        responses: list[str],
+        judge_future: Future[list[bool] | None] | None,
+    ):
+        self._evaluator = evaluator
+        self.kl_divergence = kl_divergence
+        self._responses = responses
+        self._judge_future = judge_future
+
+    def resolve(self) -> tuple[tuple[float, float], float, int]:
+        """Block until LLM judge completes and compute final score."""
+        ev = self._evaluator
+
+        refusal_flags: list[bool] | None = None
+        if self._judge_future is not None:
+            try:
+                refusal_flags = self._judge_future.result()
+            except Exception:
+                logger.warning("Pipelined LLM judge raised", exc_info=True)
+
+        ev._last_used_llm_judge = refusal_flags is not None
+
+        refusals = 0
+        for i, response in enumerate(self._responses):
+            is_ref = (
+                refusal_flags[i] if refusal_flags is not None
+                else ev.is_refusal(response)
+            )
+            if is_ref:
+                refusals += 1
+
+        if ev._last_used_llm_judge and ev._base_refusals_llm is not None:
+            base = ev._base_refusals_llm
+        else:
+            base = ev._base_refusals_substring
+
+        refusals_score = refusals / base if base > 0 else float(refusals)
+        kl_target = ev.settings.kl_divergence_target
+        kl_scale = ev.settings.kl_divergence_scale
+
+        if self.kl_divergence >= kl_target:
+            kld_score = self.kl_divergence / kl_scale
+        else:
+            kld_score = refusals_score * kl_target / kl_scale
+
+        score = (kld_score, refusals_score)
+        return score, self.kl_divergence, refusals
 
 
 class Evaluator:
@@ -24,6 +82,7 @@ class Evaluator:
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings
         self.model = model
+        self._judge_executor = ThreadPoolExecutor(max_workers=1)
 
         # Track dual baselines for score consistency across LLM judge fallback
         self._base_refusals_llm: int | None = None
@@ -162,7 +221,26 @@ class Evaluator:
 
         return refusal_count
 
-    def get_score(self) -> tuple[tuple[float, float], float, int]:
+    def start_evaluation(self) -> PendingScore:
+        """Run GPU work, submit LLM judge async, return pending score.
+
+        The returned PendingScore can be resolved later (after the caller
+        has started the next trial's GPU work) to get the final score.
+        """
+        # GPU: generate responses for bad prompts
+        print("  * Counting model refusals...")
+        responses = self.model.get_responses_batched(
+            self.bad_prompts, skip_special_tokens=True,
+        )
+
+        # Submit LLM judge to background thread (non-blocking)
+        judge_future: Future[list[bool] | None] | None = None
+        if self.settings.use_llm_judge:
+            judge_future = self._judge_executor.submit(
+                self._try_llm_judge, responses,
+            )
+
+        # GPU: logprobs for good prompts (overlaps with LLM judge)
         print("  * Obtaining first-token probability distributions...")
         logprobs = self.model.get_logprobs_batched(self.good_prompts)
         kl_divergence = F.kl_div(
@@ -173,32 +251,11 @@ class Evaluator:
         ).item()
         print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
 
-        print("  * Counting model refusals...")
-        refusals = self.count_refusals()
+        return PendingScore(self, kl_divergence, responses, judge_future)
+
+    def get_score(self) -> tuple[tuple[float, float], float, int]:
+        """Synchronous evaluation (backward compatible)."""
+        pending = self.start_evaluation()
+        score, kl_divergence, refusals = pending.resolve()
         print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
-
-        kl_divergence_scale = self.settings.kl_divergence_scale
-        kl_divergence_target = self.settings.kl_divergence_target
-
-        # Use matching baseline to ensure score consistency:
-        # LLM judge trial → LLM judge baseline, substring trial → substring baseline
-        if self._last_used_llm_judge and self._base_refusals_llm is not None:
-            base = self._base_refusals_llm
-        else:
-            base = self._base_refusals_substring
-
-        refusals_score = (
-            refusals / base if base > 0 else float(refusals)
-        )
-
-        if kl_divergence >= kl_divergence_target:
-            kld_score = kl_divergence / kl_divergence_scale
-        else:
-            kld_score = refusals_score * kl_divergence_target / kl_divergence_scale
-
-        score = (
-            kld_score,
-            refusals_score,
-        )
-
         return score, kl_divergence, refusals

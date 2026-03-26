@@ -44,7 +44,7 @@ from rich.traceback import install
 
 from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
-from .evaluator import Evaluator
+from .evaluator import Evaluator, PendingScore
 from .model import AbliterationParameters, Model, get_model_class
 from .utils import (
     empty_cache,
@@ -501,11 +501,10 @@ def run():
     start_index = 0
     start_time = time.perf_counter()
 
-    def objective(trial: Trial) -> tuple[float, float]:
-        nonlocal trial_index
-        trial_index += 1
-        trial.set_user_attr("index", trial_index)
+    last_layer_index = len(model.get_layers()) - 1
 
+    def suggest_and_abliterate(trial: Trial, trial_idx: int) -> None:
+        """Suggest parameters, reset model, and run abliteration (GPU)."""
         direction_scope = trial.suggest_categorical(
             "direction_scope",
             [
@@ -513,8 +512,6 @@ def run():
                 "per layer",
             ],
         )
-
-        last_layer_index = len(model.get_layers()) - 1
 
         # Discrimination between "harmful" and "harmless" inputs is usually strongest
         # in layers slightly past the midpoint of the layer stack. See the original
@@ -574,7 +571,7 @@ def run():
 
         print()
         print(
-            f"Running trial [bold]{trial_index}[/] of [bold]{settings.n_trials}[/]..."
+            f"Running trial [bold]{trial_idx}[/] of [bold]{settings.n_trials}[/]..."
         )
         print("* Parameters:")
         for name, value in get_trial_parameters(trial).items():
@@ -583,33 +580,32 @@ def run():
         model.reset_model()
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
-        print("* Evaluating...")
-        score, kl_divergence, refusals = evaluator.get_score()
+
+    def resolve_pending(
+        pending: tuple[PendingScore, Trial, int] | None,
+    ) -> None:
+        """Resolve a pipelined evaluation and report score to Optuna."""
+        if pending is None:
+            return
+        pending_score, prev_trial, prev_idx = pending
+        score, kl_divergence, refusals = pending_score.resolve()
+        print(f"  * Refusals: [bold]{refusals}[/]/{len(evaluator.bad_prompts)}")
 
         elapsed_time = time.perf_counter() - start_time
-        remaining_time = (elapsed_time / (trial_index - start_index)) * (
-            settings.n_trials - trial_index
+        remaining_time = (elapsed_time / (prev_idx - start_index)) * (
+            settings.n_trials - prev_idx
         )
         print()
         print(f"[grey50]Elapsed time: [bold]{format_duration(elapsed_time)}[/][/]")
-        if trial_index < settings.n_trials:
+        if prev_idx < settings.n_trials:
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
         print_memory_usage()
 
-        trial.set_user_attr("kl_divergence", kl_divergence)
-        trial.set_user_attr("refusals", refusals)
-
-        return score
-
-    def objective_wrapper(trial: Trial) -> tuple[float, float]:
-        try:
-            return objective(trial)
-        except KeyboardInterrupt:
-            # Stop the study gracefully on Ctrl+C.
-            trial.study.stop()
-            raise TrialPruned()
+        prev_trial.set_user_attr("kl_divergence", kl_divergence)
+        prev_trial.set_user_attr("refusals", refusals)
+        study.tell(prev_trial, score)
 
     study = optuna.create_study(
         sampler=TPESampler(
@@ -635,16 +631,42 @@ def run():
         print()
         print("Resuming existing study.")
 
+    # Pipelined ask/tell loop: trial N's LLM judge runs concurrently with
+    # trial N+1's GPU work (reset + abliterate + generate + logprobs).
+    pending: tuple[PendingScore, Trial, int] | None = None
+
     try:
-        study.optimize(
-            objective_wrapper,
-            n_trials=settings.n_trials - count_completed_trials(),
-        )
+        n_remaining = settings.n_trials - count_completed_trials()
+        for _ in range(n_remaining):
+            trial = study.ask()
+            trial_index += 1
+            trial.set_user_attr("index", trial_index)
+
+            suggest_and_abliterate(trial, trial_index)
+
+            print("* Evaluating...")
+            new_pending = evaluator.start_evaluation()
+
+            # Resolve PREVIOUS trial's LLM judge (ran during this trial's GPU work)
+            resolve_pending(pending)
+
+            pending = (new_pending, trial, trial_index)
+
+        # Flush last trial
+        resolve_pending(pending)
+        pending = None
+
     except KeyboardInterrupt:
-        # This additional handler takes care of the small chance that KeyboardInterrupt
-        # is raised just between trials, which wouldn't be caught by the handler
-        # defined in objective_wrapper above.
-        pass
+        # Flush any in-flight evaluation on Ctrl+C
+        if pending is not None:
+            try:
+                resolve_pending(pending)
+                pending = None
+            except Exception:
+                logger.warning(
+                    "Failed to resolve pending evaluation on interrupt",
+                    exc_info=True,
+                )
 
     if count_completed_trials() == settings.n_trials:
         study.set_user_attr("finished", True)

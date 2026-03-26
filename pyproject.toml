@@ -42,6 +42,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+llm-judge = [
+    "httpx>=0.27",
+]
 research = [
     "geom-median~=0.1",
     "imageio~=2.37",
@@ -52,6 +55,7 @@ research = [
 
 [dependency-groups]
 dev = [
+    "pytest>=9.0.2",
     "ruff>=0.14.5",
     "ty>=0.0.5",
 ]

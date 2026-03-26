@@ -341,6 +341,11 @@ class Settings(BaseSettings):
         description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
     )
 
+    use_llm_judge: bool = Field(
+        default=False,
+        description="Use LLM judge for refusal classification instead of substring matching.",
+    )
+
     system_prompt: str = Field(
         default="You are a helpful assistant.",
         description="System prompt to use when prompting the model.",

@@ -30,7 +30,7 @@ from accelerate.utils import (
 )
 from huggingface_hub import ModelCard, ModelCardData
 from lm_eval.models.huggingface import HFLM
-from optuna import Trial, TrialPruned
+from optuna import Trial
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
@@ -44,7 +44,7 @@ from rich.traceback import install
 
 from .analyzer import Analyzer
 from .config import QuantizationMethod, Settings
-from .evaluator import Evaluator
+from .evaluator import Evaluator, PendingScore
 from .model import AbliterationParameters, Model, get_model_class
 from .utils import (
     empty_cache,
@@ -59,6 +59,8 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def obtain_merge_strategy(settings: Settings) -> str | None:
@@ -228,6 +230,16 @@ def run():
     # recompile too often.
     torch._dynamo.config.cache_size_limit = 64
 
+    # Enable INFO logging for LLM judge and evaluator monitoring
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    # Quiet noisy libraries
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     # Silence warning spam from Transformers.
     # In my entire career I've never seen a useful warning from that library.
     transformers.logging.set_verbosity_error()
@@ -312,7 +324,17 @@ def run():
         )
 
         print()
-        choice = prompt_select("How would you like to proceed?", choices)
+        if not sys.stdin.isatty():
+            # Auto-continue in non-interactive mode (e.g. nohup).
+            if existing_study.user_attrs["finished"]:
+                print(
+                    "[yellow]Study already finished. Run interactively to select a trial.[/]"
+                )
+                return
+            choice = "continue"
+            print("[green]Auto-continuing interrupted run (non-interactive mode).[/]")
+        else:
+            choice = prompt_select("How would you like to proceed?", choices)
 
         if choice == "continue":
             settings = Settings.model_validate_json(
@@ -482,11 +504,10 @@ def run():
     start_index = 0
     start_time = time.perf_counter()
 
-    def objective(trial: Trial) -> tuple[float, float]:
-        nonlocal trial_index
-        trial_index += 1
-        trial.set_user_attr("index", trial_index)
+    last_layer_index = len(model.get_layers()) - 1
 
+    def suggest_and_abliterate(trial: Trial, trial_idx: int) -> None:
+        """Suggest parameters, reset model, and run abliteration (GPU)."""
         direction_scope = trial.suggest_categorical(
             "direction_scope",
             [
@@ -494,8 +515,6 @@ def run():
                 "per layer",
             ],
         )
-
-        last_layer_index = len(model.get_layers()) - 1
 
         # Discrimination between "harmful" and "harmless" inputs is usually strongest
         # in layers slightly past the midpoint of the layer stack. See the original
@@ -554,9 +573,7 @@ def run():
         trial.set_user_attr("parameters", {k: asdict(v) for k, v in parameters.items()})
 
         print()
-        print(
-            f"Running trial [bold]{trial_index}[/] of [bold]{settings.n_trials}[/]..."
-        )
+        print(f"Running trial [bold]{trial_idx}[/] of [bold]{settings.n_trials}[/]...")
         print("* Parameters:")
         for name, value in get_trial_parameters(trial).items():
             print(f"  * {name} = [bold]{value}[/]")
@@ -564,33 +581,32 @@ def run():
         model.reset_model()
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
-        print("* Evaluating...")
-        score, kl_divergence, refusals = evaluator.get_score()
+
+    def resolve_pending(
+        pending: tuple[PendingScore, Trial, int] | None,
+        timeout: float | None = None,
+    ) -> None:
+        """Resolve a pipelined evaluation and report score to Optuna."""
+        if pending is None:
+            return
+        pending_score, prev_trial, prev_idx = pending
+        score, kl_divergence, refusals = pending_score.resolve(timeout=timeout)
+        print(f"  * Refusals: [bold]{refusals}[/]/{len(evaluator.bad_prompts)}")
 
         elapsed_time = time.perf_counter() - start_time
-        remaining_time = (elapsed_time / (trial_index - start_index)) * (
-            settings.n_trials - trial_index
-        )
         print()
         print(f"[grey50]Elapsed time: [bold]{format_duration(elapsed_time)}[/][/]")
-        if trial_index < settings.n_trials:
+        completed = prev_idx - start_index
+        if completed > 0 and prev_idx < settings.n_trials:
+            remaining_time = (elapsed_time / completed) * (settings.n_trials - prev_idx)
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
         print_memory_usage()
 
-        trial.set_user_attr("kl_divergence", kl_divergence)
-        trial.set_user_attr("refusals", refusals)
-
-        return score
-
-    def objective_wrapper(trial: Trial) -> tuple[float, float]:
-        try:
-            return objective(trial)
-        except KeyboardInterrupt:
-            # Stop the study gracefully on Ctrl+C.
-            trial.study.stop()
-            raise TrialPruned()
+        prev_trial.set_user_attr("kl_divergence", kl_divergence)
+        prev_trial.set_user_attr("refusals", refusals)
+        study.tell(prev_trial, score)
 
     study = optuna.create_study(
         sampler=TPESampler(
@@ -616,16 +632,58 @@ def run():
         print()
         print("Resuming existing study.")
 
+    # Pipelined ask/tell loop: trial N's LLM judge runs concurrently with
+    # trial N+1's GPU work (reset + abliterate + generate + logprobs).
+    pending: tuple[PendingScore, Trial, int] | None = None
+    # Track the current trial separately so we can fail it on interrupt.
+    current_trial: Trial | None = None
+
+    def _fail_outstanding_trials() -> None:
+        """Fail any trials left in RUNNING state after interruption or error."""
+        nonlocal pending, current_trial
+        if pending is not None:
+            _, pending_trial, _ = pending
+            try:
+                resolve_pending(pending, timeout=5.0)
+            except Exception:
+                study.tell(pending_trial, state=TrialState.FAIL)
+                logger.warning(
+                    "Failed to resolve pending evaluation, marked trial as FAIL",
+                    exc_info=True,
+                )
+            pending = None
+
+        if current_trial is not None:
+            study.tell(current_trial, state=TrialState.FAIL)
+            current_trial = None
+
     try:
-        study.optimize(
-            objective_wrapper,
-            n_trials=settings.n_trials - count_completed_trials(),
-        )
+        n_remaining = settings.n_trials - count_completed_trials()
+        for _ in range(n_remaining):
+            current_trial = study.ask()
+            trial_index += 1
+            current_trial.set_user_attr("index", trial_index)
+
+            suggest_and_abliterate(current_trial, trial_index)
+
+            print("* Evaluating...")
+            new_pending = evaluator.start_evaluation()
+
+            # Resolve PREVIOUS trial's LLM judge (ran during this trial's GPU work)
+            resolve_pending(pending)
+
+            pending = (new_pending, current_trial, trial_index)
+            current_trial = None  # Now tracked via pending
+
+        # Flush last trial
+        resolve_pending(pending)
+        pending = None
+
     except KeyboardInterrupt:
-        # This additional handler takes care of the small chance that KeyboardInterrupt
-        # is raised just between trials, which wouldn't be caught by the handler
-        # defined in objective_wrapper above.
-        pass
+        _fail_outstanding_trials()
+    except Exception:
+        _fail_outstanding_trials()
+        raise
 
     if count_completed_trials() == settings.n_trials:
         study.set_user_attr("finished", True)
@@ -721,13 +779,27 @@ def run():
                 study.set_user_attr("settings", settings.model_dump_json())
                 study.set_user_attr("finished", False)
 
+                pending = None
+                current_trial = None
                 try:
-                    study.optimize(
-                        objective_wrapper,
-                        n_trials=settings.n_trials - count_completed_trials(),
-                    )
+                    n_extra = settings.n_trials - count_completed_trials()
+                    for _ in range(n_extra):
+                        current_trial = study.ask()
+                        trial_index += 1
+                        current_trial.set_user_attr("index", trial_index)
+                        suggest_and_abliterate(current_trial, trial_index)
+                        print("* Evaluating...")
+                        new_pending = evaluator.start_evaluation()
+                        resolve_pending(pending)
+                        pending = (new_pending, current_trial, trial_index)
+                        current_trial = None
+                    resolve_pending(pending)
+                    pending = None
                 except KeyboardInterrupt:
-                    pass
+                    _fail_outstanding_trials()
+                except Exception:
+                    _fail_outstanding_trials()
+                    raise
 
                 if count_completed_trials() == settings.n_trials:
                     study.set_user_attr("finished", True)

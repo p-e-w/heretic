@@ -18,6 +18,9 @@ wheels/
 # Configuration files
 /config.toml
 
+# Environment variables
+.env
+
 # Study checkpoints
 /checkpoints/
 

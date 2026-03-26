@@ -673,7 +673,7 @@ class Model:
         residuals = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            residuals.append(self.get_residuals(batch))
+            residuals.append(self.get_residuals(batch).cpu())
 
         return torch.cat(residuals, dim=0)
 

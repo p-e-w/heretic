@@ -9,7 +9,9 @@ gpt-mini -> spark -> gemini-flash. API key read from LLM_JUDGE_API_KEY env var
 
 import logging
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 import httpx
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 API_BASE = "http://localhost:8317/v1/chat/completions"
 BATCH_SIZE = 10
+CONCURRENCY = 6
 TIMEOUT = 90
 MAX_RETRIES = 3
 
@@ -39,11 +42,13 @@ class _UsageTracker:
     prompt_tokens: dict[str, int] = field(default_factory=dict)
     completion_tokens: dict[str, int] = field(default_factory=dict)
     calls: dict[str, int] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def record(self, model: str, usage: dict) -> None:
-        self.prompt_tokens[model] = self.prompt_tokens.get(model, 0) + usage.get("prompt_tokens", 0)
-        self.completion_tokens[model] = self.completion_tokens.get(model, 0) + usage.get("completion_tokens", 0)
-        self.calls[model] = self.calls.get(model, 0) + 1
+        with self._lock:
+            self.prompt_tokens[model] = self.prompt_tokens.get(model, 0) + usage.get("prompt_tokens", 0)
+            self.completion_tokens[model] = self.completion_tokens.get(model, 0) + usage.get("completion_tokens", 0)
+            self.calls[model] = self.calls.get(model, 0) + 1
 
     def estimate_cost(self) -> float:
         pricing = _load_pricing()
@@ -134,6 +139,58 @@ def _call_api(model: str, user_prompt: str, api_key: str) -> list[str]:
     return [t.strip() for t in clean.split(",") if t.strip() in ("R", "N")]
 
 
+def _classify_single_batch(
+    prompts: list[str],
+    responses: list[str],
+    api_key: str,
+) -> list[bool] | None:
+    """Classify a single batch (up to BATCH_SIZE items) with model fallback."""
+    expected = len(prompts)
+    user_prompt = _build_user_prompt(prompts, responses)
+
+    labels = None
+    for model in MODELS:
+        for attempt in range(MAX_RETRIES):
+            try:
+                labels = _call_api(model, user_prompt, api_key)
+                if len(labels) == expected:
+                    break
+                logger.warning(
+                    "LLM judge parse mismatch: expected %d, got %d "
+                    "(model=%s, attempt=%d)",
+                    expected, len(labels), model, attempt + 1,
+                )
+                labels = None
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    logger.warning(
+                        "LLM judge quota exceeded for %s, trying next model",
+                        model,
+                    )
+                    break  # Skip retries, try next model
+                logger.warning(
+                    "LLM judge HTTP error: %s (model=%s, attempt=%d)",
+                    e, model, attempt + 1,
+                )
+                labels = None
+            except Exception as e:
+                logger.warning(
+                    "LLM judge error: %s (model=%s, attempt=%d)",
+                    e, model, attempt + 1,
+                )
+                labels = None
+
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(2 ** attempt)
+
+        if labels is not None and len(labels) == expected:
+            break
+
+    if labels is not None and len(labels) == expected:
+        return [label == "R" for label in labels]
+    return None
+
+
 def classify_refusals_batch(
     prompts: list[str],
     responses: list[str],
@@ -153,63 +210,44 @@ def classify_refusals_batch(
         logger.warning("LLM_JUDGE_API_KEY not set, cannot use LLM judge")
         return None
 
+    # Build batch index ranges
+    batches = []
+    for start in range(0, len(prompts), BATCH_SIZE):
+        end = min(start + BATCH_SIZE, len(prompts))
+        batches.append((start, end))
+
     results: list[bool | None] = [None] * len(prompts)
 
-    for batch_start in range(0, len(prompts), BATCH_SIZE):
-        batch_end = min(batch_start + BATCH_SIZE, len(prompts))
-        batch_prompts = prompts[batch_start:batch_end]
-        batch_responses = responses[batch_start:batch_end]
-        expected = len(batch_prompts)
+    with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
+        futures = {
+            executor.submit(
+                _classify_single_batch,
+                prompts[start:end],
+                responses[start:end],
+                api_key,
+            ): (start, end)
+            for start, end in batches
+        }
 
-        user_prompt = _build_user_prompt(batch_prompts, batch_responses)
+        for future in as_completed(futures):
+            start, end = futures[future]
+            try:
+                batch_results = future.result()
+            except Exception as e:
+                logger.error(
+                    "LLM judge batch %d-%d raised: %s", start, end, e,
+                )
+                return None
 
-        labels = None
-        for model in MODELS:
-            for attempt in range(MAX_RETRIES):
-                try:
-                    labels = _call_api(model, user_prompt, api_key)
-                    if len(labels) == expected:
-                        break
-                    logger.warning(
-                        "LLM judge parse mismatch: expected %d, got %d "
-                        "(model=%s, attempt=%d)",
-                        expected, len(labels), model, attempt + 1,
-                    )
-                    labels = None
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code == 429:
-                        logger.warning(
-                            "LLM judge quota exceeded for %s, trying next model",
-                            model,
-                        )
-                        break  # Skip retries, try next model
-                    logger.warning(
-                        "LLM judge HTTP error: %s (model=%s, attempt=%d)",
-                        e, model, attempt + 1,
-                    )
-                    labels = None
-                except Exception as e:
-                    logger.warning(
-                        "LLM judge error: %s (model=%s, attempt=%d)",
-                        e, model, attempt + 1,
-                    )
-                    labels = None
+            if batch_results is None:
+                logger.error(
+                    "LLM judge failed for batch %d-%d, all models exhausted",
+                    start, end,
+                )
+                return None
 
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(2 ** attempt)
-
-            if labels is not None and len(labels) == expected:
-                break
-
-        if labels is not None and len(labels) == expected:
-            for i, label in enumerate(labels):
-                results[batch_start + i] = (label == "R")
-        else:
-            logger.error(
-                "LLM judge failed for batch %d-%d, all models exhausted",
-                batch_start, batch_end,
-            )
-            return None
+            for i, is_refusal in enumerate(batch_results):
+                results[start + i] = is_refusal
 
     if any(r is None for r in results):
         return None

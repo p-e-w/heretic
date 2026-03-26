@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import atexit
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 
@@ -83,6 +84,7 @@ class Evaluator:
         self.settings = settings
         self.model = model
         self._judge_executor = ThreadPoolExecutor(max_workers=1)
+        atexit.register(self._judge_executor.shutdown, wait=False)
 
         # Track dual baselines for score consistency across LLM judge fallback
         self._base_refusals_llm: int | None = None

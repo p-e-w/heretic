@@ -51,29 +51,31 @@ class _UsageTracker:
             self.calls[model] = self.calls.get(model, 0) + 1
 
     def estimate_cost(self) -> float:
-        pricing = _load_pricing()
-        total = 0.0
-        for model in set(list(self.prompt_tokens) + list(self.completion_tokens)):
-            inp_price, out_price = pricing.get(model, (0.50, 2.00))  # conservative default
-            inp = self.prompt_tokens.get(model, 0)
-            out = self.completion_tokens.get(model, 0)
-            total += inp / 1_000_000 * inp_price + out / 1_000_000 * out_price
-        return total
+        with self._lock:
+            pricing = _load_pricing()
+            total = 0.0
+            for model in set(list(self.prompt_tokens) + list(self.completion_tokens)):
+                inp_price, out_price = pricing.get(model, (0.50, 2.00))  # conservative default
+                inp = self.prompt_tokens.get(model, 0)
+                out = self.completion_tokens.get(model, 0)
+                total += inp / 1_000_000 * inp_price + out / 1_000_000 * out_price
+            return total
 
     def summary(self) -> str:
-        lines = []
-        total_cost = 0.0
-        pricing = _load_pricing()
-        for model in sorted(set(list(self.prompt_tokens) + list(self.completion_tokens))):
-            inp = self.prompt_tokens.get(model, 0)
-            out = self.completion_tokens.get(model, 0)
-            n = self.calls.get(model, 0)
-            inp_price, out_price = pricing.get(model, (0.50, 2.00))
-            cost = inp / 1_000_000 * inp_price + out / 1_000_000 * out_price
-            total_cost += cost
-            lines.append(f"  {model}: {n} calls, {inp} in / {out} out, ${cost:.4f}")
-        lines.append(f"  TOTAL: ${total_cost:.4f}")
-        return "\n".join(lines)
+        with self._lock:
+            lines = []
+            total_cost = 0.0
+            pricing = _load_pricing()
+            for model in sorted(set(list(self.prompt_tokens) + list(self.completion_tokens))):
+                inp = self.prompt_tokens.get(model, 0)
+                out = self.completion_tokens.get(model, 0)
+                n = self.calls.get(model, 0)
+                inp_price, out_price = pricing.get(model, (0.50, 2.00))
+                cost = inp / 1_000_000 * inp_price + out / 1_000_000 * out_price
+                total_cost += cost
+                lines.append(f"  {model}: {n} calls, {inp} in / {out} out, ${cost:.4f}")
+            lines.append(f"  TOTAL: ${total_cost:.4f}")
+            return "\n".join(lines)
 
 
 def _load_pricing() -> dict[str, tuple[float, float]]:

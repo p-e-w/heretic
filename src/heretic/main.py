@@ -592,12 +592,13 @@ def run():
         print(f"  * Refusals: [bold]{refusals}[/]/{len(evaluator.bad_prompts)}")
 
         elapsed_time = time.perf_counter() - start_time
-        remaining_time = (elapsed_time / (prev_idx - start_index)) * (
-            settings.n_trials - prev_idx
-        )
         print()
         print(f"[grey50]Elapsed time: [bold]{format_duration(elapsed_time)}[/][/]")
-        if prev_idx < settings.n_trials:
+        completed = prev_idx - start_index
+        if completed > 0 and prev_idx < settings.n_trials:
+            remaining_time = (elapsed_time / completed) * (
+                settings.n_trials - prev_idx
+            )
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
@@ -762,13 +763,26 @@ def run():
                 study.set_user_attr("settings", settings.model_dump_json())
                 study.set_user_attr("finished", False)
 
+                pending = None
                 try:
-                    study.optimize(
-                        objective_wrapper,
-                        n_trials=settings.n_trials - count_completed_trials(),
-                    )
+                    n_extra = settings.n_trials - count_completed_trials()
+                    for _ in range(n_extra):
+                        trial = study.ask()
+                        trial_index += 1
+                        trial.set_user_attr("index", trial_index)
+                        suggest_and_abliterate(trial, trial_index)
+                        print("* Evaluating...")
+                        new_pending = evaluator.start_evaluation()
+                        resolve_pending(pending)
+                        pending = (new_pending, trial, trial_index)
+                    resolve_pending(pending)
+                    pending = None
                 except KeyboardInterrupt:
-                    pass
+                    if pending is not None:
+                        try:
+                            resolve_pending(pending)
+                        except Exception:
+                            pass
 
                 if count_completed_trials() == settings.n_trials:
                     study.set_user_attr("finished", True)

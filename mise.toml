@@ -1,0 +1,31 @@
+[tools]
+uv = "latest"
+lefthook = "latest"
+
+[tasks.fmt]
+description = "Check code formatting"
+run = "uv run ruff format --check ."
+
+[tasks."fmt:fix"]
+description = "Apply code formatting"
+run = "uv run ruff format ."
+
+[tasks.lint]
+description = "Lint and check import sorting"
+run = "uv run ruff check --extend-select I ."
+
+[tasks."lint:fix"]
+description = "Lint and auto-fix"
+run = "uv run ruff check --extend-select I --fix ."
+
+[tasks.typecheck]
+description = "Type check with ty"
+run = "uv run ty check --error-on-warning ."
+
+[tasks.build]
+description = "Build package"
+run = "uv build"
+
+[tasks.check]
+description = "Run all quality gates (CI equivalent)"
+depends = ["fmt", "lint", "typecheck", "build"]

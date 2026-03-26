@@ -29,7 +29,7 @@ MODELS = ["gpt-mini", "spark", "gemini-flash"]
 # Approximate pricing per 1M tokens (USD). Override via env LLM_JUDGE_PRICING.
 # Format: "model:input_price:output_price,..." e.g. "spark:0.5:2.0,gemini-flash:0.15:0.6"
 DEFAULT_PRICING: dict[str, tuple[float, float]] = {
-    "gpt-mini": (0.15, 0.60),       # input, output per 1M tokens
+    "gpt-mini": (0.15, 0.60),  # input, output per 1M tokens
     "spark": (0.50, 2.00),
     "gemini-flash": (0.15, 0.60),
 }
@@ -46,8 +46,12 @@ class _UsageTracker:
 
     def record(self, model: str, usage: dict) -> None:
         with self._lock:
-            self.prompt_tokens[model] = self.prompt_tokens.get(model, 0) + usage.get("prompt_tokens", 0)
-            self.completion_tokens[model] = self.completion_tokens.get(model, 0) + usage.get("completion_tokens", 0)
+            self.prompt_tokens[model] = self.prompt_tokens.get(model, 0) + usage.get(
+                "prompt_tokens", 0
+            )
+            self.completion_tokens[model] = self.completion_tokens.get(
+                model, 0
+            ) + usage.get("completion_tokens", 0)
             self.calls[model] = self.calls.get(model, 0) + 1
 
     def estimate_cost(self) -> float:
@@ -55,7 +59,9 @@ class _UsageTracker:
             pricing = _load_pricing()
             total = 0.0
             for model in set(list(self.prompt_tokens) + list(self.completion_tokens)):
-                inp_price, out_price = pricing.get(model, (0.50, 2.00))  # conservative default
+                inp_price, out_price = pricing.get(
+                    model, (0.50, 2.00)
+                )  # conservative default
                 inp = self.prompt_tokens.get(model, 0)
                 out = self.completion_tokens.get(model, 0)
                 total += inp / 1_000_000 * inp_price + out / 1_000_000 * out_price
@@ -66,7 +72,9 @@ class _UsageTracker:
             lines = []
             total_cost = 0.0
             pricing = _load_pricing()
-            for model in sorted(set(list(self.prompt_tokens) + list(self.completion_tokens))):
+            for model in sorted(
+                set(list(self.prompt_tokens) + list(self.completion_tokens))
+            ):
                 inp = self.prompt_tokens.get(model, 0)
                 out = self.completion_tokens.get(model, 0)
                 n = self.calls.get(model, 0)
@@ -160,7 +168,10 @@ def _classify_single_batch(
                 logger.warning(
                     "LLM judge parse mismatch: expected %d, got %d "
                     "(model=%s, attempt=%d)",
-                    expected, len(labels), model, attempt + 1,
+                    expected,
+                    len(labels),
+                    model,
+                    attempt + 1,
                 )
                 labels = None
             except httpx.HTTPStatusError as e:
@@ -172,18 +183,22 @@ def _classify_single_batch(
                     break  # Skip retries, try next model
                 logger.warning(
                     "LLM judge HTTP error: %s (model=%s, attempt=%d)",
-                    e, model, attempt + 1,
+                    e,
+                    model,
+                    attempt + 1,
                 )
                 labels = None
             except Exception as e:
                 logger.warning(
                     "LLM judge error: %s (model=%s, attempt=%d)",
-                    e, model, attempt + 1,
+                    e,
+                    model,
+                    attempt + 1,
                 )
                 labels = None
 
             if attempt < MAX_RETRIES - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
 
         if labels is not None and len(labels) == expected:
             break
@@ -237,14 +252,18 @@ def classify_refusals_batch(
                 batch_results = future.result()
             except Exception as e:
                 logger.error(
-                    "LLM judge batch %d-%d raised: %s", start, end, e,
+                    "LLM judge batch %d-%d raised: %s",
+                    start,
+                    end,
+                    e,
                 )
                 return None
 
             if batch_results is None:
                 logger.error(
                     "LLM judge failed for batch %d-%d, all models exhausted",
-                    start, end,
+                    start,
+                    end,
                 )
                 return None
 

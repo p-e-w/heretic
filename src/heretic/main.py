@@ -30,7 +30,7 @@ from accelerate.utils import (
 )
 from huggingface_hub import ModelCard, ModelCardData
 from lm_eval.models.huggingface import HFLM
-from optuna import Trial, TrialPruned
+from optuna import Trial
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
@@ -59,6 +59,8 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def obtain_merge_strategy(settings: Settings) -> str | None:
@@ -229,7 +231,6 @@ def run():
     torch._dynamo.config.cache_size_limit = 64
 
     # Enable INFO logging for LLM judge and evaluator monitoring
-    import logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
@@ -326,7 +327,9 @@ def run():
         if not sys.stdin.isatty():
             # Auto-continue in non-interactive mode (e.g. nohup).
             if existing_study.user_attrs["finished"]:
-                print("[yellow]Study already finished. Run interactively to select a trial.[/]")
+                print(
+                    "[yellow]Study already finished. Run interactively to select a trial.[/]"
+                )
                 return
             choice = "continue"
             print("[green]Auto-continuing interrupted run (non-interactive mode).[/]")
@@ -570,9 +573,7 @@ def run():
         trial.set_user_attr("parameters", {k: asdict(v) for k, v in parameters.items()})
 
         print()
-        print(
-            f"Running trial [bold]{trial_idx}[/] of [bold]{settings.n_trials}[/]..."
-        )
+        print(f"Running trial [bold]{trial_idx}[/] of [bold]{settings.n_trials}[/]...")
         print("* Parameters:")
         for name, value in get_trial_parameters(trial).items():
             print(f"  * {name} = [bold]{value}[/]")
@@ -596,9 +597,7 @@ def run():
         print(f"[grey50]Elapsed time: [bold]{format_duration(elapsed_time)}[/][/]")
         completed = prev_idx - start_index
         if completed > 0 and prev_idx < settings.n_trials:
-            remaining_time = (elapsed_time / completed) * (
-                settings.n_trials - prev_idx
-            )
+            remaining_time = (elapsed_time / completed) * (settings.n_trials - prev_idx)
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )

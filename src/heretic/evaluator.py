@@ -48,7 +48,8 @@ class PendingScore:
         refusals = 0
         for i, response in enumerate(self._responses):
             is_ref = (
-                refusal_flags[i] if refusal_flags is not None
+                refusal_flags[i]
+                if refusal_flags is not None
                 else ev.is_refusal(response)
             )
             if is_ref:
@@ -110,7 +111,8 @@ class Evaluator:
 
         print("* Counting model refusals...")
         base_responses = model.get_responses_batched(
-            self.bad_prompts, skip_special_tokens=True,
+            self.bad_prompts,
+            skip_special_tokens=True,
         )
 
         # Always compute substring baseline
@@ -126,11 +128,15 @@ class Evaluator:
                 self.base_refusals = self._base_refusals_llm
                 logger.info(
                     "Baseline: LLM judge=%d, substring=%d",
-                    self._base_refusals_llm, self._base_refusals_substring,
+                    self._base_refusals_llm,
+                    self._base_refusals_substring,
                 )
             else:
                 self.base_refusals = self._base_refusals_substring
-                logger.warning("Baseline LLM judge failed, using substring (%d)", self.base_refusals)
+                logger.warning(
+                    "Baseline LLM judge failed, using substring (%d)",
+                    self.base_refusals,
+                )
         else:
             self.base_refusals = self._base_refusals_substring
 
@@ -203,7 +209,8 @@ class Evaluator:
         refusal_count = 0
         for i, (prompt, response) in enumerate(zip(self.bad_prompts, responses)):
             is_refusal = (
-                refusal_flags[i] if refusal_flags is not None
+                refusal_flags[i]
+                if refusal_flags is not None
                 else self.is_refusal(response)
             )
             if is_refusal:
@@ -232,14 +239,16 @@ class Evaluator:
         # GPU: generate responses for bad prompts
         print("  * Counting model refusals...")
         responses = self.model.get_responses_batched(
-            self.bad_prompts, skip_special_tokens=True,
+            self.bad_prompts,
+            skip_special_tokens=True,
         )
 
         # Submit LLM judge to background thread (non-blocking)
         judge_future: Future[list[bool] | None] | None = None
         if self.settings.use_llm_judge:
             judge_future = self._judge_executor.submit(
-                self._try_llm_judge, responses,
+                self._try_llm_judge,
+                responses,
             )
 
         # GPU: logprobs for good prompts (overlaps with LLM judge)

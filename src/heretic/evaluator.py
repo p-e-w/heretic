@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import atexit
 import logging
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError
 
 import torch.nn.functional as F
 from torch import Tensor
@@ -32,14 +32,27 @@ class PendingScore:
         self._responses = responses
         self._judge_future = judge_future
 
-    def resolve(self) -> tuple[tuple[float, float], float, int]:
-        """Block until LLM judge completes and compute final score."""
+    def resolve(
+        self, timeout: float | None = None
+    ) -> tuple[tuple[float, float], float, int]:
+        """Block until LLM judge completes and compute final score.
+
+        Args:
+            timeout: Maximum seconds to wait for the LLM judge future.
+                     None means wait indefinitely. On timeout, falls back
+                     to substring matching.
+        """
         ev = self._evaluator
 
         refusal_flags: list[bool] | None = None
         if self._judge_future is not None:
             try:
-                refusal_flags = self._judge_future.result()
+                refusal_flags = self._judge_future.result(timeout=timeout)
+            except TimeoutError:
+                logger.warning(
+                    "LLM judge timed out after %.1fs, falling back to substring",
+                    timeout,
+                )
             except Exception:
                 logger.warning("Pipelined LLM judge raised", exc_info=True)
 

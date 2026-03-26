@@ -584,12 +584,13 @@ def run():
 
     def resolve_pending(
         pending: tuple[PendingScore, Trial, int] | None,
+        timeout: float | None = None,
     ) -> None:
         """Resolve a pipelined evaluation and report score to Optuna."""
         if pending is None:
             return
         pending_score, prev_trial, prev_idx = pending
-        score, kl_divergence, refusals = pending_score.resolve()
+        score, kl_divergence, refusals = pending_score.resolve(timeout=timeout)
         print(f"  * Refusals: [bold]{refusals}[/]/{len(evaluator.bad_prompts)}")
 
         elapsed_time = time.perf_counter() - start_time
@@ -634,15 +635,17 @@ def run():
     # Pipelined ask/tell loop: trial N's LLM judge runs concurrently with
     # trial N+1's GPU work (reset + abliterate + generate + logprobs).
     pending: tuple[PendingScore, Trial, int] | None = None
+    # Track the current trial separately so we can fail it on interrupt.
+    current_trial: Trial | None = None
 
     try:
         n_remaining = settings.n_trials - count_completed_trials()
         for _ in range(n_remaining):
-            trial = study.ask()
+            current_trial = study.ask()
             trial_index += 1
-            trial.set_user_attr("index", trial_index)
+            current_trial.set_user_attr("index", trial_index)
 
-            suggest_and_abliterate(trial, trial_index)
+            suggest_and_abliterate(current_trial, trial_index)
 
             print("* Evaluating...")
             new_pending = evaluator.start_evaluation()
@@ -650,7 +653,8 @@ def run():
             # Resolve PREVIOUS trial's LLM judge (ran during this trial's GPU work)
             resolve_pending(pending)
 
-            pending = (new_pending, trial, trial_index)
+            pending = (new_pending, current_trial, trial_index)
+            current_trial = None  # Now tracked via pending
 
         # Flush last trial
         resolve_pending(pending)
@@ -659,14 +663,23 @@ def run():
     except KeyboardInterrupt:
         # Flush any in-flight evaluation on Ctrl+C
         if pending is not None:
+            pending_score, pending_trial, pending_idx = pending
             try:
-                resolve_pending(pending)
-                pending = None
+                resolve_pending(pending, timeout=5.0)
             except Exception:
+                # If resolve fails/times out, fail the pending trial
+                study.tell(pending_trial, state=TrialState.FAIL)
                 logger.warning(
-                    "Failed to resolve pending evaluation on interrupt",
+                    "Failed to resolve pending evaluation on interrupt, "
+                    "marked trial as FAIL",
                     exc_info=True,
                 )
+            pending = None
+
+        # Fail the current trial that was ask()'d but never tell()'d
+        if current_trial is not None:
+            study.tell(current_trial, state=TrialState.FAIL)
+            current_trial = None
 
     if count_completed_trials() == settings.n_trials:
         study.set_user_attr("finished", True)

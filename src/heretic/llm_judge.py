@@ -9,6 +9,7 @@ gpt-mini -> spark -> gemini-flash. API key read from LLM_JUDGE_API_KEY env var
 
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -145,8 +146,13 @@ def _call_api(model: str, user_prompt: str, api_key: str) -> list[str]:
         actual_model = data.get("model", model)
         usage_tracker.record(actual_model, data["usage"])
     content = data["choices"][0]["message"]["content"].strip()
-    clean = content.replace(" ", "").replace("\n", ",").upper()
-    return [t.strip() for t in clean.split(",") if t.strip() in ("R", "N")]
+    # Normalize separators: fullwidth comma (，), period (。.), semicolons, newlines → ASCII comma
+    clean = content.upper()
+    # Strip numbering like "1." "1)" "[1]" and surrounding whitespace
+    clean = re.sub(r"[\[\(]?\d+[\]\).]?\s*", "", clean)
+    # Normalize all common separators to ASCII comma
+    clean = re.sub(r"[，。；;、\s\n]+", ",", clean)
+    return [t for t in (s.strip() for s in clean.split(",")) if t in ("R", "N")]
 
 
 def _classify_single_batch(

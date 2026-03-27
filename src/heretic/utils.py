@@ -53,6 +53,14 @@ def print_memory_usage():
         p("Allocated MPS memory", torch.mps.current_allocated_memory())
         p("Driver (reserved) MPS memory", torch.mps.driver_allocated_memory())
 
+    try:
+        import mlx.core as mx
+
+        p("MLX peak memory", mx.get_peak_memory())
+        p("MLX active memory", mx.get_active_memory())
+    except (ImportError, AttributeError):
+        pass
+
 
 def is_notebook() -> bool:
     # Check for specific environment variables (Colab, Kaggle).

@@ -14,6 +14,12 @@ from pydantic_settings import (
 )
 
 
+class Backend(str, Enum):
+    AUTO = "auto"
+    PYTORCH = "pytorch"
+    MLX = "mlx"
+
+
 class QuantizationMethod(str, Enum):
     NONE = "none"
     BNB_4BIT = "bnb_4bit"
@@ -75,6 +81,16 @@ class BenchmarkSpecification(BaseModel):
 
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
+
+    backend: Backend = Field(
+        default=Backend.AUTO,
+        description=(
+            "Backend to use for model loading and inference. Options: "
+            '"auto" (detect from model format), '
+            '"pytorch" (HuggingFace Transformers + PyTorch), '
+            '"mlx" (Apple MLX, requires macOS with Apple Silicon).'
+        ),
+    )
 
     evaluate_model: str | None = Field(
         default=None,

@@ -1,6 +1,12 @@
 # Rename this file to config.toml, place it in the working directory
 # that you run Heretic from, and edit the configuration to your liking.
 
+# Backend to use for model loading and inference. Options:
+# "auto" (detect from model format — uses MLX for MLX models on Apple Silicon),
+# "pytorch" (HuggingFace Transformers + PyTorch),
+# "mlx" (Apple MLX, requires macOS with Apple Silicon and `pip install heretic-llm[mlx]`).
+# backend = "auto"
+
 # List of PyTorch dtypes to try when loading model tensors.
 # If loading with a dtype fails, the next dtype in the list will be tried.
 dtypes = [

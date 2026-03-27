@@ -43,7 +43,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod, Settings
+from .config import Backend, QuantizationMethod, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .utils import (
@@ -135,6 +135,52 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
         return "merge"
 
 
+def resolve_backend(settings: Settings) -> Backend:
+    """
+    Resolve the backend to use. AUTO detection checks if the model path
+    is an MLX model and if MLX is available on this system.
+    """
+    from .mlx_model import is_mlx_available, is_mlx_model
+
+    if settings.backend == Backend.MLX:
+        if not is_mlx_available():
+            raise RuntimeError(
+                "MLX backend requested but mlx/mlx-lm is not installed. "
+                "Install with: pip install 'heretic-llm[mlx]'"
+            )
+        return Backend.MLX
+
+    if settings.backend == Backend.PYTORCH:
+        return Backend.PYTORCH
+
+    # AUTO detection
+    if is_mlx_model(settings.model):
+        if is_mlx_available():
+            print("Detected MLX model format, using MLX backend.")
+            return Backend.MLX
+        else:
+            import warnings
+            warnings.warn(
+                f"Model at '{settings.model}' appears to be in MLX format, but "
+                "mlx/mlx-lm is not installed. Falling back to PyTorch backend, "
+                "which may fail to load the model. "
+                "Install MLX support with: pip install 'heretic-llm[mlx]'",
+                stacklevel=2,
+            )
+
+    return Backend.PYTORCH
+
+
+def create_model(settings: Settings, backend: Backend):
+    """Create the appropriate model backend."""
+    if backend == Backend.MLX:
+        from .mlx_model import MLXModel
+
+        return MLXModel(settings)
+    else:
+        return Model(settings)
+
+
 def run():
     # Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
     if (
@@ -178,8 +224,19 @@ def run():
         )
         return
 
+    # Resolve which backend to use (PyTorch or MLX).
+    model_backend = resolve_backend(settings)
+
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
-    if torch.cuda.is_available():
+    if model_backend == Backend.MLX:
+        import mlx.core as mx
+
+        device_info = mx.device_info()
+        print(
+            f"Using MLX backend on [bold]{device_info.get('device_name', 'Apple Silicon')}[/] "
+            f"(Metal, {device_info.get('memory_size', 0) / (1024**3):.1f} GB unified memory)"
+        )
+    elif torch.cuda.is_available():
         count = torch.cuda.device_count()
         total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
         print(
@@ -325,7 +382,7 @@ def run():
         elif choice is None or choice == "":
             return
 
-    model = Model(settings)
+    model = create_model(settings, model_backend)
     print()
     print_memory_usage()
 
@@ -780,20 +837,24 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_merge_strategy(settings)
-                            if strategy is None:
-                                continue
-
-                            if strategy == "adapter":
-                                print("Saving LoRA adapter...")
-                                model.model.save_pretrained(save_directory)
+                            if model_backend == Backend.MLX:
+                                print("Saving MLX model...")
+                                model.save_pretrained(save_directory)
                             else:
-                                print("Saving merged model...")
-                                merged_model = model.get_merged_model()
-                                merged_model.save_pretrained(save_directory)
-                                del merged_model
-                                empty_cache()
-                                model.tokenizer.save_pretrained(save_directory)
+                                strategy = obtain_merge_strategy(settings)
+                                if strategy is None:
+                                    continue
+
+                                if strategy == "adapter":
+                                    print("Saving LoRA adapter...")
+                                    model.model.save_pretrained(save_directory)
+                                else:
+                                    print("Saving merged model...")
+                                    merged_model = model.get_merged_model()
+                                    merged_model.save_pretrained(save_directory)
+                                    del merged_model
+                                    empty_cache()
+                                    model.tokenizer.save_pretrained(save_directory)
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -831,32 +892,46 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings)
-                            if strategy is None:
-                                continue
+                            if model_backend == Backend.MLX:
+                                import tempfile
 
-                            if strategy == "adapter":
-                                print("Uploading LoRA adapter...")
-                                model.model.push_to_hub(
-                                    repo_id,
-                                    private=private,
-                                    token=token,
-                                )
+                                print("Uploading MLX model...")
+                                with tempfile.TemporaryDirectory() as tmpdir:
+                                    model.save_pretrained(tmpdir)
+                                    huggingface_hub.upload_folder(
+                                        folder_path=tmpdir,
+                                        repo_id=repo_id,
+                                        repo_type="model",
+                                        token=token,
+                                        create_pr=False,
+                                    )
                             else:
-                                print("Uploading merged model...")
-                                merged_model = model.get_merged_model()
-                                merged_model.push_to_hub(
-                                    repo_id,
-                                    private=private,
-                                    token=token,
-                                )
-                                del merged_model
-                                empty_cache()
-                                model.tokenizer.push_to_hub(
-                                    repo_id,
-                                    private=private,
-                                    token=token,
-                                )
+                                strategy = obtain_merge_strategy(settings)
+                                if strategy is None:
+                                    continue
+
+                                if strategy == "adapter":
+                                    print("Uploading LoRA adapter...")
+                                    model.model.push_to_hub(
+                                        repo_id,
+                                        private=private,
+                                        token=token,
+                                    )
+                                else:
+                                    print("Uploading merged model...")
+                                    merged_model = model.get_merged_model()
+                                    merged_model.push_to_hub(
+                                        repo_id,
+                                        private=private,
+                                        token=token,
+                                    )
+                                    del merged_model
+                                    empty_cache()
+                                    model.tokenizer.push_to_hub(
+                                        repo_id,
+                                        private=private,
+                                        token=token,
+                                    )
 
                             # If the model path exists locally and includes the
                             # card, use it directly. If the model path doesn't

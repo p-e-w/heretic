@@ -40,7 +40,7 @@ _DEFAULT_CONCURRENCY = 6
 _DEFAULT_TIMEOUT = 90
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_PRICING: dict[str, tuple[float, float]] = {
-    "gpt-mini": (0.15, 0.60),  # input, output per 1M tokens
+    "gpt-mini": (0.15, 0.60),  # Input, output per 1M tokens.
     "spark": (0.50, 2.00),
     "gemini-flash": (0.15, 0.60),
 }
@@ -72,7 +72,7 @@ class JudgeConfig:
 # ---------------------------------------------------------------------------
 
 _cached_config: JudgeConfig = JudgeConfig()
-_cached_mtime: float = 0.0  # 0 = never loaded, -1 = loaded without file
+_cached_mtime: float = 0.0  # 0 = never loaded, -1 = loaded without file.
 
 
 def _config_path() -> str:
@@ -132,7 +132,7 @@ def _parse_positive_int(
         return default
 
     try:
-        value = int(raw_value)
+        value = int(float(raw_value))
     except (TypeError, ValueError):
         logger.warning(
             f"Invalid LLM judge {source}={raw_value!r}, using default {default}",
@@ -318,7 +318,7 @@ class _UsageTracker:
             return "\n".join(lines)
 
 
-# Module-level tracker (persists across calls within one process)
+# Module-level tracker (persists across calls within one process).
 usage_tracker = _UsageTracker()
 
 # ---------------------------------------------------------------------------
@@ -392,16 +392,16 @@ def _call_api(model: str, user_prompt: str, cfg: JudgeConfig) -> list[str]:
     )
     resp.raise_for_status()
     data = resp.json()
-    # Track token usage
+    # Track token usage.
     if "usage" in data:
         actual_model = data.get("model", model)
         usage_tracker.record(actual_model, data["usage"])
     content = data["choices"][0]["message"]["content"].strip()
-    # Normalize separators: fullwidth comma, period, semicolons, newlines -> ASCII comma
+    # Normalize separators: fullwidth comma, period, semicolons, newlines -> ASCII comma.
     clean = content.upper()
-    # Strip numbering like "1." "1)" "[1]" and surrounding whitespace
+    # Strip numbering like "1." "1)" "[1]" and surrounding whitespace.
     clean = re.sub(r"[\[\(]?\d+[\]\).]?\s*", "", clean)
-    # Normalize all common separators to ASCII comma
+    # Normalize all common separators to ASCII comma.
     clean = re.sub(r"[，。；;、\s\n]+", ",", clean)
     return [t for t in (s.strip() for s in clean.split(",")) if t in ("R", "N")]
 
@@ -430,23 +430,16 @@ def _classify_single_batch(
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
                     logger.warning(
-                        "LLM judge quota exceeded for %s, trying next model",
-                        model,
+                        f"LLM judge quota exceeded for {model}, trying next model",
                     )
-                    break  # Skip retries, try next model
+                    break  # Skip retries, try next model.
                 logger.warning(
-                    "LLM judge HTTP error: %s (model=%s, attempt=%d)",
-                    e,
-                    model,
-                    attempt + 1,
+                    f"LLM judge HTTP error: {e} (model={model}, attempt={attempt + 1})",
                 )
                 labels = None
             except Exception as e:
                 logger.warning(
-                    "LLM judge error: %s (model=%s, attempt=%d)",
-                    e,
-                    model,
-                    attempt + 1,
+                    f"LLM judge error: {e} (model={model}, attempt={attempt + 1})",
                 )
                 labels = None
 
@@ -483,7 +476,7 @@ def classify_refusals_batch(
         logger.warning("LLM_JUDGE_API_KEY not set, cannot use LLM judge")
         return None
 
-    # Build batch index ranges
+    # Build batch index ranges.
     batches = []
     for start in range(0, len(prompts), cfg.batch_size):
         end = min(start + cfg.batch_size, len(prompts))
@@ -530,7 +523,7 @@ def classify_refusals_batch(
             results[start + i] = is_refusal
 
     if failed:
-        # Don't wait for running HTTP requests (bounded by httpx timeout)
+        # Don't wait for running HTTP requests (bounded by httpx timeout).
         executor.shutdown(wait=False, cancel_futures=True)
         return None
 
@@ -539,5 +532,5 @@ def classify_refusals_batch(
     if any(r is None for r in results):
         return None
 
-    logger.info("LLM judge cost this session:\n%s", usage_tracker.summary())
+    logger.info(f"LLM judge cost this session:\n{usage_tracker.summary()}")
     return results  # type: ignore[return-value]

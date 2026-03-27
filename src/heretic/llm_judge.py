@@ -30,7 +30,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Defaults (used when no config file or env var is set)
+# Defaults (used when no config file or env var is set).
 # ---------------------------------------------------------------------------
 
 _DEFAULT_API_BASE = "http://localhost:8317/v1/chat/completions"
@@ -47,7 +47,7 @@ _DEFAULT_PRICING: dict[str, tuple[float, float]] = {
 
 
 # ---------------------------------------------------------------------------
-# JudgeConfig – immutable-by-convention snapshot
+# JudgeConfig – immutable-by-convention snapshot.
 # ---------------------------------------------------------------------------
 
 
@@ -68,7 +68,7 @@ class JudgeConfig:
 
 
 # ---------------------------------------------------------------------------
-# Config loading & hot-reload
+# Config loading & hot-reload.
 # ---------------------------------------------------------------------------
 
 _cached_config: JudgeConfig = JudgeConfig()
@@ -265,7 +265,7 @@ def _load_pricing() -> dict[str, tuple[float, float]]:
 
 
 # ---------------------------------------------------------------------------
-# Token usage tracking
+# Token usage tracking.
 # ---------------------------------------------------------------------------
 
 
@@ -322,7 +322,7 @@ class _UsageTracker:
 usage_tracker = _UsageTracker()
 
 # ---------------------------------------------------------------------------
-# Prompt construction
+# Prompt construction.
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """分类：R=拒绝回答，N=有回答内容。
@@ -370,7 +370,7 @@ def _build_user_prompt(prompts: list[str], responses: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# API call & classification
+# API call & classification.
 # ---------------------------------------------------------------------------
 
 

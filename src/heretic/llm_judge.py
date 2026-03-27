@@ -169,7 +169,7 @@ def _load_config() -> JudgeConfig:
             except Exception:
                 logger.warning(f"Failed to load {path}, using defaults", exc_info=True)
 
-    # Pricing: defaults -> TOML [pricing] -> LLM_JUDGE_PRICING env
+    # Pricing: defaults -> TOML [pricing] -> LLM_JUDGE_PRICING env.
     pricing = dict(_DEFAULT_PRICING)
     if "pricing" in file_cfg and isinstance(file_cfg["pricing"], dict):
         for model, vals in file_cfg["pricing"].items():
@@ -180,7 +180,7 @@ def _load_config() -> JudgeConfig:
                     pass
     _parse_env_pricing(os.environ.get("LLM_JUDGE_PRICING", ""), pricing)
 
-    # Models: defaults -> TOML -> LLM_JUDGE_MODELS env
+    # Models: defaults -> TOML -> LLM_JUDGE_MODELS env.
     models = _DEFAULT_MODELS
     if "models" in file_cfg and isinstance(file_cfg["models"], list):
         models = _normalize_models(file_cfg["models"], "judge.toml models")
@@ -238,7 +238,7 @@ def get_config() -> JudgeConfig:
     try:
         mtime = os.path.getmtime(path)
     except OSError:
-        # No config file - load once from env/defaults, then cache
+        # No config file - load once from env/defaults, then cache.
         if _cached_mtime == 0.0:
             _cached_config = _load_config()
             _cached_mtime = -1.0
@@ -292,7 +292,7 @@ class _UsageTracker:
         with self._lock:
             pricing = get_config().pricing
             total = 0.0
-            for model in set(list(self.prompt_tokens) + list(self.completion_tokens)):
+            for model in self.prompt_tokens.keys() | self.completion_tokens.keys():
                 inp_price, out_price = pricing.get(model, (0.50, 2.00))
                 inp = self.prompt_tokens.get(model, 0)
                 out = self.completion_tokens.get(model, 0)

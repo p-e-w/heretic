@@ -105,12 +105,12 @@ class Evaluator:
         self._judge_executor = ThreadPoolExecutor(max_workers=1)
         atexit.register(self._judge_executor.shutdown, wait=False)
 
-        # Track dual baselines for score consistency across LLM judge fallback
+        # Track dual baselines for score consistency across LLM judge fallback.
         self._base_refusals_llm: int | None = None
         self._base_refusals_substring: int = 0
         self._last_used_llm_judge: bool = False
 
-        # Check LLM judge dependency upfront so users know immediately
+        # Check LLM judge dependency upfront so users know immediately.
         if settings.use_llm_judge:
             try:
                 import httpx  # noqa: F401
@@ -147,12 +147,12 @@ class Evaluator:
             skip_special_tokens=True,
         )
 
-        # Always compute substring baseline
+        # Always compute substring baseline.
         self._base_refusals_substring = sum(
             1 for r in base_responses if self.is_refusal(r)
         )
 
-        # Try LLM judge for baseline if enabled
+        # Try LLM judge for baseline if enabled.
         if settings.use_llm_judge:
             flags = self._try_llm_judge(base_responses)
             if flags is not None:
@@ -231,14 +231,14 @@ class Evaluator:
         The returned PendingScore can be resolved later (after the caller
         has started the next trial's GPU work) to get the final score.
         """
-        # GPU: generate responses for bad prompts
+        # GPU: generate responses for bad prompts.
         print("  * Counting model refusals...")
         responses = self.model.get_responses_batched(
             self.bad_prompts,
             skip_special_tokens=True,
         )
 
-        # Submit LLM judge to background thread (non-blocking)
+        # Submit LLM judge to background thread (non-blocking).
         judge_future: Future[list[bool] | None] | None = None
         if self.settings.use_llm_judge:
             judge_future = self._judge_executor.submit(
@@ -246,7 +246,7 @@ class Evaluator:
                 responses,
             )
 
-        # GPU: logprobs for good prompts (overlaps with LLM judge)
+        # GPU: logprobs for good prompts (overlaps with LLM judge).
         print("  * Obtaining first-token probability distributions...")
         logprobs = self.model.get_logprobs_batched(self.good_prompts)
         kl_divergence = F.kl_div(

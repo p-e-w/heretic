@@ -230,13 +230,13 @@ def run():
     # recompile too often.
     torch._dynamo.config.cache_size_limit = 64
 
-    # Enable INFO logging for LLM judge and evaluator monitoring
+    # Enable INFO logging for LLM judge and evaluator monitoring.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
-    # Quiet noisy libraries
+    # Quiet noisy libraries.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
@@ -247,7 +247,7 @@ def run():
     # Another library that generates warning spam.
     logging.getLogger("lm_eval").setLevel(logging.ERROR)
 
-    # We do our own trial logging, so we don't need the INFO messages
+    # We do our own trial logging, so we don't need the INFO messages.
     # about parameters and results.
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 

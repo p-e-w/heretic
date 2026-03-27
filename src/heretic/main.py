@@ -133,9 +133,9 @@ def resolve_backend(settings: Settings) -> Backend:
     Resolve the backend to use. AUTO detection checks if the model path
     is an MLX model and if MLX is available on this system.
     """
-    if settings.backend == Backend.MLX:
-        from .mlx_model import is_mlx_available
+    from .mlx_model import is_mlx_available, is_mlx_model
 
+    if settings.backend == Backend.MLX:
         if not is_mlx_available():
             raise RuntimeError(
                 "MLX backend requested but mlx/mlx-lm is not installed. "
@@ -147,11 +147,19 @@ def resolve_backend(settings: Settings) -> Backend:
         return Backend.PYTORCH
 
     # AUTO detection
-    from .mlx_model import is_mlx_available, is_mlx_model
-
-    if is_mlx_available() and is_mlx_model(settings.model):
-        print("Detected MLX model format, using MLX backend.")
-        return Backend.MLX
+    if is_mlx_model(settings.model):
+        if is_mlx_available():
+            print("Detected MLX model format, using MLX backend.")
+            return Backend.MLX
+        else:
+            import warnings
+            warnings.warn(
+                f"Model at '{settings.model}' appears to be in MLX format, but "
+                "mlx/mlx-lm is not installed. Falling back to PyTorch backend, "
+                "which may fail to load the model. "
+                "Install MLX support with: pip install 'heretic-llm[mlx]'",
+                stacklevel=2,
+            )
 
     return Backend.PYTORCH
 
@@ -211,10 +219,9 @@ def run():
 
     # Resolve which backend to use (PyTorch or MLX).
     model_backend = resolve_backend(settings)
-    use_mlx = model_backend == Backend.MLX
 
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
-    if use_mlx:
+    if model_backend == Backend.MLX:
         import mlx.core as mx
 
         device_info = mx.device_info()
@@ -819,7 +826,7 @@ def run():
                             if not save_directory:
                                 continue
 
-                            if use_mlx:
+                            if model_backend == Backend.MLX:
                                 print("Saving MLX model...")
                                 model.save_pretrained(save_directory)
                             else:
@@ -872,7 +879,7 @@ def run():
                             )
                             private = visibility == "Private"
 
-                            if use_mlx:
+                            if model_backend == Backend.MLX:
                                 import tempfile
 
                                 print("Uploading MLX model...")

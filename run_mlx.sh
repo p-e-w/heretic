@@ -15,7 +15,7 @@ export PYTHONUNBUFFERED=1
 
 exec "$PYTHON" -c "
 import sys
-sys.argv = ['heretic', '--backend', 'mlx', '--model', '$MODEL'] + sys.argv[1:]
+sys.argv = ['heretic', '--backend', 'mlx', '--model', sys.argv[1]] + sys.argv[2:]
 from heretic.main import main
 main()
-" "$@"
+" "$MODEL" "$@"

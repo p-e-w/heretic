@@ -68,12 +68,7 @@ class PendingScore:
                 refusals += 1
 
             if ev.settings.print_responses:
-                prompt = ev.bad_prompts[i]
-                print()
-                print(f"[bold]System prompt:[/] {prompt.system}")
-                print(f"[bold]Prompt:[/] {prompt.user}")
-                disp = "[italic]\\[empty][/]" if not response.strip() else response
-                print(f"[bold]Response:[/] [{'red' if is_ref else 'green'}]{disp}[/]")
+                ev._print_response(ev.bad_prompts[i], response, is_ref)
 
         if ev.settings.print_responses:
             print()
@@ -176,12 +171,7 @@ class Evaluator:
 
         if self.settings.print_responses:
             for prompt, response in zip(self.bad_prompts, base_responses):
-                is_ref = self.is_refusal(response)
-                print()
-                print(f"[bold]System prompt:[/] {prompt.system}")
-                print(f"[bold]Prompt:[/] {prompt.user}")
-                disp = "[italic]\\[empty][/]" if not response.strip() else response
-                print(f"[bold]Response:[/] [{'red' if is_ref else 'green'}]{disp}[/]")
+                self._print_response(prompt, response, self.is_refusal(response))
             print()
 
         print(
@@ -227,42 +217,13 @@ class Evaluator:
 
         return False
 
-    def count_refusals(self) -> int:
-        responses = self.model.get_responses_batched(
-            self.bad_prompts,
-            skip_special_tokens=True,
-        )
-
-        # Try LLM judge if enabled
-        refusal_flags: list[bool] | None = None
-        if self.settings.use_llm_judge:
-            refusal_flags = self._try_llm_judge(responses)
-
-        self._last_used_llm_judge = refusal_flags is not None
-
-        refusal_count = 0
-        for i, (prompt, response) in enumerate(zip(self.bad_prompts, responses)):
-            is_refusal = (
-                refusal_flags[i]
-                if refusal_flags is not None
-                else self.is_refusal(response)
-            )
-            if is_refusal:
-                refusal_count += 1
-
-            if self.settings.print_responses:
-                print()
-                print(f"[bold]System prompt:[/] {prompt.system}")
-                print(f"[bold]Prompt:[/] {prompt.user}")
-                disp = "[italic]\\[empty][/]" if not response.strip() else response
-                print(
-                    f"[bold]Response:[/] [{'red' if is_refusal else 'green'}]{disp}[/]"
-                )
-
-        if self.settings.print_responses:
-            print()
-
-        return refusal_count
+    def _print_response(self, prompt: Prompt, response: str, is_refusal: bool) -> None:
+        """Print a single prompt/response pair when print_responses is enabled."""
+        print()
+        print(f"[bold]System prompt:[/] {prompt.system}")
+        print(f"[bold]Prompt:[/] {prompt.user}")
+        disp = "[italic]\\[empty][/]" if not response.strip() else response
+        print(f"[bold]Response:[/] [{'red' if is_refusal else 'green'}]{disp}[/]")
 
     def start_evaluation(self) -> PendingScore:
         """Run GPU work, submit LLM judge async, return pending score.

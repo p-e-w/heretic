@@ -686,7 +686,7 @@ class Model:
             residuals.append(self.get_residuals(batch))
 
         return torch.cat(residuals, dim=0)
-    
+
     def get_residuals_mean(self, prompts: list[Prompt]) -> Tensor:
         running_sum = None
         total_count = 0
@@ -707,7 +707,9 @@ class Model:
             del batch_residuals
             del batch_sum
 
-        assert running_sum is not None, "No prompts were provided for residual averaging."
+        assert running_sum is not None, (
+            "No prompts were provided for residual averaging."
+        )
 
         return (running_sum / total_count).to(torch.float32)
 

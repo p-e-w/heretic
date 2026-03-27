@@ -446,9 +446,7 @@ def run():
     print()
     print("Calculating per-layer refusal directions...")
 
-    needs_full_residuals = (
-        settings.print_residual_geometry or settings.plot_residuals
-    )
+    needs_full_residuals = settings.print_residual_geometry or settings.plot_residuals
 
     good_residuals = None
     bad_residuals = None

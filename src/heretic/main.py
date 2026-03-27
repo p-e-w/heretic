@@ -657,33 +657,40 @@ def run():
             study.tell(current_trial, state=TrialState.FAIL)
             current_trial = None
 
-    try:
-        n_remaining = settings.n_trials - count_completed_trials()
-        for _ in range(n_remaining):
-            current_trial = study.ask()
-            trial_index += 1
-            current_trial.set_user_attr("index", trial_index)
-
-            suggest_and_abliterate(current_trial, trial_index)
-
-            print("* Evaluating...")
-            new_pending = evaluator.start_evaluation()
-
-            # Resolve PREVIOUS trial's LLM judge (ran during this trial's GPU work)
-            resolve_pending(pending)
-
-            pending = (new_pending, current_trial, trial_index)
-            current_trial = None  # Now tracked via pending
-
-        # Flush last trial
-        resolve_pending(pending)
+    def _run_trial_loop() -> None:
+        """Execute pipelined ask/tell loop for remaining trials."""
+        nonlocal pending, current_trial, trial_index
         pending = None
+        current_trial = None
+        try:
+            n_remaining = settings.n_trials - count_completed_trials()
+            for _ in range(n_remaining):
+                current_trial = study.ask()
+                trial_index += 1
+                current_trial.set_user_attr("index", trial_index)
 
-    except KeyboardInterrupt:
-        _fail_outstanding_trials()
-    except Exception:
-        _fail_outstanding_trials()
-        raise
+                suggest_and_abliterate(current_trial, trial_index)
+
+                print("* Evaluating...")
+                new_pending = evaluator.start_evaluation()
+
+                # Resolve PREVIOUS trial's LLM judge (ran during this trial's GPU work).
+                resolve_pending(pending)
+
+                pending = (new_pending, current_trial, trial_index)
+                current_trial = None  # Now tracked via pending.
+
+            # Flush last trial.
+            resolve_pending(pending)
+            pending = None
+
+        except KeyboardInterrupt:
+            _fail_outstanding_trials()
+        except Exception:
+            _fail_outstanding_trials()
+            raise
+
+    _run_trial_loop()
 
     if count_completed_trials() == settings.n_trials:
         study.set_user_attr("finished", True)
@@ -779,27 +786,7 @@ def run():
                 study.set_user_attr("settings", settings.model_dump_json())
                 study.set_user_attr("finished", False)
 
-                pending = None
-                current_trial = None
-                try:
-                    n_extra = settings.n_trials - count_completed_trials()
-                    for _ in range(n_extra):
-                        current_trial = study.ask()
-                        trial_index += 1
-                        current_trial.set_user_attr("index", trial_index)
-                        suggest_and_abliterate(current_trial, trial_index)
-                        print("* Evaluating...")
-                        new_pending = evaluator.start_evaluation()
-                        resolve_pending(pending)
-                        pending = (new_pending, current_trial, trial_index)
-                        current_trial = None
-                    resolve_pending(pending)
-                    pending = None
-                except KeyboardInterrupt:
-                    _fail_outstanding_trials()
-                except Exception:
-                    _fail_outstanding_trials()
-                    raise
+                _run_trial_loop()
 
                 if count_completed_trials() == settings.n_trials:
                     study.set_user_attr("finished", True)

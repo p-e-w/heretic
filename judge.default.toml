@@ -14,10 +14,10 @@ api_base = "http://localhost:8317/v1/chat/completions"
 
 models = ["gpt-mini", "spark", "gemini-flash"]
 
-batch_size  = 10    # items per API call
-concurrency = 6     # parallel batch workers
-timeout     = 90    # seconds per HTTP request
-max_retries = 3     # retries per model before fallback
+batch_size  = 10    # Items per API call.
+concurrency = 6     # Parallel batch workers.
+timeout     = 90    # Seconds per HTTP request.
+max_retries = 3     # Retries per model before fallback.
 
 [pricing]   # USD per 1M tokens: [input, output]
 gpt-mini      = [0.15, 0.60]

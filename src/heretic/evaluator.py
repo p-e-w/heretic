@@ -26,7 +26,7 @@ class PendingScore:
         kl_divergence: float,
         responses: list[str],
         judge_future: Future[list[bool] | None] | None,
-    ):
+    ) -> None:
         self._evaluator = evaluator
         self.kl_divergence = kl_divergence
         self._responses = responses
@@ -105,7 +105,7 @@ class Evaluator:
     base_logprobs: Tensor
     base_refusals: int
 
-    def __init__(self, settings: Settings, model: Model):
+    def __init__(self, settings: Settings, model: Model) -> None:
         self.settings = settings
         self.model = model
         self._judge_executor = ThreadPoolExecutor(max_workers=1)

@@ -93,7 +93,7 @@ def _parse_env_pricing(env: str, base: dict[str, tuple[float, float]]) -> None:
             if len(parts) == 3:
                 base[parts[0]] = (float(parts[1]), float(parts[2]))
     except (ValueError, IndexError):
-        logger.warning("Failed to parse LLM_JUDGE_PRICING='%s', using defaults", env)
+        logger.warning(f"Failed to parse LLM_JUDGE_PRICING='{env}', using defaults")
 
 
 def _normalize_models(raw_models: object, source: str) -> tuple[str, ...]:
@@ -110,7 +110,7 @@ def _normalize_models(raw_models: object, source: str) -> tuple[str, ...]:
     if models:
         return models
 
-    logger.warning("Invalid or empty %s, using default models", source)
+    logger.warning(f"Invalid or empty {source}, using default models")
     return _DEFAULT_MODELS
 
 
@@ -135,19 +135,13 @@ def _parse_positive_int(
         value = int(raw_value)
     except (TypeError, ValueError):
         logger.warning(
-            "Invalid LLM judge %s=%r, using default %d",
-            source,
-            raw_value,
-            default,
+            f"Invalid LLM judge {source}={raw_value!r}, using default {default}",
         )
         return default
 
     if value <= 0:
         logger.warning(
-            "LLM judge %s must be > 0, got %d; using default %d",
-            source,
-            value,
-            default,
+            f"LLM judge {source} must be > 0, got {value}; using default {default}",
         )
         return default
 
@@ -165,16 +159,15 @@ def _load_config() -> JudgeConfig:
     if os.path.isfile(path):
         if tomllib is None:
             logger.warning(
-                "Cannot load %s because Python < 3.11 requires tomli; using defaults",
-                path,
+                f"Cannot load {path} because Python < 3.11 requires tomli; using defaults",
             )
         else:
             try:
                 with open(path, "rb") as f:
                     file_cfg = tomllib.load(f)
-                logger.debug("Loaded LLM judge config from %s", path)
+                logger.debug(f"Loaded LLM judge config from {path}")
             except Exception:
-                logger.warning("Failed to load %s, using defaults", path, exc_info=True)
+                logger.warning(f"Failed to load {path}, using defaults", exc_info=True)
 
     # Pricing: defaults -> TOML [pricing] -> LLM_JUDGE_PRICING env
     pricing = dict(_DEFAULT_PRICING)
@@ -254,7 +247,7 @@ def get_config() -> JudgeConfig:
     if mtime != _cached_mtime:
         _cached_config = _load_config()
         _cached_mtime = mtime
-        logger.info("LLM judge config reloaded (mtime=%.0f)", mtime)
+        logger.info(f"LLM judge config reloaded (mtime={mtime:.0f})")
 
     return _cached_config
 
@@ -430,12 +423,8 @@ def _classify_single_batch(
                 if len(labels) == expected:
                     break
                 logger.warning(
-                    "LLM judge parse mismatch: expected %d, got %d "
-                    "(model=%s, attempt=%d)",
-                    expected,
-                    len(labels),
-                    model,
-                    attempt + 1,
+                    f"LLM judge parse mismatch: expected {expected}, got {len(labels)} "
+                    f"(model={model}, attempt={attempt + 1})",
                 )
                 labels = None
             except httpx.HTTPStatusError as e:

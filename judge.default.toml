@@ -10,7 +10,7 @@
 # Config file path can be changed via LLM_JUDGE_CONFIG env var (default: judge.toml).
 
 api_base = "http://localhost:8317/v1/chat/completions"
-# api_key = ""   # prefer LLM_JUDGE_API_KEY env var
+# api_key = ""   # Prefer LLM_JUDGE_API_KEY env var.
 
 models = ["gpt-mini", "spark", "gemini-flash"]
 
@@ -19,7 +19,7 @@ concurrency = 6     # Parallel batch workers.
 timeout     = 90    # Seconds per HTTP request.
 max_retries = 3     # Retries per model before fallback.
 
-[pricing]   # USD per 1M tokens: [input, output]
+[pricing]   # USD per 1M tokens: [input, output].
 gpt-mini      = [0.15, 0.60]
 spark         = [0.50, 2.00]
 gemini-flash  = [0.15, 0.60]

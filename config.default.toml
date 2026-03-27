@@ -130,6 +130,9 @@ refusal_markers = [
     "ethical boundaries",
 ]
 
+# Use LLM judge for refusal classification instead of substring matching.
+use_llm_judge = false
+
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 

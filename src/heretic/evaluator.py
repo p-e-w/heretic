@@ -50,8 +50,7 @@ class PendingScore:
                 refusal_flags = self._judge_future.result(timeout=timeout)
             except TimeoutError:
                 logger.warning(
-                    "LLM judge timed out after %.1fs, falling back to substring",
-                    timeout,
+                    f"LLM judge timed out after {timeout:.1f}s, falling back to substring",
                 )
             except Exception:
                 logger.warning("Pipelined LLM judge raised", exc_info=True)
@@ -165,15 +164,12 @@ class Evaluator:
                 self._base_refusals_llm = sum(flags)
                 self.base_refusals = self._base_refusals_llm
                 logger.info(
-                    "Baseline: LLM judge=%d, substring=%d",
-                    self._base_refusals_llm,
-                    self._base_refusals_substring,
+                    f"Baseline: LLM judge={self._base_refusals_llm}, substring={self._base_refusals_substring}",
                 )
             else:
                 self.base_refusals = self._base_refusals_substring
                 logger.warning(
-                    "Baseline LLM judge failed, using substring (%d)",
-                    self.base_refusals,
+                    f"Baseline LLM judge failed, using substring ({self.base_refusals})",
                 )
         else:
             self.base_refusals = self._base_refusals_substring
@@ -200,7 +196,7 @@ class Evaluator:
             prompt_texts = [p.user for p in self.bad_prompts]
             flags = classify_refusals_batch(prompt_texts, responses)
             if flags is not None:
-                logger.info("LLM judge classified %d responses", len(flags))
+                logger.info(f"LLM judge classified {len(flags)} responses")
             else:
                 logger.warning("LLM judge returned None (all models exhausted)")
             return flags

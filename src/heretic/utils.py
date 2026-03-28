@@ -299,18 +299,21 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     return params
 
 
-def get_heretic_version_info() -> tuple[str, str, bool]:
-    """
-    Returns (version_string, origin_type, is_standard_pypi).
-    origin_type examples: 'PyPI', 'Git (commit_hash)', 'Local'.
-    """
-    pkg_name = "heretic-llm"
+def get_heretic_version_info() -> tuple[str, str, bool, dict[str, Any]]:
+    """Detects version and installation source (PyPI, Git, Local) of heretic-llm."""
+    package_name = "heretic-llm"
+    origin_metadata: dict[str, Any] = {"type": "unknown"}
     try:
-        dist = importlib.metadata.distribution(pkg_name)
+        dist = importlib.metadata.distribution(package_name)
     except importlib.metadata.PackageNotFoundError:
-        return f"Unknown (package '{pkg_name}' not found)", "Unknown", False
+        return (
+            f"Unknown (package '{package_name}' not found)",
+            "Unknown",
+            False,
+            origin_metadata,
+        )
 
-    base_version = dist.version
+    base_version = dist.version.lstrip("v")
 
     try:
         direct_url_content = dist.read_text("direct_url.json")
@@ -319,7 +322,8 @@ def get_heretic_version_info() -> tuple[str, str, bool]:
 
     if not direct_url_content:
         # Standard PyPI installation.
-        return f"v{base_version}", "PyPI", True
+        origin_metadata["type"] = "pypi"
+        return base_version, "PyPI", True, origin_metadata
 
     try:
         data = json.loads(direct_url_content)
@@ -336,16 +340,26 @@ def get_heretic_version_info() -> tuple[str, str, bool]:
             else:
                 origin_str = f"Git ({repo_url} @ {commit_id})"
 
-            return f"v{base_version}", origin_str, False
+            origin_metadata.update(
+                {
+                    "type": "git",
+                    "url": repo_url,
+                    "commit_hash": commit_id,
+                    "requested_revision": req_rev,
+                }
+            )
+
+            return base_version, origin_str, False, origin_metadata
 
         # Check for local file/wheel directory.
         if "url" in data and data["url"].startswith("file://"):
-            return f"v{base_version}", "Local", False
+            origin_metadata["type"] = "local"
+            return base_version, "Local", False, origin_metadata
 
     except json.JSONDecodeError:
         pass
 
-    return f"v{base_version}", "Unknown Modified", False
+    return base_version, "Unknown Modified", False, origin_metadata
 
 
 def get_readme_intro(
@@ -431,14 +445,14 @@ def generate_requirements_txt() -> str:
 
 def generate_environment_txt() -> str:
     """Collects OS, Python, CPU, Heretic, and PyTorch/GPU information."""
-    heretic_ver, heretic_origin, _ = get_heretic_version_info()
+    heretic_ver, heretic_origin, _, _ = get_heretic_version_info()
 
     return f"""Environment Snapshot
 ====================
 OS: {platform.platform()} ({platform.machine()})
 CPU: {get_cpu_info()}
 Python: {get_python_env_info()}
-Heretic: {heretic_ver} (Origin: {heretic_origin})
+Heretic: v{heretic_ver} (Origin: {heretic_origin})
 
 PyTorch & Accelerators
 ----------------------
@@ -481,7 +495,7 @@ def generate_reproduce_readme(
 > This system uses multiple non-identical GPUs. When operations are distributed across different GPUs (e.g. via `device_map='auto'`), non-deterministic behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
 
-    _, heretic_origin, is_standard_pypi = get_heretic_version_info()
+    _, heretic_origin, is_standard_pypi, _ = get_heretic_version_info()
     origin_warning = ""
     if not is_standard_pypi:
         if heretic_origin.startswith("Git"):
@@ -541,7 +555,9 @@ def generate_reproduce_json(
     bad_prompts: list[Prompt],
 ) -> str:
     """Generates a reproduce.json file for the reproduce/ folder."""
-    heretic_ver, heretic_origin, is_standard_pypi = get_heretic_version_info()
+    heretic_ver, heretic_origin, is_standard_pypi, origin_metadata = (
+        get_heretic_version_info()
+    )
     data = {
         "system": {
             "os": {"platform": platform.platform(), "machine": platform.machine()},
@@ -549,8 +565,8 @@ def generate_reproduce_json(
             "python": get_python_env_info_dict(),
             "heretic": {
                 "version": heretic_ver,
-                "origin": heretic_origin,
                 "is_standard_pypi": is_standard_pypi,
+                "metadata": origin_metadata,
             },
             "pytorch_version": torch.__version__,
             "accelerator": get_accelerator_info_dict(),

@@ -442,7 +442,13 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
 
 
-def generate_reproduce_readme(settings: Settings, checkpoint_filename: str) -> str:
+def generate_reproduce_readme(
+    settings: Settings,
+    checkpoint_filename: str,
+    trial: Trial,
+    base_refusals: int,
+    bad_prompts: list[Prompt],
+) -> str:
     """Generates a README.md for the reproduce/ folder."""
     torch_version = torch.__version__
     install_hint = f"pip install torch=={torch_version}"
@@ -491,6 +497,13 @@ def generate_reproduce_readme(settings: Settings, checkpoint_filename: str) -> s
 
 This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}
 
+## Selected Trial
+
+- **Base Model:** `{settings.model}`
+- **Trial number:** `#{trial.user_attrs['index']}`
+- **Refusals:** `{trial.user_attrs['refusals']}/{len(bad_prompts)}` (Base model: `{base_refusals}`)
+- **KL Divergence:** `{trial.user_attrs['kl_divergence']:.4f}`
+
 ## Contents
 
 - **config.toml**: The exact configuration used, including the seed `{settings.seed}`.
@@ -510,7 +523,12 @@ This directory contains the necessary information and assets to reproduce the re
 
 
 def create_reproduce_folder(
-    path: Path, settings: Settings, checkpoint_path: str | Path
+    path: Path,
+    settings: Settings,
+    checkpoint_path: str | Path,
+    trial: Trial,
+    base_refusals: int,
+    bad_prompts: list[Prompt],
 ) -> None:
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
@@ -527,7 +545,14 @@ def create_reproduce_folder(
         generate_environment_txt(), encoding="utf-8"
     )
     (reproduce_dir / "README.md").write_text(
-        generate_reproduce_readme(settings, checkpoint_filename), encoding="utf-8"
+        generate_reproduce_readme(
+            settings,
+            checkpoint_filename,
+            trial,
+            base_refusals,
+            bad_prompts,
+        ),
+        encoding="utf-8",
     )
 
     # Copy Optuna study journal
@@ -541,10 +566,20 @@ def upload_reproduce_folder(
     settings: Settings,
     token: str,
     checkpoint_path: str | Path,
+    trial: Trial,
+    base_refusals: int,
+    bad_prompts: list[Prompt],
 ) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
-        create_reproduce_folder(tmp_path, settings, checkpoint_path=checkpoint_path)
+        create_reproduce_folder(
+            tmp_path,
+            settings,
+            checkpoint_path=checkpoint_path,
+            trial=trial,
+            base_refusals=base_refusals,
+            bad_prompts=bad_prompts,
+        )
 
         reproduce_dir = tmp_path / "reproduce"
         for file_path in reproduce_dir.iterdir():

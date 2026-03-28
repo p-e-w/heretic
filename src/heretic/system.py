@@ -120,6 +120,9 @@ def get_accelerator_info_dict() -> dict[str, Any]:
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
         total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
+
+        # ROCm (AMD) and CUDA (NVIDIA) share the same API in PyTorch.
+        # We distinguish them by checking for the HIP version.
         is_rocm = getattr(torch.version, "hip", None) is not None
 
         info: dict[str, Any] = {

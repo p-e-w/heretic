@@ -5,6 +5,7 @@ import contextlib
 import gc
 import getpass
 import importlib.metadata
+import json
 import os
 import platform
 import random
@@ -295,6 +296,55 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     return params
 
 
+def get_heretic_version_info() -> tuple[str, str, bool]:
+    """
+    Returns (version_string, origin_type, is_standard_pypi).
+    origin_type examples: 'PyPI', 'Git (commit_hash)', 'Local'.
+    """
+    pkg_name = "heretic-llm"
+    try:
+        dist = importlib.metadata.distribution(pkg_name)
+    except importlib.metadata.PackageNotFoundError:
+        return f"Unknown (package '{pkg_name}' not found)", "Unknown", False
+
+    base_version = dist.version
+
+    try:
+        direct_url_content = dist.read_text("direct_url.json")
+    except Exception:
+        direct_url_content = None
+
+    if not direct_url_content:
+        # Standard PyPI installation.
+        return f"v{base_version}", "PyPI", True
+
+    try:
+        data = json.loads(direct_url_content)
+
+        # Check for Git source.
+        if "vcs_info" in data and data["vcs_info"].get("vcs") == "git":
+            vcs_info = data["vcs_info"]
+            commit_id = vcs_info.get("commit_id", "unknown")
+            repo_url = data.get("url", "unknown_repo")
+            req_rev = vcs_info.get("requested_revision")
+
+            if req_rev:
+                origin_str = f"Git ({repo_url}@{req_rev} - commit: {commit_id})"
+            else:
+                origin_str = f"Git ({repo_url} @ {commit_id})"
+
+            return f"v{base_version}", origin_str, False
+
+        # Check for local file/wheel directory.
+        if "url" in data and data["url"].startswith("file://"):
+            return f"v{base_version}", "Local", False
+
+    except json.JSONDecodeError:
+        pass
+
+    return f"v{base_version}", "Unknown Modified", False
+
+
 def get_readme_intro(
     settings: Settings,
     trial: Trial,
@@ -368,12 +418,15 @@ def generate_requirements_txt() -> str:
 
 
 def generate_environment_txt() -> str:
-    """Collects OS, Python, CPU, and PyTorch/GPU information."""
+    """Collects OS, Python, CPU, Heretic, and PyTorch/GPU information."""
+    heretic_ver, heretic_origin, _ = get_heretic_version_info()
+
     return f"""Environment Snapshot
 ====================
 OS: {platform.platform()} ({platform.machine()})
 CPU: {get_cpu_info()}
 Python: {get_python_env_info()}
+Heretic: {heretic_ver} (Origin: {heretic_origin})
 
 PyTorch & Accelerators
 ----------------------
@@ -410,9 +463,33 @@ def generate_reproduce_readme(settings: Settings, checkpoint_filename: str) -> s
 > This system uses multiple non-identical GPUs. When operations are distributed across different GPUs (e.g. via `device_map='auto'`), non-deterministic behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
 
+    _, heretic_origin, is_standard_pypi = get_heretic_version_info()
+    origin_warning = ""
+    if not is_standard_pypi:
+        if heretic_origin.startswith("Git"):
+            repo_info = heretic_origin.split("Git (")[1].strip(")")
+            origin_warning = f"""
+> [NOTE]
+> **Git Installation Detected**
+> This system installed `heretic-llm` from source repository: `{repo_info}`.
+> To reproduce these results, you must install Heretic from this exact repository and commit.
+"""
+        elif heretic_origin == "Local":
+            origin_warning = """
+> [WARNING!]
+> **Local Code Detected!**
+> This system installed `heretic-llm` from a local directory or wheel. Uncommitted or experimental code may have been executed. **Reproducibility ***cannot*** be guaranteed in this environment.**
+"""
+        else:
+            origin_warning = """
+> [WARNING!]
+> **Non-Standard Installation Detected!**
+> This system installed `heretic-llm` from an unknown non-standard source. **Reproducibility ***cannot*** be guaranteed in this environment.**
+"""
+
     return f"""# Reproduction Guide
 
-This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}
+This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}
 
 ## Contents
 

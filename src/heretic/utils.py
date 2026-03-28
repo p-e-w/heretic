@@ -500,9 +500,9 @@ This directory contains the necessary information and assets to reproduce the re
 ## Selected Trial
 
 - **Base Model:** `{settings.model}`
-- **Trial number:** `#{trial.user_attrs['index']}`
-- **Refusals:** `{trial.user_attrs['refusals']}/{len(bad_prompts)}` (Base model: `{base_refusals}`)
-- **KL Divergence:** `{trial.user_attrs['kl_divergence']:.4f}`
+- **Trial number:** `#{trial.user_attrs["index"]}`
+- **Refusals:** `{trial.user_attrs["refusals"]}/{len(bad_prompts)}` (Base model: `{base_refusals}`)
+- **KL Divergence:** `{trial.user_attrs["kl_divergence"]:.4f}`
 
 ## Contents
 

@@ -954,6 +954,7 @@ dependencies = [
     { name = "questionary" },
     { name = "rich" },
     { name = "tomli-w" },
+    { name = "tqdm" },
     { name = "transformers" },
 ]
 
@@ -997,6 +998,7 @@ requires-dist = [
     { name = "rich", specifier = "~=14.3" },
     { name = "scikit-learn", marker = "extra == 'research'", specifier = "~=1.7" },
     { name = "tomli-w", specifier = "~=1.2" },
+    { name = "tqdm", specifier = "~=4.67" },
     { name = "transformers", specifier = "~=5.3" },
 ]
 provides-extras = ["research"]

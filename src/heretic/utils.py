@@ -393,7 +393,7 @@ def generate_config_toml(settings: Settings) -> str:
     return tomli_w.dumps(settings.model_dump(exclude_none=True))
 
 
-def generate_requirements_txt() -> str:
+def get_requirements_dict() -> dict[str, str]:
     """Collects installed packages with exact versions, normalizing names."""
     distributions = importlib.metadata.distributions()
     unique_requirements = {}
@@ -411,10 +411,19 @@ def generate_requirements_txt() -> str:
                 if "+" in version_str:
                     version_str = version_str.split("+")[0]
 
-                unique_requirements[normalized_name] = f"{name}=={version_str}"
+                unique_requirements[normalized_name] = version_str
 
-    requirements = sorted(unique_requirements.values(), key=lambda x: x.lower())
-    return "\n".join(requirements) + "\n"
+    return unique_requirements
+
+
+def generate_requirements_txt() -> str:
+    """Collects installed packages with exact versions as a formatted string."""
+    reqs = get_requirements_dict()
+    sorted_reqs = sorted(
+        [f"{name}=={version}" for name, version in reqs.items()],
+        key=lambda x: x.lower(),
+    )
+    return "\n".join(sorted_reqs) + "\n"
 
 
 def generate_environment_txt() -> str:
@@ -522,6 +531,44 @@ This directory contains the necessary information and assets to reproduce the re
 """
 
 
+def generate_reproduce_json(
+    settings: Settings,
+    trial: Trial,
+    base_refusals: int,
+    bad_prompts: list[Prompt],
+) -> str:
+    """Generates a reproduce.json file for the reproduce/ folder."""
+    heretic_ver, heretic_origin, is_standard_pypi = get_heretic_version_info()
+    data = {
+        "system": {
+            "os": f"{platform.platform()} ({platform.machine()})",
+            "cpu": get_cpu_info(),
+            "python": get_python_env_info(),
+            "heretic": {
+                "version": heretic_ver,
+                "origin": heretic_origin,
+                "is_standard_pypi": is_standard_pypi,
+            },
+            "pytorch_version": torch.__version__,
+            "accelerator": Text.from_markup(
+                get_accelerator_info(include_warnings=False)
+            ).plain.strip(),
+        },
+        "requirements": get_requirements_dict(),
+        "settings": settings.model_dump(exclude_none=True),
+        "trial": {
+            "index": trial.user_attrs.get("index"),
+            "refusals": trial.user_attrs.get("refusals"),
+            "base_refusals": base_refusals,
+            "total_prompts": len(bad_prompts),
+            "kl_divergence": trial.user_attrs.get("kl_divergence"),
+            "direction_index": trial.user_attrs.get("direction_index"),
+            "parameters": trial.user_attrs.get("parameters"),
+        },
+    }
+    return json.dumps(data, indent=4)
+
+
 def create_reproduce_folder(
     path: Path,
     settings: Settings,
@@ -548,6 +595,15 @@ def create_reproduce_folder(
         generate_reproduce_readme(
             settings,
             checkpoint_filename,
+            trial,
+            base_refusals,
+            bad_prompts,
+        ),
+        encoding="utf-8",
+    )
+    (reproduce_dir / "reproduce.json").write_text(
+        generate_reproduce_json(
+            settings,
             trial,
             base_refusals,
             bad_prompts,

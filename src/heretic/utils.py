@@ -33,8 +33,11 @@ from rich.text import Text
 from .config import DatasetSpecification, Settings
 from .system import (
     get_accelerator_info,
+    get_accelerator_info_dict,
     get_cpu_info,
+    get_cpu_info_dict,
     get_python_env_info,
+    get_python_env_info_dict,
     is_mlu_available,
     is_musa_available,
     is_sdaa_available,
@@ -541,18 +544,16 @@ def generate_reproduce_json(
     heretic_ver, heretic_origin, is_standard_pypi = get_heretic_version_info()
     data = {
         "system": {
-            "os": f"{platform.platform()} ({platform.machine()})",
-            "cpu": get_cpu_info(),
-            "python": get_python_env_info(),
+            "os": {"platform": platform.platform(), "machine": platform.machine()},
+            "cpu": get_cpu_info_dict(),
+            "python": get_python_env_info_dict(),
             "heretic": {
                 "version": heretic_ver,
                 "origin": heretic_origin,
                 "is_standard_pypi": is_standard_pypi,
             },
             "pytorch_version": torch.__version__,
-            "accelerator": Text.from_markup(
-                get_accelerator_info(include_warnings=False)
-            ).plain.strip(),
+            "accelerator": get_accelerator_info_dict(),
         },
         "requirements": get_requirements_dict(),
         "settings": settings.model_dump(exclude_none=True),

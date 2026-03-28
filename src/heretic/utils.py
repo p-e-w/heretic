@@ -304,7 +304,7 @@ def get_heretic_version_info() -> tuple[str, str, bool, dict[str, Any]]:
     package_name = "heretic-llm"
     origin_metadata: dict[str, Any] = {"type": "unknown"}
     try:
-        dist = importlib.metadata.distribution(package_name)
+        distribution = importlib.metadata.distribution(package_name)
     except importlib.metadata.PackageNotFoundError:
         return (
             f"Unknown (package '{package_name}' not found)",
@@ -313,10 +313,10 @@ def get_heretic_version_info() -> tuple[str, str, bool, dict[str, Any]]:
             origin_metadata,
         )
 
-    base_version = dist.version.lstrip("v")
+    base_version = distribution.version.lstrip("v")
 
     try:
-        direct_url_content = dist.read_text("direct_url.json")
+        direct_url_content = distribution.read_text("direct_url.json")
     except Exception:
         direct_url_content = None
 
@@ -331,21 +331,23 @@ def get_heretic_version_info() -> tuple[str, str, bool, dict[str, Any]]:
         # Check for Git source.
         if "vcs_info" in data and data["vcs_info"].get("vcs") == "git":
             vcs_info = data["vcs_info"]
-            commit_id = vcs_info.get("commit_id", "unknown")
+            commit_hash = vcs_info.get("commit_id", "unknown")
             repo_url = data.get("url", "unknown_repo")
-            req_rev = vcs_info.get("requested_revision")
+            requested_revision = vcs_info.get("requested_revision")
 
-            if req_rev:
-                origin_str = f"Git ({repo_url}@{req_rev} - commit: {commit_id})"
+            if requested_revision:
+                origin_str = (
+                    f"Git ({repo_url}@{requested_revision} - commit: {commit_hash})"
+                )
             else:
-                origin_str = f"Git ({repo_url} @ {commit_id})"
+                origin_str = f"Git ({repo_url} @ {commit_hash})"
 
             origin_metadata.update(
                 {
                     "type": "git",
                     "url": repo_url,
-                    "commit_hash": commit_id,
-                    "requested_revision": req_rev,
+                    "commit_hash": commit_hash,
+                    "requested_revision": requested_revision,
                 }
             )
 

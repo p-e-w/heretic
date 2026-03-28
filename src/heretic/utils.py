@@ -1,22 +1,25 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import contextlib
 import gc
 import getpass
+import importlib.metadata
+import json
 import os
+import platform
+import random
+import tempfile
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypeVar
 
+import huggingface_hub
+import numpy as np
 import questionary
+import tomli_w
 import torch
-from accelerate.utils import (
-    is_mlu_available,
-    is_musa_available,
-    is_sdaa_available,
-    is_xpu_available,
-)
 from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
@@ -25,8 +28,21 @@ from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
+from rich.text import Text
 
 from .config import DatasetSpecification, Settings
+from .system import (
+    get_accelerator_info,
+    get_accelerator_info_dict,
+    get_cpu_info,
+    get_cpu_info_dict,
+    get_python_env_info,
+    get_python_env_info_dict,
+    is_mlu_available,
+    is_musa_available,
+    is_sdaa_available,
+    is_xpu_available,
+)
 
 print = Console(highlight=False).print
 
@@ -145,6 +161,18 @@ def prompt_password(message: str) -> str:
         return getpass.getpass(message)
     else:
         return questionary.password(message).ask()
+
+
+def prompt_confirm(message: str, default: bool = True) -> bool:
+    if is_notebook():
+        print()
+        choices = "[Y/n]" if default else "[y/N]"
+        result = input(f"{message} {choices} ").strip().lower()
+        if not result:
+            return default
+        return result in ("y", "yes")
+    else:
+        return questionary.confirm(message, default=default).ask()
 
 
 def format_duration(seconds: float) -> str:
@@ -271,6 +299,71 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     return params
 
 
+def get_heretic_version_info() -> tuple[str, str, bool, dict[str, Any]]:
+    """Detects version and installation source (PyPI, Git, Local) of heretic-llm."""
+    package_name = "heretic-llm"
+    origin_metadata: dict[str, Any] = {"type": "unknown"}
+    try:
+        distribution = importlib.metadata.distribution(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        return (
+            f"Unknown (package '{package_name}' not found)",
+            "Unknown",
+            False,
+            origin_metadata,
+        )
+
+    base_version = distribution.version.lstrip("v")
+
+    try:
+        direct_url_content = distribution.read_text("direct_url.json")
+    except Exception:
+        direct_url_content = None
+
+    if not direct_url_content:
+        # Standard PyPI installation.
+        origin_metadata["type"] = "pypi"
+        return base_version, "PyPI", True, origin_metadata
+
+    try:
+        data = json.loads(direct_url_content)
+
+        # Check for Git source.
+        if "vcs_info" in data and data["vcs_info"].get("vcs") == "git":
+            vcs_info = data["vcs_info"]
+            commit_hash = vcs_info.get("commit_id", "unknown")
+            repo_url = data.get("url", "unknown_repo")
+            requested_revision = vcs_info.get("requested_revision")
+
+            if requested_revision:
+                origin_str = (
+                    f"Git ({repo_url}@{requested_revision} - commit: {commit_hash})"
+                )
+            else:
+                origin_str = f"Git ({repo_url} @ {commit_hash})"
+
+            origin_metadata.update(
+                {
+                    "type": "git",
+                    "url": repo_url,
+                    "commit_hash": commit_hash,
+                    "requested_revision": requested_revision,
+                }
+            )
+
+            return base_version, origin_str, False, origin_metadata
+
+        # Check for local file/wheel directory.
+        if "url" in data and data["url"].startswith("file://"):
+            origin_metadata["type"] = "local"
+            return base_version, "Local", False, origin_metadata
+
+    except json.JSONDecodeError:
+        pass
+
+    return base_version, "Unknown Modified", False, origin_metadata
+
+
 def get_readme_intro(
     settings: Settings,
     trial: Trial,
@@ -312,3 +405,263 @@ def get_readme_intro(
 -----
 
 """
+
+
+def generate_config_toml(settings: Settings) -> str:
+    """Serializes the full Settings object to TOML."""
+    return tomli_w.dumps(settings.model_dump(exclude_none=True))
+
+
+def get_requirements_dict() -> dict[str, str]:
+    """Collects installed packages with exact versions, normalizing names."""
+    distributions = importlib.metadata.distributions()
+    unique_requirements = {}
+    for distribution in distributions:
+        with contextlib.suppress(Exception):
+            name = distribution.metadata["Name"]
+            if name:
+                # Pip considers hyphens and underscores to be equivalent.
+                # We normalize to lowercase and hyphens to ensure deduplication.
+                normalized_name = name.lower().replace("_", "-")
+
+                # Strip local version suffixes (e.g., +cu128, +rocm) for simpler installation
+                # and to avoid PEP 440 resolution issues.
+                version_str = distribution.version
+                if "+" in version_str:
+                    version_str = version_str.split("+")[0]
+
+                unique_requirements[normalized_name] = version_str
+
+    return unique_requirements
+
+
+def generate_requirements_txt() -> str:
+    """Collects installed packages with exact versions as a formatted string."""
+    reqs = get_requirements_dict()
+    sorted_reqs = sorted(
+        [f"{name}=={version}" for name, version in reqs.items()],
+        key=lambda x: x.lower(),
+    )
+    return "\n".join(sorted_reqs) + "\n"
+
+
+def generate_environment_txt() -> str:
+    """Collects OS, Python, CPU, Heretic, and PyTorch/GPU information."""
+    heretic_ver, heretic_origin, _, _ = get_heretic_version_info()
+
+    return f"""Environment Snapshot
+====================
+OS: {platform.platform()} ({platform.machine()})
+CPU: {get_cpu_info()}
+Python: {get_python_env_info()}
+Heretic: v{heretic_ver} (Origin: {heretic_origin})
+
+PyTorch & Accelerators
+----------------------
+PyTorch Version: {torch.__version__}
+{Text.from_markup(get_accelerator_info(include_warnings=False)).plain}
+"""
+
+
+def set_seed(seed: int):
+    """Sets the seed for all RNGs."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+
+def generate_reproduce_readme(
+    settings: Settings,
+    checkpoint_filename: str,
+    trial: Trial,
+    base_refusals: int,
+    bad_prompts: list[Prompt],
+) -> str:
+    """Generates a README.md for the reproduce/ folder."""
+    torch_version = torch.__version__
+    install_hint = f"pip install torch=={torch_version}"
+    if "+" in torch_version:
+        suffix = torch_version.split("+")[1]
+        if suffix:
+            install_hint += f" --index-url https://download.pytorch.org/whl/{suffix}"
+
+    heterogeneous_warning = ""
+    if torch.cuda.is_available():
+        count = torch.cuda.device_count()
+        if count > 1:
+            device_names = {torch.cuda.get_device_name(i) for i in range(count)}
+            if len(device_names) > 1:
+                heterogeneous_warning = """
+> [WARNING!]
+> **Heterogeneous GPUs Detected!**
+> This system uses multiple non-identical GPUs. When operations are distributed across different GPUs (e.g. via `device_map='auto'`), non-deterministic behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**
+"""
+
+    _, heretic_origin, is_standard_pypi, _ = get_heretic_version_info()
+    origin_warning = ""
+    if not is_standard_pypi:
+        if heretic_origin.startswith("Git"):
+            repo_info = heretic_origin.split("Git (")[1].strip(")")
+            origin_warning = f"""
+> [NOTE]
+> **Git Installation Detected**
+> This system installed `heretic-llm` from source repository: `{repo_info}`.
+> To reproduce these results, you must install Heretic from this exact repository and commit.
+"""
+        elif heretic_origin == "Local":
+            origin_warning = """
+> [WARNING!]
+> **Local Code Detected!**
+> This system installed `heretic-llm` from a local directory or wheel. Uncommitted or experimental code may have been executed. **Reproducibility ***cannot*** be guaranteed in this environment.**
+"""
+        else:
+            origin_warning = """
+> [WARNING!]
+> **Non-Standard Installation Detected!**
+> This system installed `heretic-llm` from an unknown non-standard source. **Reproducibility ***cannot*** be guaranteed in this environment.**
+"""
+
+    return f"""# Reproduction Guide
+
+This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}
+
+## Selected Trial
+
+- **Base Model:** `{settings.model}`
+- **Trial number:** `#{trial.user_attrs["index"]}`
+- **Refusals:** `{trial.user_attrs["refusals"]}/{len(bad_prompts)}` (Base model: `{base_refusals}`)
+- **KL Divergence:** `{trial.user_attrs["kl_divergence"]:.4f}`
+
+## Contents
+
+- **config.toml**: The exact configuration used, including the seed `{settings.seed}`.
+- **environment.txt**: Details about the OS, Python, Heretic, PyTorch, Driver and hardware used.
+- **requirements.txt**: The exact versions of all installed Python packages.
+- **{checkpoint_filename}**: The Optuna study journal containing the history of all trials.
+
+## How to Reproduce
+
+1. Ensure your hardware and environment match the specifications in `environment.txt`.
+2. Install the exact package versions listed in `requirements.txt`.
+3. Place the provided `config.toml` in your working directory and run `heretic` without any additional arguments.
+
+> Make sure to install correct PyTorch version from `environment.txt`. 
+> e.g., `{install_hint}`
+"""
+
+
+def generate_reproduce_json(
+    settings: Settings,
+    trial: Trial,
+    base_refusals: int,
+    bad_prompts: list[Prompt],
+) -> str:
+    """Generates a reproduce.json file for the reproduce/ folder."""
+    heretic_ver, heretic_origin, is_standard_pypi, origin_metadata = (
+        get_heretic_version_info()
+    )
+    data = {
+        "system": {
+            "os": {"platform": platform.platform(), "machine": platform.machine()},
+            "cpu": get_cpu_info_dict(),
+            "python": get_python_env_info_dict(),
+            "heretic": {
+                "version": heretic_ver,
+                "is_standard_pypi": is_standard_pypi,
+                "metadata": origin_metadata,
+            },
+            "pytorch_version": torch.__version__,
+            "accelerator": get_accelerator_info_dict(),
+        },
+        "requirements": get_requirements_dict(),
+        "settings": settings.model_dump(exclude_none=True),
+        "trial": {
+            "index": trial.user_attrs.get("index"),
+            "refusals": trial.user_attrs.get("refusals"),
+            "base_refusals": base_refusals,
+            "total_prompts": len(bad_prompts),
+            "kl_divergence": trial.user_attrs.get("kl_divergence"),
+            "direction_index": trial.user_attrs.get("direction_index"),
+            "parameters": trial.user_attrs.get("parameters"),
+        },
+    }
+    return json.dumps(data, indent=4)
+
+
+def create_reproduce_folder(
+    path: Path,
+    settings: Settings,
+    checkpoint_path: str | Path,
+    trial: Trial,
+    base_refusals: int,
+    bad_prompts: list[Prompt],
+) -> None:
+    reproduce_dir = path / "reproduce"
+    reproduce_dir.mkdir(parents=True, exist_ok=True)
+
+    checkpoint_filename = Path(checkpoint_path).name
+
+    (reproduce_dir / "config.toml").write_text(
+        generate_config_toml(settings), encoding="utf-8"
+    )
+    (reproduce_dir / "requirements.txt").write_text(
+        generate_requirements_txt(), encoding="utf-8"
+    )
+    (reproduce_dir / "environment.txt").write_text(
+        generate_environment_txt(), encoding="utf-8"
+    )
+    (reproduce_dir / "README.md").write_text(
+        generate_reproduce_readme(
+            settings,
+            checkpoint_filename,
+            trial,
+            base_refusals,
+            bad_prompts,
+        ),
+        encoding="utf-8",
+    )
+    (reproduce_dir / "reproduce.json").write_text(
+        generate_reproduce_json(
+            settings,
+            trial,
+            base_refusals,
+            bad_prompts,
+        ),
+        encoding="utf-8",
+    )
+
+    # Copy Optuna study journal
+    checkpoint_file = Path(checkpoint_path)
+    if checkpoint_file.exists():
+        (reproduce_dir / checkpoint_file.name).write_bytes(checkpoint_file.read_bytes())
+
+
+def upload_reproduce_folder(
+    repo_id: str,
+    settings: Settings,
+    token: str,
+    checkpoint_path: str | Path,
+    trial: Trial,
+    base_refusals: int,
+    bad_prompts: list[Prompt],
+) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        create_reproduce_folder(
+            tmp_path,
+            settings,
+            checkpoint_path=checkpoint_path,
+            trial=trial,
+            base_refusals=base_refusals,
+            bad_prompts=bad_prompts,
+        )
+
+        reproduce_dir = tmp_path / "reproduce"
+        for file_path in reproduce_dir.iterdir():
+            if file_path.is_file():
+                huggingface_hub.upload_file(
+                    path_or_fileobj=str(file_path),
+                    path_in_repo=f"reproduce/{file_path.name}",
+                    repo_id=repo_id,
+                    token=token,
+                )

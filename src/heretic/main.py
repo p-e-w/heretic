@@ -186,6 +186,13 @@ def run():
         )
         return
 
+    if settings.multidirectional_som:
+        try:
+            from minisom import MiniSom
+        except ModuleNotFoundError as _:
+            print("Self-Organizing Map is selected, but 'minisom' module not installed.\nPlease install it with 'pip install minisom'.")
+            return
+
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
@@ -458,22 +465,70 @@ def run():
     print("* Obtaining residuals for bad prompts...")
     bad_residuals = model.get_residuals_batched(bad_prompts)
 
-    good_means = good_residuals.mean(dim=0)
-    bad_means = bad_residuals.mean(dim=0)
+    good_means = good_residuals.mean(dim=0) # N_layers, hidden_dim
 
-    refusal_directions = F.normalize(bad_means - good_means, p=2, dim=1)
+    if settings.multidirectional_som:
+
+        from .som import SOMCalculator
+        bad_means = []
+
+        # bad_residuals shape: (num_bad_prompts, num_layers, hidden_dim)
+        num_layers = bad_residuals.shape[1]
+
+        print(f"  - Retrieving multi-directions through self-organizing map...")
+
+        for layer_idx in range(num_layers):
+            print(f"  - Processing Layer {layer_idx + 1}/{num_layers}...")
+            # Extract residuals for the current layer
+            # Shape: (num_bad_prompts, hidden_dim)
+            layer_residuals = bad_residuals[:, layer_idx, :].cpu().float().numpy()
+
+            # Initialize and fit the SOM for this layer's residuals
+            som_calc = SOMCalculator(
+                som_x=settings.som_x,
+                som_y=settings.som_y,
+                iterations=settings.som_iterations,
+                lr=settings.som_lr,
+                sigma=settings.som_sigma
+            )
+            som_calc.fit(layer_residuals)
+
+            # Get the weights of the top-k neurons as our "bad means"
+            top_k_weights = som_calc.get_top_k_neuron_weights(k=settings.som_k)
+
+            # SOM de-duplicates neurons if they are too close to each other
+            # Temporary solution is to repeat them back
+            t = torch.tensor(top_k_weights, dtype=good_means.dtype, device=good_means.device)
+            num_found_neurons = t.shape[0]
+
+            if num_found_neurons < settings.som_k:
+                t = t.repeat(settings.som_k // num_found_neurons, 1)
+                if t.shape[0] < settings.som_k:
+                    t = torch.cat([t, t[0:settings.som_k - t.shape[0]]], dim=0)
+
+            # Convert back to tensor and add to our list
+            # Shape: (k, hidden_dim)
+            bad_means.append(t)
+        
+        bad_means = torch.stack(bad_means, dim=0).permute(1, 0, 2) # N_directions, N_layers, hidden_dim
+    else:
+        bad_means = bad_residuals.mean(dim=0).unsqueeze(0)  # (1, N_layers, hidden_dim)
+
+    refusal_directions = [F.normalize(bad_mean - good_means, p=2, dim=1) for bad_mean in bad_means]
 
     if settings.orthogonalize_direction:
         # Implements https://huggingface.co/blog/grimjim/projected-abliteration
         # Adjust the refusal directions so that only the component that is
         # orthogonal to the good direction is subtracted during abliteration.
         good_directions = F.normalize(good_means, p=2, dim=1)
-        projection_vector = torch.sum(refusal_directions * good_directions, dim=1)
-        refusal_directions = (
-            refusal_directions - projection_vector.unsqueeze(1) * good_directions
-        )
-        refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
+        projection_vectors = [torch.sum(ref * good_directions, dim=1) for ref in refusal_directions]
+        refusal_directions = [(
+            refusal_direction - projection_vector.unsqueeze(1) * good_directions
+        ) for (refusal_direction, projection_vector) in zip(refusal_directions, projection_vectors)]
+        refusal_directions = [F.normalize(refusal_direction, p=2, dim=1) for refusal_direction in refusal_directions]
 
+    refusal_directions = torch.stack(refusal_directions, dim=0)
+    refusal_directions = refusal_directions.permute(1, 0, 2) # layers, directions, hidden_dim
     analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
 
     if settings.print_residual_geometry:
@@ -527,11 +582,11 @@ def run():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.
-            max_weight = trial.suggest_float(
-                f"{component}.max_weight",
+            max_weights = [trial.suggest_float(
+                f"{component}.max_weight.{i}",
                 0.8,
                 1.5,
-            )
+            ) for i in range(refusal_directions.shape[1])]
             max_weight_position = trial.suggest_float(
                 f"{component}.max_weight_position",
                 0.6 * last_layer_index,
@@ -540,11 +595,11 @@ def run():
             # For sampling purposes, min_weight is expressed as a fraction of max_weight,
             # again because multivariate TPE doesn't support variable-range parameters.
             # The value is transformed into the actual min_weight value below.
-            min_weight = trial.suggest_float(
-                f"{component}.min_weight",
+            min_weights = [trial.suggest_float(
+                f"{component}.min_weight.{i}",
                 0.0,
                 1.0,
-            )
+            ) for i in range(refusal_directions.shape[1])]
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",
                 1.0,
@@ -552,9 +607,9 @@ def run():
             )
 
             parameters[component] = AbliterationParameters(
-                max_weight=max_weight,
+                max_weights=max_weights,
                 max_weight_position=max_weight_position,
-                min_weight=(min_weight * max_weight),
+                min_weights=[(min_weight * max_weight) for (min_weight, max_weight) in zip(min_weights, max_weights)],
                 min_weight_distance=min_weight_distance,
             )
 

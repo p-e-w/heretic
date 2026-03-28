@@ -227,6 +227,35 @@ class Settings(BaseSettings):
         ),
     )
 
+    multidirectional_som: bool = Field(
+        default=False,
+        description="Use multidirectional Self-Organising Maps. Requires 'minisom' package to be installed.",
+    )
+
+    som_x: int = Field(
+        default=4, description="Number of SOM neurons in the x-axis."
+    )
+
+    som_y: int = Field(
+        default=4, description="Number of SOM neurons in the y-axis."
+    )
+
+    som_iterations: int = Field(
+        default=10000, description="Number of SOM training iterations."
+    )
+
+    som_lr: float = Field(
+        default=0.01, description="SOM learning rate."
+    )
+
+    som_sigma: float = Field(
+        default=0.5, description="SOM neighborhood radius."
+    )
+
+    som_k: int = Field(
+        default=4, description="Number of top neurons to use for multidirectional SOM."
+    )
+
     n_trials: int = Field(
         default=200,
         description="Number of abliteration trials to run during optimization.",

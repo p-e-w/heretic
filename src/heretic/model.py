@@ -91,7 +91,7 @@ class Model:
             self.trusted_models[settings.evaluate_model] = settings.trust_remote_code
 
         for dtype in settings.dtypes:
-            print(f"* Trying dtype [bold]{dtype}[/]... ", end="")
+            print(f"* Trying dtype [bold]{dtype}[/]...")
 
             try:
                 quantization_config = self._get_quantization_config(dtype)
@@ -131,13 +131,11 @@ class Model:
             except Exception as error:
                 self.model = None  # ty:ignore[invalid-assignment]
                 empty_cache()
-                print(f"[red]Failed[/] ({error})")
+                print(f"* [red]Failed[/] ({error})")
                 continue
 
             if settings.quantization == QuantizationMethod.BNB_4BIT:
-                print("[green]Ok[/] (quantized to 4-bit precision)")
-            else:
-                print("[green]Ok[/]")
+                print("* Quantized to 4-bit precision")
 
             break
 

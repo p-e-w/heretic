@@ -445,6 +445,32 @@ def generate_requirements_txt() -> str:
     return "\n".join(sorted_reqs) + "\n"
 
 
+def get_heretic_dependencies_dict() -> dict[str, str]:
+    """Collects only the direct dependencies of heretic-llm with installed versions."""
+    package_name = "heretic-llm"
+    try:
+        distribution = importlib.metadata.distribution(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        return {}
+
+    dependencies = {}
+    if distribution.requires:
+        for requirement in distribution.requires:
+            # Extract basic package name (e.g., 'rich' from 'rich (~=14.3)')
+            match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
+            if match:
+                name = match.group(0).lower().replace("_", "-")
+                try:
+                    version = importlib.metadata.version(name)
+                    if "+" in version:
+                        version = version.split("+")[0]
+                    dependencies[name] = version
+                except importlib.metadata.PackageNotFoundError:
+                    pass
+
+    return dependencies
+
+
 def generate_environment_txt() -> str:
     """Collects OS, Python, CPU, Heretic, and PyTorch/GPU information."""
     heretic_ver, heretic_origin, _, _ = get_heretic_version_info()
@@ -573,15 +599,10 @@ def generate_reproduce_json(
             "pytorch_version": torch.__version__,
             "accelerator": get_accelerator_info_dict(),
         },
-        "requirements": get_requirements_dict(),
+        "requirements": get_heretic_dependencies_dict(),
         "settings": settings.model_dump(exclude_none=True),
         "trial": {
             "index": trial.user_attrs.get("index"),
-            "refusals": trial.user_attrs.get("refusals"),
-            "base_refusals": base_refusals,
-            "total_prompts": len(bad_prompts),
-            "kl_divergence": trial.user_attrs.get("kl_divergence"),
-            "direction_index": trial.user_attrs.get("direction_index"),
             "parameters": trial.user_attrs.get("parameters"),
         },
     }

@@ -120,21 +120,16 @@ def get_accelerator_info_dict() -> dict[str, Any]:
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
         total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
+        is_rocm = getattr(torch.version, "hip", None) is not None
 
         # ROCm (AMD) and CUDA (NVIDIA) share the same API in PyTorch.
         # We distinguish them by checking for the HIP version.
-        is_rocm = getattr(torch.version, "hip", None) is not None
-
         info: dict[str, Any] = {
             "type": "ROCm" if is_rocm else "CUDA",
             "count": count,
             "total_vram_gb": round(total_vram / (1024**3), 2),
-            "api_version_label": "HIP Version" if is_rocm else "CUDA Version",
             "api_version": torch.version.hip if is_rocm else torch.version.cuda,  # ty:ignore[unresolved-attribute]
-            "driver_version_label": "Driver Version",
-            "driver_version": get_amdgpu_driver_version()
-            if is_rocm
-            else get_nvidia_driver_version(),
+            "driver_version": get_amdgpu_driver_version() if is_rocm else get_nvidia_driver_version(),
             "devices": [],
         }
 
@@ -150,7 +145,6 @@ def get_accelerator_info_dict() -> dict[str, Any]:
         return {
             "type": "XPU",
             "count": count,
-            "driver_version_label": "Driver Version",
             "driver_version": get_xpu_driver_version(),
             "devices": [{"name": torch.xpu.get_device_name(i)} for i in range(count)],  # ty:ignore[unresolved-attribute]
         }
@@ -184,7 +178,6 @@ def get_accelerator_info_dict() -> dict[str, Any]:
             "type": "NPU",
             "count": 1,
             "cann_version": torch.version.cann,  # ty:ignore[unresolved-attribute]
-            "driver_version_label": "Driver Version",
             "driver_version": get_npu_driver_version(),
         }
 
@@ -192,7 +185,6 @@ def get_accelerator_info_dict() -> dict[str, Any]:
         return {
             "type": "MPS",
             "count": 1,
-            "driver_version_label": "Driver Version (macOS)",
             "driver_version": get_mps_driver_version(),
         }
 
@@ -205,21 +197,20 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
 
     if info["type"] == "None":
         suffix = " Operations will be slow." if include_warnings else ""
-        return (
-            f"[bold yellow]No GPU or other accelerator detected.{suffix}[/]\n".strip()
-        )
+        return f"[bold yellow]No GPU or other accelerator detected.{suffix}[/]\n".strip()
 
     if info["type"] in ("CUDA", "ROCm"):
+        api_label = "HIP Version" if info["type"] == "ROCm" else "CUDA Version"
         report = f"Detected [bold]{info['count']}[/] {info['type']} device(s) ({info['total_vram_gb']:.2f} GB total VRAM)\n"
-        report += f"{info['api_version_label']}: [bold]{info['api_version']}[/]\n"
-        report += f"{info['driver_version_label']}: [bold]{info['driver_version']}[/]\n"
+        report += f"{api_label}: [bold]{info['api_version']}[/]\n"
+        report += f"Driver Version: [bold]{info['driver_version']}[/]\n"
         for i, dev in enumerate(info["devices"]):
             report += f"* GPU {i}: [bold]{dev['name']}[/] ({dev['vram_gb']:.2f} GB)\n"
         return report.strip()
 
     if info["type"] == "XPU":
         report = f"Detected [bold]{info['count']}[/] XPU device(s)\n"
-        report += f"{info['driver_version_label']}: [bold]{info['driver_version']}[/]\n"
+        report += f"Driver Version: [bold]{info['driver_version']}[/]\n"
         for i, dev in enumerate(info["devices"]):
             report += f"* XPU {i}: [bold]{dev['name']}[/]\n"
         return report.strip()
@@ -231,15 +222,13 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
         return report.strip()
 
     if info["type"] == "NPU":
-        report = (
-            f"Detected NPU device(s) (CANN version: [bold]{info['cann_version']}[/])\n"
-        )
-        report += f"{info['driver_version_label']}: [bold]{info['driver_version']}[/]\n"
+        report = f"Detected NPU device(s) (CANN version: [bold]{info['cann_version']}[/])\n"
+        report += f"Driver Version: [bold]{info['driver_version']}[/]\n"
         return report.strip()
 
     if info["type"] == "MPS":
         report = "Detected [bold]1[/] MPS device (Apple Metal)\n"
-        report += f"{info['driver_version_label']}: [bold]{info['driver_version']}[/]\n"
+        report += f"Driver Version (macOS): [bold]{info['driver_version']}[/]\n"
         return report.strip()
 
     return ""

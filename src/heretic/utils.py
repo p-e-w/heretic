@@ -39,11 +39,17 @@ def print_memory_usage():
     p("Resident system RAM", Process().memory_info().rss)
 
     if torch.cuda.is_available():
-        p("Allocated GPU VRAM", torch.cuda.memory_allocated())
-        p("Reserved GPU VRAM", torch.cuda.memory_reserved())
+        count = torch.cuda.device_count()
+        allocated = sum(torch.cuda.memory_allocated(device) for device in range(count))
+        reserved = sum(torch.cuda.memory_reserved(device) for device in range(count))
+        p("Allocated GPU VRAM", allocated)
+        p("Reserved GPU VRAM", reserved)
     elif is_xpu_available():
-        p("Allocated XPU memory", torch.xpu.memory_allocated())
-        p("Reserved XPU memory", torch.xpu.memory_reserved())
+        count = torch.xpu.device_count()
+        allocated = sum(torch.xpu.memory_allocated(device) for device in range(count))
+        reserved = sum(torch.xpu.memory_reserved(device) for device in range(count))
+        p("Allocated XPU memory", allocated)
+        p("Reserved XPU memory", reserved)
     elif torch.backends.mps.is_available():
         p("Allocated MPS memory", torch.mps.current_allocated_memory())
         p("Driver (reserved) MPS memory", torch.mps.driver_allocated_memory())
@@ -300,7 +306,11 @@ def get_readme_intro(
     base_refusals: int,
     bad_prompts: list[Prompt],
 ) -> str:
-    model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
+    if Path(settings.model).exists():
+        # Hide the path, which may contain private information.
+        model_link = "a model"
+    else:
+        model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
 
     return f"""# This is a decensored version of {
         model_link

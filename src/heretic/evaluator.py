@@ -121,7 +121,9 @@ class Evaluator:
         refusals = self.count_refusals()
         print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
 
-        refusals_score = refusals / self.base_refusals
+        refusals_score = (
+            refusals / self.base_refusals if self.base_refusals > 0 else float(refusals)
+        )
 
         if self.settings.use_piqa:
             score = (

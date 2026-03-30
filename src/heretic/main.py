@@ -1,6 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+# ruff: noqa: E402
+
+from .progress import patch_tqdm
+
+# This patches tqdm class definitions, which must happen
+# before any other module imports tqdm.
+patch_tqdm()
+
+import logging
 import math
 import os
 import sys
@@ -10,9 +19,13 @@ from dataclasses import asdict
 from importlib.metadata import version
 from os.path import commonprefix
 from pathlib import Path
+from typing import Any
 
 import huggingface_hub
+import lm_eval
+import numpy as np
 import optuna
+import questionary
 import torch
 import torch.nn.functional as F
 import transformers
@@ -24,6 +37,7 @@ from accelerate.utils import (
     is_xpu_available,
 )
 from huggingface_hub import ModelCard, ModelCardData
+from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
@@ -32,7 +46,8 @@ from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
 from optuna.study import StudyDirection
 from optuna.trial import TrialState
 from pydantic import ValidationError
-from questionary import Choice
+from questionary import Choice, Style
+from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
@@ -174,9 +189,15 @@ def run():
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
-        print(f"Detected [bold]{count}[/] CUDA device(s):")
+        total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
+        print(
+            f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):"
+        )
         for i in range(count):
-            print(f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/]")
+            vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
+            print(
+                f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/] ({vram:.2f} GB)"
+            )
     elif is_xpu_available():
         count = torch.xpu.device_count()
         print(f"Detected [bold]{count}[/] XPU device(s):")
@@ -219,6 +240,9 @@ def run():
     # Silence warning spam from Transformers.
     # In my entire career I've never seen a useful warning from that library.
     transformers.logging.set_verbosity_error()
+
+    # Another library that generates warning spam.
+    logging.getLogger("lm_eval").setLevel(logging.ERROR)
 
     # We do our own trial logging, so we don't need the INFO messages
     # about parameters and results.
@@ -372,7 +396,8 @@ def run():
 
     print()
     print("Checking for common response prefix...")
-    responses = model.get_responses_batched(good_prompts[:100] + bad_prompts[:100])
+    prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
+    responses = model.get_responses_batched(prefix_check_prompts)
 
     # Despite being located in os.path, commonprefix actually performs
     # a naive string operation without any path-specific logic,
@@ -383,23 +408,38 @@ def run():
     model.response_prefix = commonprefix(responses).rstrip(" ")
 
     # Suppress CoT output.
-    if model.response_prefix.startswith("<think>"):
-        # Most thinking models.
-        model.response_prefix = "<think></think>"
-    elif model.response_prefix.startswith("<|channel|>analysis<|message|>"):
-        # gpt-oss.
-        model.response_prefix = "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>"
-    elif model.response_prefix.startswith("<thought>"):
-        # Unknown, suggested by user.
-        model.response_prefix = "<thought></thought>"
-    elif model.response_prefix.startswith("[THINK]"):
-        # Unknown, suggested by user.
-        model.response_prefix = "[THINK][/THINK]"
+    recheck_prefix = False
+    if model.response_prefix:
+        # When using any of the predefined prefixes below, we need to check that
+        # the prefix is actually complete (e.g. not missing a trailing newline).
+        recheck_prefix = True
+        if model.response_prefix.startswith("<think>"):
+            # Most thinking models.
+            model.response_prefix = "<think></think>"
+        elif model.response_prefix.startswith("<|channel|>analysis<|message|>"):
+            # gpt-oss.
+            model.response_prefix = "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>"
+        elif model.response_prefix.startswith("<thought>"):
+            # Unknown, suggested by user.
+            model.response_prefix = "<thought></thought>"
+        elif model.response_prefix.startswith("[THINK]"):
+            # Unknown, suggested by user.
+            model.response_prefix = "[THINK][/THINK]"
+        else:
+            recheck_prefix = False
 
     if model.response_prefix:
         print(f"* Prefix found: [bold]{model.response_prefix!r}[/]")
     else:
         print("* None found")
+
+    if recheck_prefix:
+        print("* Rechecking with prefix...")
+        responses = model.get_responses_batched(prefix_check_prompts)
+        additional_prefix = commonprefix(responses).rstrip(" ")
+        if additional_prefix:
+            model.response_prefix += additional_prefix
+            print(f"* Extended prefix found: [bold]{model.response_prefix!r}[/]")
 
     evaluator = Evaluator(settings, model)
 
@@ -800,6 +840,7 @@ def run():
                         "Save the model to a local folder",
                         "Upload the model to Hugging Face",
                         "Chat with the model",
+                        "Benchmark the model",
                         "Return to the trial selection menu",
                     ],
                 )
@@ -868,6 +909,8 @@ def run():
                                     "Private",
                                 ],
                             )
+                            if visibility is None:
+                                continue
                             private = visibility == "Private"
 
                             strategy = obtain_merge_strategy(settings)
@@ -901,11 +944,23 @@ def run():
                                     token=token,
                                 )
 
-                            # If the model path doesn't exist locally, it can be assumed
-                            # to be a model hosted on the Hugging Face Hub, in which case
+                            # If the model path exists locally and includes the
+                            # card, use it directly. If the model path doesn't
+                            # exist locally, it can be assumed to be a model
+                            # hosted on the Hugging Face Hub, in which case
                             # we can retrieve the model card.
-                            if not Path(settings.model).exists():
+                            model_path = Path(settings.model)
+                            if model_path.exists():
+                                card_path = (
+                                    model_path / huggingface_hub.constants.REPOCARD_NAME
+                                )
+                                if card_path.exists():
+                                    card = ModelCard.load(card_path)
+                                else:
+                                    card = None
+                            else:
                                 card = ModelCard.load(settings.model)
+                            if card is not None:
                                 if card.data is None:
                                     card.data = ModelCardData()
                                 if card.data.tags is None:
@@ -964,6 +1019,113 @@ def run():
                                 except (KeyboardInterrupt, EOFError):
                                     # Ctrl+C/Ctrl+D
                                     break
+
+                        case "Benchmark the model":
+                            benchmarks = questionary.checkbox(
+                                "Which benchmarks do you want to run?",
+                                [
+                                    Choice(
+                                        title=f"{benchmark.name}: {benchmark.description}",
+                                        value=benchmark,
+                                    )
+                                    for benchmark in settings.benchmarks
+                                ],
+                                style=Style([("highlighted", "reverse")]),
+                            ).ask()
+                            if not benchmarks:
+                                continue
+
+                            scope = prompt_select(
+                                (
+                                    "Do you want to benchmark the original model along with the decensored model? "
+                                    "Benchmarking both models allows you to compare the scores, but it takes twice as much time."
+                                ),
+                                [
+                                    "Benchmark only the decensored model",
+                                    "Benchmark both models",
+                                ],
+                            )
+                            if scope is None:
+                                continue
+                            benchmark_original_model = scope == "Benchmark both models"
+
+                            hflm = HFLM(
+                                pretrained=model.model,  # ty:ignore[invalid-argument-type]
+                                tokenizer=model.tokenizer,  # ty:ignore[invalid-argument-type]
+                            )
+
+                            table = Table()
+                            table.add_column("Benchmark")
+                            table.add_column("Metric")
+                            if benchmark_original_model:
+                                table.add_column("This model", justify="right")
+                                table.add_column("Original model", justify="right")
+                            else:
+                                table.add_column("Value", justify="right")
+
+                            try:
+                                first_benchmark = True
+
+                                for benchmark in benchmarks:
+                                    print(
+                                        f"Running benchmark [bold]{benchmark.name}[/]..."
+                                    )
+
+                                    def get_results() -> dict[str, Any]:
+                                        results = lm_eval.simple_evaluate(
+                                            model=hflm,
+                                            tasks=[benchmark.task],
+                                            batch_size="auto",
+                                        )
+                                        return results["results"][benchmark.task]
+
+                                    results = get_results()
+                                    if benchmark_original_model:
+                                        with model.model.disable_adapter():  # ty:ignore[call-non-callable]
+                                            original_results = get_results()
+
+                                    first_row = True
+
+                                    for metric, value in results.items():
+                                        if metric != "alias":
+                                            if first_row and not first_benchmark:
+                                                if benchmark_original_model:
+                                                    table.add_row("", "", "", "")
+                                                else:
+                                                    table.add_row("", "", "")
+
+                                            def format_value(value: Any) -> str:
+                                                if isinstance(
+                                                    value,
+                                                    (float, np.floating),
+                                                ):
+                                                    return f"{value:.4f}"
+                                                else:
+                                                    return f"{value}"
+
+                                            cells = [
+                                                benchmark.name if first_row else "",
+                                                metric,
+                                                format_value(value),
+                                            ]
+                                            if benchmark_original_model:
+                                                cells.append(
+                                                    format_value(
+                                                        original_results[metric]
+                                                    )
+                                                )
+                                            table.add_row(*cells)
+
+                                            first_row = False
+                                            first_benchmark = False
+                            except KeyboardInterrupt:
+                                pass
+
+                            # The benchmark run might have been cancelled by the user
+                            # before any benchmark was completed, so we only print results
+                            # if there actually are some.
+                            if table.rows:
+                                print(table)
 
                 except Exception as error:
                     print(f"[red]Error: {error}[/]")

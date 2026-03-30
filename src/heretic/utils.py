@@ -7,6 +7,7 @@ import getpass
 import importlib.metadata
 import json
 import os
+import re
 import platform
 import random
 import tempfile

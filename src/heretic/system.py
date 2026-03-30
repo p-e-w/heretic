@@ -129,7 +129,9 @@ def get_accelerator_info_dict() -> dict[str, Any]:
             "count": count,
             "total_vram_gb": round(total_vram / (1024**3), 2),
             "api_version": torch.version.hip if is_rocm else torch.version.cuda,  # ty:ignore[unresolved-attribute]
-            "driver_version": get_amdgpu_driver_version() if is_rocm else get_nvidia_driver_version(),
+            "driver_version": get_amdgpu_driver_version()
+            if is_rocm
+            else get_nvidia_driver_version(),
             "devices": [],
         }
 
@@ -197,7 +199,9 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
 
     if info["type"] == "None":
         suffix = " Operations will be slow." if include_warnings else ""
-        return f"[bold yellow]No GPU or other accelerator detected.{suffix}[/]\n".strip()
+        return (
+            f"[bold yellow]No GPU or other accelerator detected.{suffix}[/]\n".strip()
+        )
 
     if info["type"] in ("CUDA", "ROCm"):
         api_label = "HIP Version" if info["type"] == "ROCm" else "CUDA Version"
@@ -222,7 +226,9 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
         return report.strip()
 
     if info["type"] == "NPU":
-        report = f"Detected NPU device(s) (CANN version: [bold]{info['cann_version']}[/])\n"
+        report = (
+            f"Detected NPU device(s) (CANN version: [bold]{info['cann_version']}[/])\n"
+        )
         report += f"Driver Version: [bold]{info['driver_version']}[/]\n"
         return report.strip()
 

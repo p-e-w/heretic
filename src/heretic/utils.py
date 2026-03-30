@@ -7,9 +7,9 @@ import getpass
 import importlib.metadata
 import json
 import os
-import re
 import platform
 import random
+import re
 import tempfile
 from dataclasses import dataclass
 from importlib.metadata import version

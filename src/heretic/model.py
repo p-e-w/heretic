@@ -585,6 +585,16 @@ class Model:
                     module = cast(Linear, module)
                     matrix = module.weight
 
+                    row_norms = LA.vector_norm(matrix, dim=1, keepdim=True).detach()
+
+                    # Helper function for reparameterization (row-norm preservation constraint).
+                    def get_matrix() -> Tensor:
+                        if self.settings.row_normalization == RowNormalization.FULL:
+                            # See https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration
+                            return row_norms * F.normalize(matrix, p=2, dim=1)
+                        else:
+                            return matrix
+
                     good_input, good_output = good_module_io[layer_index][component][
                         module_index
                     ]
@@ -644,7 +654,7 @@ class Model:
 
                     def closure() -> Tensor:
                         optimizer.zero_grad()
-                        loss = objective(matrix)
+                        loss = objective(get_matrix())
                         loss.backward()
                         return loss
 
@@ -654,6 +664,9 @@ class Model:
                         # print(
                         #    f"\\[{layer_index}/{component}/{module_index}] Step: {step}, Loss: {loss.item():.6f}"
                         # )
+
+                    with torch.no_grad():
+                        matrix.copy_(get_matrix())
 
     def generate(
         self,

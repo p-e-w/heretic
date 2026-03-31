@@ -290,7 +290,14 @@ def get_trial_parameters(settings: Settings, trial: Trial) -> dict[str, str]:
 
 def get_method_description(settings: Settings) -> str:
     if settings.use_ara:
-        return " with the [Arbitrary-Rank Ablation (ARA)](https://github.com/p-e-w/heretic/pull/211) method"
+        return (
+            " with the [Arbitrary-Rank Ablation (ARA)](https://github.com/p-e-w/heretic/pull/211) method"
+            + (
+                " (with row-norm preservation)"
+                if settings.row_normalization == RowNormalization.FULL
+                else ""
+            )
+        )
     elif (
         settings.orthogonalize_direction
         and settings.row_normalization == RowNormalization.FULL

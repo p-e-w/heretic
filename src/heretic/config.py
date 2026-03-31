@@ -205,7 +205,7 @@ class Settings(BaseSettings):
     )
 
     use_piqa: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Whether to use the Physical Interaction: Question Answering (PIQA) benchmark "
             "as the quality metric instead of the Kullback-Leibler divergence."
@@ -221,7 +221,7 @@ class Settings(BaseSettings):
     )
 
     row_normalization: RowNormalization = Field(
-        default=RowNormalization.NONE,
+        default=RowNormalization.FULL,
         description=(
             "How to apply row normalization of the weights. Options: "
             '"none" (no normalization), '

@@ -243,7 +243,7 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
 
 
 def get_cpu_info_dict() -> dict[str, str]:
-    """Gets granular CPU identifiers (brand, family, model, stepping, cores, speed)."""
+    """Gets granular CPU identifiers (brand, family, model, stepping, manufacturer, cores, threads, speed)."""
     brand = platform.processor()
     family = "Unknown"
     model = "Unknown"

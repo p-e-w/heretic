@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import cpuinfo
 import os
 import platform
 import subprocess
 import sys
 from typing import Any
 
+import cpuinfo
 import torch
 from accelerate.utils import (
     is_mlu_available,

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from typing import Any
@@ -241,47 +243,133 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
 
 
 def get_cpu_info_dict() -> dict[str, str]:
+    """Gets granular CPU identifiers (brand, family, model, stepping, cores, speed)."""
     brand = platform.processor()
+    family = "Unknown"
+    model = "Unknown"
+    stepping = "Unknown"
+    vendor = "Unknown"
+    cores = "Unknown"
+    threads = "Unknown"
+    speed_mhz = "Unknown"
+
     try:
         if platform.system() == "Windows":
-            brand = (
-                subprocess.check_output(
-                    [
-                        "powershell",
-                        "-Command",
-                        "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name",
-                    ],
-                    text=True,
-                )
-                .strip()
-                .split("\n")[0]
-            )
-        elif platform.system() == "Linux":
-            brand = subprocess.check_output(
-                "grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2",
-                shell=True,
+            # Get granular details from WMI.
+            output = subprocess.check_output(
+                [
+                    "powershell",
+                    "-Command",
+                    "Get-CimInstance Win32_Processor | Select-Object Name, Caption, Manufacturer, MaxClockSpeed, NumberOfCores, NumberOfLogicalProcessors | ConvertTo-Json",
+                ],
                 text=True,
             ).strip()
+            if output:
+                data = json.loads(output)
+                # If there are multiple processors, take the first one.
+                if isinstance(data, list):
+                    data = data[0]
+
+                brand = data.get("Name", brand).strip()
+                vendor = data.get("Manufacturer", "Unknown")
+                cores = str(data.get("NumberOfCores", "Unknown"))
+                threads = str(data.get("NumberOfLogicalProcessors", "Unknown"))
+                speed_mhz = str(data.get("MaxClockSpeed", "Unknown"))
+                # Caption usually looks like: "Intel64 Family 6 Model 154 Stepping 4"
+                caption = data.get("Caption", "")
+                if caption:
+                    match = re.search(
+                        r"Family\s+(\d+)\s+Model\s+(\d+)\s+Stepping\s+(\d+)", caption
+                    )
+                    if match:
+                        family, model, stepping = match.groups()
+
+        elif platform.system() == "Linux":
+            # Direct parse of /proc/cpuinfo.
+            with open("/proc/cpuinfo", "r", encoding="utf-8") as f:
+                content = f.read()
+                logical_count = 0
+                for line in content.split("\n"):
+                    if ":" not in line:
+                        continue
+                    key, val = line.split(":", 1)
+                    key = key.strip()
+                    val = val.strip()
+
+                    if key == "processor":
+                        logical_count += 1
+                    elif key == "model name":
+                        brand = val
+                    elif key == "vendor_id":
+                        vendor = val
+                    elif key == "cpu family":
+                        family = val
+                    elif key == "model":
+                        model = val
+                    elif key == "stepping":
+                        stepping = val
+                    elif key == "cpu cores":
+                        cores = val
+                    elif key == "cpu MHz":
+                        # This is current speed, not always max, but standard for /proc/cpuinfo.
+                        speed_mhz = val
+
+                threads = str(logical_count) if logical_count > 0 else "Unknown"
+
         elif platform.system() == "Darwin":
-            brand = subprocess.check_output(
-                ["sysctl", "-n", "machdep.cpu.brand_string"], text=True
-            ).strip()
+            brand = (
+                subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"])
+                .decode()
+                .strip()
+            )
+            vendor = "Apple"
+            cores = (
+                subprocess.check_output(["sysctl", "-n", "machdep.cpu.core_count"])
+                .decode()
+                .strip()
+            )
+            threads = (
+                subprocess.check_output(["sysctl", "-n", "machdep.cpu.thread_count"])
+                .decode()
+                .strip()
+            )
     except Exception:
         pass
 
     capability = "Unknown"
     try:
-        capability = torch.backends.cpu.get_cpu_capability()
+        capability = str(torch.backends.cpu.get_cpu_capability())
     except Exception:
         pass
 
-    return {"brand": brand, "capability": str(capability)}
+    return {
+        "brand": brand,
+        "vendor": vendor,
+        "family": family,
+        "model": model,
+        "stepping": stepping,
+        "cores": cores,
+        "threads": threads,
+        "speed_mhz": speed_mhz,
+        "capability": capability,
+    }
 
 
 def get_cpu_info() -> str:
     """Gets the CPU brand name and instruction set capability."""
     info = get_cpu_info_dict()
-    return f"{info['brand']} (Capability: {info['capability']})"
+    parts = []
+    if info["family"] != "Unknown":
+        parts.append(
+            f"Family {info['family']}, Model {info['model']}, Stepping {info['stepping']}"
+        )
+    if info["cores"] != "Unknown" and info["threads"] != "Unknown":
+        parts.append(f"{info['cores']} Cores, {info['threads']} Threads")
+    if info["speed_mhz"] != "Unknown":
+        parts.append(f"{info['speed_mhz']} MHz")
+
+    details = f" ({'; '.join(parts)})" if parts else ""
+    return f"{info['brand']}{details} [Capability: {info['capability']}]"
 
 
 def get_python_env_info_dict() -> dict[str, str]:

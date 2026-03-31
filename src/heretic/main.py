@@ -780,8 +780,6 @@ This saves your exact configuration and system information, along with the study
                                     settings,
                                     checkpoint_path=study_checkpoint_file,
                                     trial=trial,
-                                    base_refusals=evaluator.base_refusals,
-                                    bad_prompts=evaluator.bad_prompts,
                                 )
                                 print(
                                     f"Model and reproducibility files saved to [bold]{save_directory}[/]."
@@ -898,8 +896,6 @@ This saves your exact configuration and system information, along with the study
                                     token,
                                     checkpoint_path=study_checkpoint_file,
                                     trial=trial,
-                                    base_refusals=evaluator.base_refusals,
-                                    bad_prompts=evaluator.bad_prompts,
                                 )
                                 print(
                                     f"Model and reproducibility files uploaded to [bold]{repo_id}[/]."

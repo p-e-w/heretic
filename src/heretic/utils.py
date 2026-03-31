@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import contextlib
 import gc
 import getpass
 import importlib.metadata
@@ -413,63 +412,50 @@ def generate_config_toml(settings: Settings) -> str:
     return tomli_w.dumps(settings.model_dump(exclude_none=True))
 
 
+def get_package_version(name: str) -> str | None:
+    """Gets the installed version of a package, stripping local suffixes like +cu128."""
+    try:
+        # Normalize name: pip considers hyphens and underscores equivalent.
+        normalized_name = name.lower().replace("_", "-")
+        version_str = importlib.metadata.version(normalized_name)
+        return version_str.split("+")[0] if "+" in version_str else version_str
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 def get_requirements_dict() -> dict[str, str]:
-    """Collects installed packages with exact versions, normalizing names."""
-    distributions = importlib.metadata.distributions()
-    unique_requirements = {}
-    for distribution in distributions:
-        with contextlib.suppress(Exception):
-            name = distribution.metadata["Name"]
-            if name:
-                # Pip considers hyphens and underscores to be equivalent.
-                # We normalize to lowercase and hyphens to ensure deduplication.
-                normalized_name = name.lower().replace("_", "-")
+    """Collects only direct heretic-llm dependencies plus torch, torchvision, torchaudio."""
+    core_packages = ["heretic-llm", "torch", "torchaudio", "torchvision"]
 
-                # Strip local version suffixes (e.g., +cu128, +rocm) for simpler installation
-                # and to avoid PEP 440 resolution issues.
-                version_str = distribution.version
-                if "+" in version_str:
-                    version_str = version_str.split("+")[0]
+    # Add direct dependencies defined in the distribution.
+    try:
+        distribution = importlib.metadata.distribution("heretic-llm")
+        if distribution.requires:
+            for requirement in distribution.requires:
+                match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
+                if match:
+                    core_packages.append(match.group(0))
+    except importlib.metadata.PackageNotFoundError:
+        pass
 
-                unique_requirements[normalized_name] = version_str
+    # Lookup versions and deduplicate.
+    dependencies = {}
+    for name in set(core_packages):
+        version_str = get_package_version(name)
+        if version_str:
+            dependencies[name.lower().replace("_", "-")] = version_str
 
-    return unique_requirements
+    return dependencies
 
 
 def generate_requirements_txt() -> str:
-    """Collects installed packages with exact versions as a formatted string."""
-    reqs = get_requirements_dict()
-    sorted_reqs = sorted(
-        [f"{name}=={version}" for name, version in reqs.items()],
+    """Collects direct project dependencies as a formatted string."""
+    requirements = get_requirements_dict()
+    sorted_requirements = sorted(
+        [f"{name}=={version}" for name, version in requirements.items()],
         key=lambda x: x.lower(),
     )
-    return "\n".join(sorted_reqs) + "\n"
-
-
-def get_heretic_dependencies_dict() -> dict[str, str]:
-    """Collects only the direct dependencies of heretic-llm with installed versions."""
-    package_name = "heretic-llm"
-    try:
-        distribution = importlib.metadata.distribution(package_name)
-    except importlib.metadata.PackageNotFoundError:
-        return {}
-
-    dependencies = {}
-    if distribution.requires:
-        for requirement in distribution.requires:
-            # Extract basic package name (e.g., 'rich' from 'rich (~=14.3)')
-            match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
-            if match:
-                name = match.group(0).lower().replace("_", "-")
-                try:
-                    version = importlib.metadata.version(name)
-                    if "+" in version:
-                        version = version.split("+")[0]
-                    dependencies[name] = version
-                except importlib.metadata.PackageNotFoundError:
-                    pass
-
-    return dependencies
+    return "\n".join(sorted_requirements) + "\n"
 
 
 def generate_environment_txt() -> str:
@@ -501,8 +487,6 @@ def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
     trial: Trial,
-    base_refusals: int,
-    bad_prompts: list[Prompt],
 ) -> str:
     """Generates a README.md for the reproduce/ folder."""
     torch_version = torch.__version__
@@ -556,8 +540,6 @@ This directory contains the necessary information and assets to reproduce the re
 
 - **Base Model:** `{settings.model}`
 - **Trial number:** `#{trial.user_attrs["index"]}`
-- **Refusals:** `{trial.user_attrs["refusals"]}/{len(bad_prompts)}` (Base model: `{base_refusals}`)
-- **KL Divergence:** `{trial.user_attrs["kl_divergence"]:.4f}`
 
 ## Contents
 
@@ -580,8 +562,6 @@ This directory contains the necessary information and assets to reproduce the re
 def generate_reproduce_json(
     settings: Settings,
     trial: Trial,
-    base_refusals: int,
-    bad_prompts: list[Prompt],
 ) -> str:
     """Generates a reproduce.json file for the reproduce/ folder."""
     heretic_ver, heretic_origin, is_standard_pypi, origin_metadata = (
@@ -600,7 +580,7 @@ def generate_reproduce_json(
             "pytorch_version": torch.__version__,
             "accelerator": get_accelerator_info_dict(),
         },
-        "requirements": get_heretic_dependencies_dict(),
+        "requirements": get_requirements_dict(),
         "settings": settings.model_dump(exclude_none=True),
         "trial": {
             "index": trial.user_attrs.get("index"),
@@ -615,8 +595,6 @@ def create_reproduce_folder(
     settings: Settings,
     checkpoint_path: str | Path,
     trial: Trial,
-    base_refusals: int,
-    bad_prompts: list[Prompt],
 ) -> None:
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
@@ -637,8 +615,6 @@ def create_reproduce_folder(
             settings,
             checkpoint_filename,
             trial,
-            base_refusals,
-            bad_prompts,
         ),
         encoding="utf-8",
     )
@@ -646,8 +622,6 @@ def create_reproduce_folder(
         generate_reproduce_json(
             settings,
             trial,
-            base_refusals,
-            bad_prompts,
         ),
         encoding="utf-8",
     )
@@ -664,8 +638,6 @@ def upload_reproduce_folder(
     token: str,
     checkpoint_path: str | Path,
     trial: Trial,
-    base_refusals: int,
-    bad_prompts: list[Prompt],
 ) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
@@ -674,8 +646,6 @@ def upload_reproduce_folder(
             settings,
             checkpoint_path=checkpoint_path,
             trial=trial,
-            base_refusals=base_refusals,
-            bad_prompts=bad_prompts,
         )
 
         reproduce_dir = tmp_path / "reproduce"

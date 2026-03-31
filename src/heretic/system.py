@@ -8,6 +8,7 @@ import sys
 from typing import Any
 
 import cpuinfo
+import psutil
 import torch
 from accelerate.utils import (
     is_mlu_available,
@@ -257,7 +258,8 @@ def get_cpu_info_dict() -> dict[str, Any]:
         "family": str(info.get("family", "Unknown")),
         "model": str(info.get("model", "Unknown")),
         "stepping": str(info.get("stepping", "Unknown")),
-        "count": str(info.get("count", "Unknown")),
+        "cores": str(psutil.cpu_count(logical=False) or "Unknown"),
+        "threads": str(psutil.cpu_count(logical=True) or "Unknown"),
         "speed": info.get("hz_advertised_friendly", "Unknown"),
         "capability": capability,
     }
@@ -271,8 +273,8 @@ def get_cpu_info() -> str:
         parts.append(
             f"Family {info['family']}, Model {info['model']}, Stepping {info['stepping']}"
         )
-    if info["count"] != "Unknown":
-        parts.append(f"{info['count']} Threads")
+    if info["cores"] != "Unknown" and info["threads"] != "Unknown":
+        parts.append(f"{info['cores']} Cores, {info['threads']} Threads")
     if info["speed"] != "Unknown":
         parts.append(info["speed"])
 

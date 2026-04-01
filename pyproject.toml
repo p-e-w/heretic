@@ -27,13 +27,18 @@ dependencies = [
     "datasets~=4.7",
     "hf-transfer~=0.1",
     "huggingface-hub~=1.7",
+    "immutabledict~=4.3",
     "kernels~=0.12",
+    "langdetect~=1.0",
+    "lm-eval[hf]~=0.4",
+    "numpy~=2.2",
     "optuna~=4.7",
     "peft~=0.18",
     "psutil~=7.2",
     "pydantic-settings~=2.13",
     "questionary~=2.1",
     "rich~=14.3",
+    "tqdm~=4.67",
     "transformers~=5.3",
 ]
 
@@ -42,7 +47,6 @@ research = [
     "geom-median~=0.1",
     "imageio~=2.37",
     "matplotlib~=3.10",
-    "numpy~=2.2",
     "pacmap~=0.8",
     "scikit-learn~=1.7",
 ]

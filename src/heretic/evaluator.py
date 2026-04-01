@@ -98,11 +98,14 @@ class Evaluator:
     def get_score(self) -> tuple[tuple[float, float], float, int]:
         if self.settings.use_piqa:
             print("  * Running PIQA benchmark...")
-            hflm = HFLM(pretrained=self.model.model, tokenizer=self.model.tokenizer)  # ty:ignore[invalid-argument-type]
+            hflm = HFLM(
+                pretrained=self.model.model,  # ty:ignore[invalid-argument-type]
+                tokenizer=self.model.tokenizer,  # ty:ignore[invalid-argument-type]
+                batch_size="auto",
+            )
             results = lm_eval.simple_evaluate(
                 model=hflm,
                 tasks=["piqa"],
-                batch_size="auto",
             )
             piqa_acc_norm: float = results["results"]["piqa"]["acc_norm,none"]
             print(f"  * PIQA acc_norm: [bold]{piqa_acc_norm:.4f}[/]")

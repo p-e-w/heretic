@@ -310,7 +310,7 @@ def get_accelerator_info_dict() -> dict[str, Any]:
             "api_name": "CANN Version",
             "api_version": torch.version.cann,  # ty:ignore[unresolved-attribute]
             "driver_version": get_npu_driver_version(),
-            "devices": [], # Multi-NPU is less common.
+            "devices": [],  # Multi-NPU is less common.
         }
 
     if torch.backends.mps.is_available():

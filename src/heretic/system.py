@@ -6,6 +6,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -428,3 +429,39 @@ def get_python_env_info() -> str:
     """Detects the type of Python environment (Conda, Venv, etc.) and build info."""
     info = get_python_env_info_dict()
     return f"{info['version']} ({info['implementation']}, {info['compiler']}) [{info['environment']}]"
+
+
+def get_package_version(name: str) -> str | None:
+    """Gets the installed version of a package, stripping local suffixes like +cu128."""
+    try:
+        # Normalize name: pip considers hyphens and underscores equivalent.
+        normalized_name = name.lower().replace("_", "-")
+        version_str = importlib.metadata.version(normalized_name)
+        return version_str.split("+")[0] if "+" in version_str else version_str
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def get_requirements_dict() -> dict[str, str]:
+    """Collects only direct heretic-llm dependencies plus torch, torchvision, torchaudio."""
+    core_packages = ["heretic-llm", "torch", "torchaudio", "torchvision"]
+
+    # Add direct dependencies defined in the distribution.
+    try:
+        distribution = importlib.metadata.distribution("heretic-llm")
+        if distribution.requires:
+            for requirement in distribution.requires:
+                match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
+                if match:
+                    core_packages.append(match.group(0))
+    except importlib.metadata.PackageNotFoundError:
+        pass
+
+    # Lookup versions and deduplicate.
+    dependencies = {}
+    for name in set(core_packages):
+        version_str = get_package_version(name)
+        if version_str:
+            dependencies[name.lower().replace("_", "-")] = version_str
+
+    return dependencies

@@ -2,15 +2,12 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import getpass
-import importlib.metadata
 import json
 import os
 import platform
 import random
-import re
 import tempfile
 from dataclasses import dataclass
-from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -38,6 +35,7 @@ from .system import (
     get_heretic_version_info,
     get_python_env_info,
     get_python_env_info_dict,
+    get_requirements_dict,
     is_xpu_available,
 )
 
@@ -286,9 +284,10 @@ def get_readme_intro(
     else:
         model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
 
+    version_info = get_heretic_version_info()
     return f"""# This is a decensored version of {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}
+    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version_info.version}
 
 ## Abliteration parameters
 
@@ -320,42 +319,6 @@ def get_readme_intro(
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
     return tomli_w.dumps(settings.model_dump(exclude_none=True))
-
-
-def get_package_version(name: str) -> str | None:
-    """Gets the installed version of a package, stripping local suffixes like +cu128."""
-    try:
-        # Normalize name: pip considers hyphens and underscores equivalent.
-        normalized_name = name.lower().replace("_", "-")
-        version_str = importlib.metadata.version(normalized_name)
-        return version_str.split("+")[0] if "+" in version_str else version_str
-    except importlib.metadata.PackageNotFoundError:
-        return None
-
-
-def get_requirements_dict() -> dict[str, str]:
-    """Collects only direct heretic-llm dependencies plus torch, torchvision, torchaudio."""
-    core_packages = ["heretic-llm", "torch", "torchaudio", "torchvision"]
-
-    # Add direct dependencies defined in the distribution.
-    try:
-        distribution = importlib.metadata.distribution("heretic-llm")
-        if distribution.requires:
-            for requirement in distribution.requires:
-                match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
-                if match:
-                    core_packages.append(match.group(0))
-    except importlib.metadata.PackageNotFoundError:
-        pass
-
-    # Lookup versions and deduplicate.
-    dependencies = {}
-    for name in set(core_packages):
-        version_str = get_package_version(name)
-        if version_str:
-            dependencies[name.lower().replace("_", "-")] = version_str
-
-    return dependencies
 
 
 def generate_requirements_txt() -> str:

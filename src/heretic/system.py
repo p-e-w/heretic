@@ -362,7 +362,7 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
     return report.strip()
 
 
-def get_cpu_info_dict() -> dict[str, Any]:
+def get_cpu_info_dict() -> dict[str, str | int | None]:
     """Gets granular CPU identifiers using the py-cpuinfo library."""
     info = cpuinfo.get_cpu_info()
 

@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import importlib.metadata
+import json
 import os
 import platform
 import subprocess
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 import cpuinfo
@@ -115,6 +118,101 @@ def get_mps_driver_version() -> str:
         return output.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "Unknown"
+
+
+@dataclass
+class HereticVersionInfo:
+    """Detailed information about the heretic-llm installation."""
+
+    version: str
+    origin: str
+    is_standard_pypi: bool
+    metadata: dict[str, Any]
+
+
+def get_heretic_version_info() -> HereticVersionInfo:
+    """Detects version and installation source (PyPI, Git, Local) of heretic-llm."""
+    package_name = "heretic-llm"
+    origin_metadata: dict[str, Any] = {"type": "unknown"}
+    try:
+        distribution = importlib.metadata.distribution(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        return HereticVersionInfo(
+            version=f"Unknown (package '{package_name}' not found)",
+            origin="Unknown",
+            is_standard_pypi=False,
+            metadata=origin_metadata,
+        )
+
+    base_version = distribution.version.lstrip("v")
+
+    try:
+        direct_url_content = distribution.read_text("direct_url.json")
+    except Exception:
+        direct_url_content = None
+
+    if not direct_url_content:
+        # Standard PyPI installation.
+        origin_metadata["type"] = "pypi"
+        return HereticVersionInfo(
+            version=base_version,
+            origin="PyPI",
+            is_standard_pypi=True,
+            metadata=origin_metadata,
+        )
+
+    try:
+        data = json.loads(direct_url_content)
+
+        # Check for Git source.
+        if "vcs_info" in data and data["vcs_info"].get("vcs") == "git":
+            vcs_info = data["vcs_info"]
+            commit_hash = vcs_info.get("commit_id", "unknown")
+            repo_url = data.get("url", "unknown_repo")
+            requested_revision = vcs_info.get("requested_revision")
+
+            if requested_revision:
+                origin_str = (
+                    f"Git ({repo_url}@{requested_revision} - commit: {commit_hash})"
+                )
+            else:
+                origin_str = f"Git ({repo_url} @ {commit_hash})"
+
+            origin_metadata.update(
+                {
+                    "type": "git",
+                    "url": repo_url,
+                    "commit_hash": commit_hash,
+                    "requested_revision": requested_revision,
+                }
+            )
+
+            return HereticVersionInfo(
+                version=base_version,
+                origin=origin_str,
+                is_standard_pypi=False,
+                metadata=origin_metadata,
+            )
+
+        # Check for local file/wheel directory.
+        if "url" in data and data["url"].startswith("file://"):
+            origin_metadata["type"] = "local"
+            return HereticVersionInfo(
+                version=base_version,
+                origin="Local",
+                is_standard_pypi=False,
+                metadata=origin_metadata,
+            )
+
+    except json.JSONDecodeError:
+        pass
+
+    return HereticVersionInfo(
+        version=base_version,
+        origin="Unknown Modified",
+        is_standard_pypi=False,
+        metadata=origin_metadata,
+    )
 
 
 def get_accelerator_info_dict() -> dict[str, Any]:

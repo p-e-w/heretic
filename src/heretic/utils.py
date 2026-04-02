@@ -36,6 +36,7 @@ from .system import (
     get_accelerator_info_dict,
     get_cpu_info,
     get_cpu_info_dict,
+    get_heretic_version_info,
     get_python_env_info,
     get_python_env_info_dict,
     is_mlu_available,
@@ -299,69 +300,6 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     return params
 
 
-def get_heretic_version_info() -> tuple[str, str, bool, dict[str, Any]]:
-    """Detects version and installation source (PyPI, Git, Local) of heretic-llm."""
-    package_name = "heretic-llm"
-    origin_metadata: dict[str, Any] = {"type": "unknown"}
-    try:
-        distribution = importlib.metadata.distribution(package_name)
-    except importlib.metadata.PackageNotFoundError:
-        return (
-            f"Unknown (package '{package_name}' not found)",
-            "Unknown",
-            False,
-            origin_metadata,
-        )
-
-    base_version = distribution.version.lstrip("v")
-
-    try:
-        direct_url_content = distribution.read_text("direct_url.json")
-    except Exception:
-        direct_url_content = None
-
-    if not direct_url_content:
-        # Standard PyPI installation.
-        origin_metadata["type"] = "pypi"
-        return base_version, "PyPI", True, origin_metadata
-
-    try:
-        data = json.loads(direct_url_content)
-
-        # Check for Git source.
-        if "vcs_info" in data and data["vcs_info"].get("vcs") == "git":
-            vcs_info = data["vcs_info"]
-            commit_hash = vcs_info.get("commit_id", "unknown")
-            repo_url = data.get("url", "unknown_repo")
-            requested_revision = vcs_info.get("requested_revision")
-
-            if requested_revision:
-                origin_str = (
-                    f"Git ({repo_url}@{requested_revision} - commit: {commit_hash})"
-                )
-            else:
-                origin_str = f"Git ({repo_url} @ {commit_hash})"
-
-            origin_metadata.update(
-                {
-                    "type": "git",
-                    "url": repo_url,
-                    "commit_hash": commit_hash,
-                    "requested_revision": requested_revision,
-                }
-            )
-
-            return base_version, origin_str, False, origin_metadata
-
-        # Check for local file/wheel directory.
-        if "url" in data and data["url"].startswith("file://"):
-            origin_metadata["type"] = "local"
-            return base_version, "Local", False, origin_metadata
-
-    except json.JSONDecodeError:
-        pass
-
-    return base_version, "Unknown Modified", False, origin_metadata
 
 
 def get_readme_intro(
@@ -460,14 +398,14 @@ def generate_requirements_txt() -> str:
 
 def generate_environment_txt() -> str:
     """Collects OS, Python, CPU, Heretic, and PyTorch/GPU information."""
-    heretic_version, heretic_origin, _, _ = get_heretic_version_info()
+    version_info = get_heretic_version_info()
 
     return f"""Environment Snapshot
 ====================
 OS: {platform.platform()} ({platform.machine()})
 CPU: {get_cpu_info()}
 Python: {get_python_env_info()}
-Heretic: v{heretic_version} (Origin: {heretic_origin})
+Heretic: v{version_info.version} (Origin: {version_info.origin})
 
 PyTorch & Accelerators
 ----------------------
@@ -508,18 +446,18 @@ def generate_reproduce_readme(
 > This system uses multiple non-identical GPUs. When operations are distributed across different GPUs (e.g. via `device_map='auto'`), non-deterministic behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
 
-    _, heretic_origin, is_standard_pypi, _ = get_heretic_version_info()
+    version_info = get_heretic_version_info()
     origin_warning = ""
-    if not is_standard_pypi:
-        if heretic_origin.startswith("Git"):
-            repo_info = heretic_origin.split("Git (")[1].strip(")")
+    if not version_info.is_standard_pypi:
+        if version_info.origin.startswith("Git"):
+            repo_info = version_info.origin.split("Git (")[1].strip(")")
             origin_warning = f"""
 > [NOTE]
 > **Git Installation Detected**
 > This system installed `heretic-llm` from source repository: `{repo_info}`.
 > To reproduce these results, you must install Heretic from this exact repository and commit.
 """
-        elif heretic_origin == "Local":
+        elif version_info.origin == "Local":
             origin_warning = """
 > [WARNING!]
 > **Local Code Detected!**
@@ -564,18 +502,16 @@ def generate_reproduce_json(
     trial: Trial,
 ) -> str:
     """Generates a reproduce.json file for the reproduce/ folder."""
-    heretic_version, heretic_origin, is_standard_pypi, origin_metadata = (
-        get_heretic_version_info()
-    )
+    version_info = get_heretic_version_info()
     data = {
         "system": {
             "os": {"platform": platform.platform(), "machine": platform.machine()},
             "cpu": get_cpu_info_dict(),
             "python": get_python_env_info_dict(),
             "heretic": {
-                "version": heretic_version,
-                "is_standard_pypi": is_standard_pypi,
-                "metadata": origin_metadata,
+                "version": version_info.version,
+                "is_standard_pypi": version_info.is_standard_pypi,
+                "metadata": version_info.metadata,
             },
             "pytorch_version": torch.__version__,
             "accelerator": get_accelerator_info_dict(),

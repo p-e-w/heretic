@@ -460,14 +460,14 @@ def generate_requirements_txt() -> str:
 
 def generate_environment_txt() -> str:
     """Collects OS, Python, CPU, Heretic, and PyTorch/GPU information."""
-    heretic_ver, heretic_origin, _, _ = get_heretic_version_info()
+    heretic_version, heretic_origin, _, _ = get_heretic_version_info()
 
     return f"""Environment Snapshot
 ====================
 OS: {platform.platform()} ({platform.machine()})
 CPU: {get_cpu_info()}
 Python: {get_python_env_info()}
-Heretic: v{heretic_ver} (Origin: {heretic_origin})
+Heretic: v{heretic_version} (Origin: {heretic_origin})
 
 PyTorch & Accelerators
 ----------------------
@@ -564,7 +564,7 @@ def generate_reproduce_json(
     trial: Trial,
 ) -> str:
     """Generates a reproduce.json file for the reproduce/ folder."""
-    heretic_ver, heretic_origin, is_standard_pypi, origin_metadata = (
+    heretic_version, heretic_origin, is_standard_pypi, origin_metadata = (
         get_heretic_version_info()
     )
     data = {
@@ -573,7 +573,7 @@ def generate_reproduce_json(
             "cpu": get_cpu_info_dict(),
             "python": get_python_env_info_dict(),
             "heretic": {
-                "version": heretic_ver,
+                "version": heretic_version,
                 "is_standard_pypi": is_standard_pypi,
                 "metadata": origin_metadata,
             },

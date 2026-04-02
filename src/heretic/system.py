@@ -32,6 +32,46 @@ def get_nvidia_driver_version() -> str:
         return "Unknown"
 
 
+def get_amdgpu_driver_version() -> str:
+    """Gets the AMD GPU (ROCm) driver and suite version info."""
+    # 1. Try amd-smi (modern standard for ROCm 6.0+)
+    try:
+        output = subprocess.check_output(
+            ["amd-smi", "version"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if output.strip():
+            return output.strip().replace("\n", " | ")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    # 2. Try rocm-smi --showdriverversion
+    try:
+        output = subprocess.check_output(
+            ["rocm-smi", "--showdriverversion"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        for line in output.split("\n"):
+            if "Driver version" in line:
+                return line.split(":")[-1].strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    # 3. Try /sys/module/amdgpu/version (Linux kernel driver version)
+    try:
+        if platform.system() == "Linux":
+            version_path = "/sys/module/amdgpu/version"
+            if os.path.exists(version_path):
+                with open(version_path, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+    except Exception:
+        pass
+
+    return "Unknown"
+
+
 def get_xpu_driver_version() -> str:
     """Gets the Intel XPU driver version."""
     try:
@@ -75,46 +115,6 @@ def get_mps_driver_version() -> str:
         return output.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return "Unknown"
-
-
-def get_amdgpu_driver_version() -> str:
-    """Gets the AMD GPU (ROCm) driver and suite version info."""
-    # 1. Try amd-smi (modern standard for ROCm 6.0+)
-    try:
-        output = subprocess.check_output(
-            ["amd-smi", "version"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        if output.strip():
-            return output.strip().replace("\n", " | ")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-
-    # 2. Try rocm-smi --showdriverversion
-    try:
-        output = subprocess.check_output(
-            ["rocm-smi", "--showdriverversion"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        for line in output.split("\n"):
-            if "Driver version" in line:
-                return line.split(":")[-1].strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-
-    # 3. Try /sys/module/amdgpu/version (Linux kernel driver version)
-    try:
-        if platform.system() == "Linux":
-            version_path = "/sys/module/amdgpu/version"
-            if os.path.exists(version_path):
-                with open(version_path, "r", encoding="utf-8") as f:
-                    return f.read().strip()
-    except Exception:
-        pass
-
-    return "Unknown"
 
 
 def get_accelerator_info_dict() -> dict[str, Any]:

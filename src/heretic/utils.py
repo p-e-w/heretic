@@ -371,13 +371,15 @@ def generate_requirements_txt() -> str:
 def generate_environment_txt() -> str:
     """Collects OS, Python, CPU, Heretic, and PyTorch/GPU information."""
     version_info = get_heretic_version_info()
+    version = f"v{version_info.version}" if version_info.version else "Unknown version"
+    origin = f" (Origin: {version_info.origin})" if version_info.origin else ""
 
     return f"""Environment Snapshot
 ====================
 OS: {platform.platform()} ({platform.machine()})
 CPU: {get_cpu_info()}
 Python: {get_python_env_info()}
-Heretic: v{version_info.version} (Origin: {version_info.origin})
+Heretic: {version}{origin}
 
 PyTorch & Accelerators
 ----------------------
@@ -421,7 +423,7 @@ def generate_reproduce_readme(
     version_info = get_heretic_version_info()
     origin_warning = ""
     if not version_info.is_standard_pypi:
-        if version_info.origin.startswith("Git"):
+        if version_info.origin and version_info.origin.startswith("Git"):
             repo_info = version_info.origin.split("Git (")[1].strip(")")
             origin_warning = f"""
 > [NOTE]

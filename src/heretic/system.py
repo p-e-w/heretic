@@ -46,7 +46,7 @@ def empty_cache():
     gc.collect()
 
 
-def get_nvidia_driver_version() -> str:
+def get_nvidia_driver_version() -> str | None:
     """Gets the NVIDIA driver version using nvidia-smi."""
     try:
         output = subprocess.check_output(
@@ -56,10 +56,10 @@ def get_nvidia_driver_version() -> str:
         )
         return output.strip().split("\n")[0]
     except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
-        return "Unknown"
+        return None
 
 
-def get_amdgpu_driver_version() -> str:
+def get_amdgpu_driver_version() -> str | None:
     """Gets the AMD GPU (ROCm) driver and suite version info."""
     # 1. Try amd-smi (modern standard for ROCm 6.0+)
     try:
@@ -96,10 +96,10 @@ def get_amdgpu_driver_version() -> str:
     except Exception:
         pass
 
-    return "Unknown"
+    return None
 
 
-def get_xpu_driver_version() -> str:
+def get_xpu_driver_version() -> str | None:
     """Gets the Intel XPU driver version."""
     try:
         output = subprocess.check_output(
@@ -110,12 +110,12 @@ def get_xpu_driver_version() -> str:
         for line in output.split("\n"):
             if "Driver Version" in line:
                 return line.split(":")[-1].strip()
-        return "Unknown"
+        return None
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return "Unknown"
+        return None
 
 
-def get_npu_driver_version() -> str:
+def get_npu_driver_version() -> str | None:
     """Gets the Huawei NPU driver version."""
     try:
         output = subprocess.check_output(
@@ -126,12 +126,12 @@ def get_npu_driver_version() -> str:
         for line in output.split("\n"):
             if "Software Version" in line:
                 return line.split()[-1].strip()
-        return "Unknown"
+        return None
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return "Unknown"
+        return None
 
 
-def get_mps_driver_version() -> str:
+def get_mps_driver_version() -> str | None:
     """Gets the Apple Silicon (MPS) driver version via macOS version."""
     try:
         output = subprocess.check_output(
@@ -141,15 +141,15 @@ def get_mps_driver_version() -> str:
         )
         return output.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return "Unknown"
+        return None
 
 
 @dataclass
 class HereticVersionInfo:
     """Detailed information about the heretic-llm installation."""
 
-    version: str
-    origin: str
+    version: str | None
+    origin: str | None
     is_standard_pypi: bool
     metadata: dict[str, Any]
 
@@ -162,8 +162,8 @@ def get_heretic_version_info() -> HereticVersionInfo:
         distribution = importlib.metadata.distribution(package_name)
     except importlib.metadata.PackageNotFoundError:
         return HereticVersionInfo(
-            version=f"Unknown (package '{package_name}' not found)",
-            origin="Unknown",
+            version=None,
+            origin=None,
             is_standard_pypi=False,
             metadata=origin_metadata,
         )
@@ -233,7 +233,7 @@ def get_heretic_version_info() -> HereticVersionInfo:
 
     return HereticVersionInfo(
         version=base_version,
-        origin="Unknown Modified",
+        origin=None,
         is_standard_pypi=False,
         metadata=origin_metadata,
     )
@@ -329,16 +329,18 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
 
     if info["type"] in ("CUDA", "ROCm"):
         api_label = "HIP Version" if info["type"] == "ROCm" else "CUDA Version"
+        driver = info.get("driver_version") or "Unknown"
         report = f"Detected [bold]{info['count']}[/] {info['type']} device(s) ({info['total_vram_gb']:.2f} GB total VRAM)\n"
         report += f"{api_label}: [bold]{info['api_version']}[/]\n"
-        report += f"Driver Version: [bold]{info['driver_version']}[/]\n"
+        report += f"Driver Version: [bold]{driver}[/]\n"
         for i, dev in enumerate(info["devices"]):
             report += f"* GPU {i}: [bold]{dev['name']}[/] ({dev['vram_gb']:.2f} GB)\n"
         return report.strip()
 
     if info["type"] == "XPU":
+        driver = info.get("driver_version") or "Unknown"
         report = f"Detected [bold]{info['count']}[/] XPU device(s)\n"
-        report += f"Driver Version: [bold]{info['driver_version']}[/]\n"
+        report += f"Driver Version: [bold]{driver}[/]\n"
         for i, dev in enumerate(info["devices"]):
             report += f"* XPU {i}: [bold]{dev['name']}[/]\n"
         return report.strip()
@@ -350,15 +352,17 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
         return report.strip()
 
     if info["type"] == "NPU":
+        driver = info.get("driver_version") or "Unknown"
         report = (
             f"Detected NPU device(s) (CANN version: [bold]{info['cann_version']}[/])\n"
         )
-        report += f"Driver Version: [bold]{info['driver_version']}[/]\n"
+        report += f"Driver Version: [bold]{driver}[/]\n"
         return report.strip()
 
     if info["type"] == "MPS":
+        driver = info.get("driver_version") or "Unknown"
         report = "Detected [bold]1[/] MPS device (Apple Metal)\n"
-        report += f"Driver Version (macOS): [bold]{info['driver_version']}[/]\n"
+        report += f"Driver Version (macOS): [bold]{driver}[/]\n"
         return report.strip()
 
     return ""
@@ -368,21 +372,21 @@ def get_cpu_info_dict() -> dict[str, Any]:
     """Gets granular CPU identifiers using the py-cpuinfo library."""
     info = cpuinfo.get_cpu_info()
 
-    capability = "Unknown"
+    capability = None
     try:
         capability = str(torch.backends.cpu.get_cpu_capability())
     except Exception:
         pass
 
     return {
-        "brand": info.get("brand_raw", "Unknown"),
-        "vendor": info.get("vendor_id_raw", "Unknown"),
-        "family": str(info.get("family", "Unknown")),
-        "model": str(info.get("model", "Unknown")),
-        "stepping": str(info.get("stepping", "Unknown")),
-        "cores": str(psutil.cpu_count(logical=False) or "Unknown"),
-        "threads": str(psutil.cpu_count(logical=True) or "Unknown"),
-        "speed": info.get("hz_advertised_friendly", "Unknown"),
+        "brand": info.get("brand_raw"),
+        "vendor": info.get("vendor_id_raw"),
+        "family": info.get("family"),
+        "model": info.get("model"),
+        "stepping": info.get("stepping"),
+        "cores": psutil.cpu_count(logical=False),
+        "threads": psutil.cpu_count(logical=True),
+        "speed": info.get("hz_advertised_friendly"),
         "capability": capability,
     }
 
@@ -391,17 +395,19 @@ def get_cpu_info() -> str:
     """Gets the CPU brand name and instruction set capability."""
     info = get_cpu_info_dict()
     parts = []
-    if info["family"] != "Unknown":
+    if info["family"]:
         parts.append(
             f"Family {info['family']}, Model {info['model']}, Stepping {info['stepping']}"
         )
-    if info["cores"] != "Unknown" and info["threads"] != "Unknown":
+    if info["cores"] and info["threads"]:
         parts.append(f"{info['cores']} Cores, {info['threads']} Threads")
-    if info["speed"] != "Unknown":
+    if info["speed"]:
         parts.append(info["speed"])
 
     details = f" ({'; '.join(parts)})" if parts else ""
-    return f"{info['brand']}{details} [Capability: {info['capability']}]"
+    brand = info["brand"] or "Unknown CPU"
+    capability = f" [Capability: {info['capability']}]" if info["capability"] else ""
+    return f"{brand}{details}{capability}"
 
 
 def get_python_env_info_dict() -> dict[str, str]:

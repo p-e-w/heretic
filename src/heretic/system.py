@@ -243,15 +243,13 @@ def get_accelerator_info_dict() -> dict[str, Any]:
     """Retrieves raw accelerator info (CUDA, ROCm, etc) directly into structured keys."""
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
-        total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
         is_rocm = getattr(torch.version, "hip", None) is not None
 
         # ROCm (AMD) and CUDA (NVIDIA) share the same API in PyTorch.
         # We distinguish them by checking for the HIP version.
         info: dict[str, Any] = {
             "type": "ROCm" if is_rocm else "CUDA",
-            "count": count,
-            "total_vram_gb": round(total_vram / (1024**3), 2),
+            "api_name": "HIP Version" if is_rocm else "CUDA Version",
             "api_version": torch.version.hip if is_rocm else torch.version.cuda,  # ty:ignore[unresolved-attribute]
             "driver_version": get_amdgpu_driver_version()
             if is_rocm
@@ -270,7 +268,8 @@ def get_accelerator_info_dict() -> dict[str, Any]:
         count = torch.xpu.device_count()  # ty:ignore[unresolved-attribute]
         return {
             "type": "XPU",
-            "count": count,
+            "api_name": None,
+            "api_version": None,
             "driver_version": get_xpu_driver_version(),
             "devices": [{"name": torch.xpu.get_device_name(i)} for i in range(count)],  # ty:ignore[unresolved-attribute]
         }
@@ -279,7 +278,9 @@ def get_accelerator_info_dict() -> dict[str, Any]:
         count = torch.mlu.device_count()  # ty:ignore[unresolved-attribute]
         return {
             "type": "MLU",
-            "count": count,
+            "api_name": None,
+            "api_version": None,
+            "driver_version": None,
             "devices": [{"name": torch.mlu.get_device_name(i)} for i in range(count)],  # ty:ignore[unresolved-attribute]
         }
 
@@ -287,7 +288,9 @@ def get_accelerator_info_dict() -> dict[str, Any]:
         count = torch.sdaa.device_count()  # ty:ignore[unresolved-attribute]
         return {
             "type": "SDAA",
-            "count": count,
+            "api_name": None,
+            "api_version": None,
+            "driver_version": None,
             "devices": [{"name": torch.sdaa.get_device_name(i)} for i in range(count)],  # ty:ignore[unresolved-attribute]
         }
 
@@ -295,77 +298,67 @@ def get_accelerator_info_dict() -> dict[str, Any]:
         count = torch.musa.device_count()  # ty:ignore[unresolved-attribute]
         return {
             "type": "MUSA",
-            "count": count,
+            "api_name": None,
+            "api_version": None,
+            "driver_version": None,
             "devices": [{"name": torch.musa.get_device_name(i)} for i in range(count)],  # ty:ignore[unresolved-attribute]
         }
 
     if is_npu_available():
         return {
             "type": "NPU",
-            "count": 1,
-            "cann_version": torch.version.cann,  # ty:ignore[unresolved-attribute]
+            "api_name": "CANN Version",
+            "api_version": torch.version.cann,  # ty:ignore[unresolved-attribute]
             "driver_version": get_npu_driver_version(),
+            "devices": [], # Multi-NPU is less common.
         }
 
     if torch.backends.mps.is_available():
         return {
             "type": "MPS",
-            "count": 1,
+            "api_name": None,
+            "api_version": None,
             "driver_version": get_mps_driver_version(),
+            "devices": [{"name": "Apple Metal"}],
         }
 
-    return {"type": "None"}
+    return {"type": None}
 
 
 def get_accelerator_info(include_warnings: bool = True) -> str:
     """The single source of truth for hardware detection and formatting."""
     info = get_accelerator_info_dict()
 
-    if info["type"] == "None":
+    if info["type"] is None:
         suffix = " Operations will be slow." if include_warnings else ""
         return (
             f"[bold yellow]No GPU or other accelerator detected.{suffix}[/]\n".strip()
         )
 
+    devices = info["devices"]
+    count = len(devices)
+    total_vram = sum(d.get("vram_gb", 0) for d in devices)
+
     if info["type"] in ("CUDA", "ROCm"):
-        api_label = "HIP Version" if info["type"] == "ROCm" else "CUDA Version"
-        driver = info.get("driver_version") or "Unknown"
-        report = f"Detected [bold]{info['count']}[/] {info['type']} device(s) ({info['total_vram_gb']:.2f} GB total VRAM)\n"
-        report += f"{api_label}: [bold]{info['api_version']}[/]\n"
-        report += f"Driver Version: [bold]{driver}[/]\n"
-        for i, dev in enumerate(info["devices"]):
-            report += f"* GPU {i}: [bold]{dev['name']}[/] ({dev['vram_gb']:.2f} GB)\n"
-        return report.strip()
+        vram_suffix = f" ({total_vram:.2f} GB total VRAM)" if total_vram > 0 else ""
+        report = f"Detected [bold]{count}[/] {info['type']} device(s){vram_suffix}\n"
+    else:
+        report = f"Detected [bold]{count or 1}[/] {info['type']} device(s)\n"
 
-    if info["type"] == "XPU":
-        driver = info.get("driver_version") or "Unknown"
-        report = f"Detected [bold]{info['count']}[/] XPU device(s)\n"
-        report += f"Driver Version: [bold]{driver}[/]\n"
-        for i, dev in enumerate(info["devices"]):
-            report += f"* XPU {i}: [bold]{dev['name']}[/]\n"
-        return report.strip()
+    if info.get("api_name") and info.get("api_version"):
+        report += f"{info['api_name']}: [bold]{info['api_version']}[/]\n"
 
-    if info["type"] in ("MLU", "SDAA", "MUSA"):
-        report = f"Detected [bold]{info['count']}[/] {info['type']} device(s):\n"
-        for i, dev in enumerate(info["devices"]):
-            report += f"* {info['type']} {i}: [bold]{dev['name']}[/]\n"
-        return report.strip()
+    driver = info.get("driver_version") or "Unknown"
+    driver_label = (
+        "Driver Version (macOS)" if info["type"] == "MPS" else "Driver Version"
+    )
+    report += f"{driver_label}: [bold]{driver}[/]\n"
 
-    if info["type"] == "NPU":
-        driver = info.get("driver_version") or "Unknown"
-        report = (
-            f"Detected NPU device(s) (CANN version: [bold]{info['cann_version']}[/])\n"
-        )
-        report += f"Driver Version: [bold]{driver}[/]\n"
-        return report.strip()
+    for i, dev in enumerate(devices):
+        vram = f" ({dev['vram_gb']:.2f} GB)" if dev.get("vram_gb") else ""
+        report += f"* {info['type']} {i}: [bold]{dev['name']}[/]{vram}\n"
 
-    if info["type"] == "MPS":
-        driver = info.get("driver_version") or "Unknown"
-        report = "Detected [bold]1[/] MPS device (Apple Metal)\n"
-        report += f"Driver Version (macOS): [bold]{driver}[/]\n"
-        return report.strip()
-
-    return ""
+    return report.strip()
 
 
 def get_cpu_info_dict() -> dict[str, Any]:

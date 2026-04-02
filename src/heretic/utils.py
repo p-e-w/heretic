@@ -300,8 +300,6 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     return params
 
 
-
-
 def get_readme_intro(
     settings: Settings,
     trial: Trial,

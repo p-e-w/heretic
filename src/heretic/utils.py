@@ -420,7 +420,7 @@ def generate_reproduce_readme(
     hashes_str = ""
     if uploaded_model_hashes:
         hashes_str = (
-            "## Uploaded Model Checksums\n\n| Filename | SHA256 |\n| :--- | :--- |\n"
+            "## SHA256 hashes of uploaded model\n\n| Filename | SHA256 |\n| :--- | :--- |\n"
         )
         for filename, sha256 in uploaded_model_hashes.items():
             hashes_str += f"| `{filename}` | `{sha256}` |\n"
@@ -447,6 +447,7 @@ This directory contains the necessary information and assets to reproduce the re
 1. Ensure your hardware and environment match the specifications in `environment.txt`.
 2. Install the exact package versions listed in `requirements.txt`.
 3. Place the provided `config.toml` in your working directory and run `heretic` without any additional arguments.
+4. Verify the integrity of the reproduced files by comparing their SHA256 hashes against the manifest in `reproduce/`.
 
 > Make sure to install correct PyTorch version from `environment.txt`. 
 > e.g., `{install_hint}`

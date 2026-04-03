@@ -563,11 +563,12 @@ def upload_reproduce_folder(
         api = huggingface_hub.HfApi()
         info = api.model_info(repo_id=repo_id, files_metadata=True, token=token)
         weight_extensions = (".safetensors", ".bin", ".pt", ".pth", ".ckpt")
-        for file in info.siblings:
-            if file.rfilename.endswith(weight_extensions):
-                sha256 = getattr(file, "lfs", {}).get("sha256")
-                if sha256:
-                    uploaded_model_hashes[file.rfilename] = sha256
+        if info.siblings is not None:
+            for file in info.siblings:
+                if file.rfilename.endswith(weight_extensions):
+                    sha256 = getattr(file, "lfs", {}).get("sha256")
+                    if sha256:
+                        uploaded_model_hashes[file.rfilename] = sha256
     except Exception as e:
         print(f"[yellow]Warning: Could not fetch uploaded model hashes: {e}[/]")
 

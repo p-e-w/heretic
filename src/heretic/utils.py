@@ -4,11 +4,11 @@
 import getpass
 import json
 import os
-from datetime import datetime, timezone
 import platform
 import random
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -17,7 +17,6 @@ import numpy as np
 import questionary
 import tomli_w
 import torch
-from transformers import AutoConfig
 from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
@@ -27,6 +26,7 @@ from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
 from rich.text import Text
+from transformers import AutoConfig
 
 from .config import DatasetSpecification, Settings
 from .system import (

@@ -419,9 +419,7 @@ def generate_reproduce_readme(
 
     hashes_str = ""
     if uploaded_model_hashes:
-        hashes_str = (
-            "## SHA256 hashes of uploaded model\n\n| Filename | SHA256 |\n| :--- | :--- |\n"
-        )
+        hashes_str = "## SHA256 hashes of uploaded model\n\n| Filename | SHA256 |\n| :--- | :--- |\n"
         for filename, sha256 in uploaded_model_hashes.items():
             hashes_str += f"| `{filename}` | `{sha256}` |\n"
         hashes_str += "\n"

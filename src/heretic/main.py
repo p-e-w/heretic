@@ -50,7 +50,6 @@ from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .system import empty_cache, get_accelerator_info
 from .utils import (
-    create_reproduce_folder,
     format_duration,
     get_readme_intro,
     get_trial_parameters,
@@ -753,11 +752,6 @@ def run():
                             if not save_directory:
                                 continue
 
-                            include_reproduce = prompt_confirm(
-                                """Include 'reproduce' folder?
-This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
-                            )
-
                             strategy = obtain_merge_strategy(settings)
                             if strategy is None:
                                 continue
@@ -773,18 +767,7 @@ This saves your exact configuration and system information, along with the study
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
 
-                            if include_reproduce:
-                                create_reproduce_folder(
-                                    Path(save_directory),
-                                    settings,
-                                    checkpoint_path=study_checkpoint_file,
-                                    trial=trial,
-                                )
-                                print(
-                                    f"Model and reproducibility files saved to [bold]{save_directory}[/]."
-                                )
-                            else:
-                                print(f"Model saved to [bold]{save_directory}[/].")
+                            print(f"Model saved to [bold]{save_directory}[/].")
 
                         case "Upload the model to Hugging Face":
                             # We don't use huggingface_hub.login() because that stores the token on disk,
@@ -824,10 +807,13 @@ This saves your exact configuration and system information, along with the study
                             if strategy is None:
                                 continue
 
-                            include_reproduce = prompt_confirm(
-                                """Include 'reproduce' folder?
+                            if not Path(settings.model).exists():
+                                include_reproduce = prompt_confirm(
+                                    """Include 'reproduce' folder?
 This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
-                            )
+                                )
+                            else:
+                                include_reproduce = False
 
                             if strategy == "adapter":
                                 print("Uploading LoRA adapter...")

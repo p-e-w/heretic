@@ -4,6 +4,7 @@
 import getpass
 import json
 import os
+from datetime import datetime, timezone
 import platform
 import random
 import tempfile
@@ -16,6 +17,7 @@ import numpy as np
 import questionary
 import tomli_w
 import torch
+from transformers import AutoConfig
 from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
@@ -362,6 +364,9 @@ def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
     trial: Trial,
+    timestamp: str | None = None,
+    base_model_commit: str | None = None,
+    uploaded_model_hashes: dict[str, str] | None = None,
 ) -> str:
     """Generates a README.md for the reproduce/ folder."""
     torch_version = torch.__version__
@@ -407,6 +412,20 @@ def generate_reproduce_readme(
 > This system installed `heretic-llm` from an unknown non-standard source. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
 
+    timestamp_str = f"- **Timestamp (UTC):** `{timestamp}`\n" if timestamp else ""
+    commit_str = (
+        f"- **Base Model Commit:** `{base_model_commit}`\n" if base_model_commit else ""
+    )
+
+    hashes_str = ""
+    if uploaded_model_hashes:
+        hashes_str = (
+            "## Uploaded Model Checksums\n\n| Filename | SHA256 |\n| :--- | :--- |\n"
+        )
+        for filename, sha256 in uploaded_model_hashes.items():
+            hashes_str += f"| `{filename}` | `{sha256}` |\n"
+        hashes_str += "\n"
+
     return f"""# Reproduction Guide
 
 This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}
@@ -414,9 +433,9 @@ This directory contains the necessary information and assets to reproduce the re
 ## Selected Trial
 
 - **Base Model:** `{settings.model}`
-- **Trial number:** `#{trial.user_attrs["index"]}`
+{commit_str}{timestamp_str}- **Trial number:** `#{trial.user_attrs["index"]}`
 
-## Contents
+{hashes_str}## Contents
 
 - **config.toml**: The exact configuration used, including the seed `{settings.seed}`.
 - **environment.txt**: Details about the OS, Python, Heretic, PyTorch, Driver and hardware used.
@@ -437,10 +456,17 @@ This directory contains the necessary information and assets to reproduce the re
 def generate_reproduce_json(
     settings: Settings,
     trial: Trial,
+    timestamp: str | None = None,
+    base_model_commit: str | None = None,
+    uploaded_model_hashes: dict[str, str] | None = None,
 ) -> str:
     """Generates a reproduce.json file for the reproduce/ folder."""
     version_info = get_heretic_version_info()
     data = {
+        "base_model": {
+            "id": settings.model,
+            "commit_hash": base_model_commit,
+        },
         "system": {
             "os": {"platform": platform.platform(), "machine": platform.machine()},
             "cpu": get_cpu_info_dict(),
@@ -459,6 +485,8 @@ def generate_reproduce_json(
             "index": trial.user_attrs.get("index"),
             "parameters": trial.user_attrs.get("parameters"),
         },
+        "timestamp_utc": timestamp,
+        "uploaded_model_hashes": uploaded_model_hashes or {},
     }
     return json.dumps(data, indent=4)
 
@@ -468,11 +496,23 @@ def create_reproduce_folder(
     settings: Settings,
     checkpoint_path: str | Path,
     trial: Trial,
+    uploaded_model_hashes: dict[str, str] | None = None,
 ) -> None:
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
 
     checkpoint_filename = Path(checkpoint_path).name
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    base_model_commit = None
+    if not Path(settings.model).exists():
+        try:
+            config = AutoConfig.from_pretrained(
+                settings.model, trust_remote_code=settings.trust_remote_code
+            )
+            base_model_commit = getattr(config, "_commit_hash", None)
+        except Exception:
+            pass
 
     (reproduce_dir / "config.toml").write_text(
         generate_config_toml(settings), encoding="utf-8"
@@ -488,6 +528,9 @@ def create_reproduce_folder(
             settings,
             checkpoint_filename,
             trial,
+            timestamp=timestamp,
+            base_model_commit=base_model_commit,
+            uploaded_model_hashes=uploaded_model_hashes,
         ),
         encoding="utf-8",
     )
@@ -495,6 +538,9 @@ def create_reproduce_folder(
         generate_reproduce_json(
             settings,
             trial,
+            timestamp=timestamp,
+            base_model_commit=base_model_commit,
+            uploaded_model_hashes=uploaded_model_hashes,
         ),
         encoding="utf-8",
     )
@@ -512,6 +558,19 @@ def upload_reproduce_folder(
     checkpoint_path: str | Path,
     trial: Trial,
 ) -> None:
+    uploaded_model_hashes = {}
+    try:
+        api = huggingface_hub.HfApi()
+        info = api.model_info(repo_id=repo_id, files_metadata=True, token=token)
+        weight_extensions = (".safetensors", ".bin", ".pt", ".pth", ".ckpt")
+        for file in info.siblings:
+            if file.rfilename.endswith(weight_extensions):
+                sha256 = getattr(file, "lfs", {}).get("sha256")
+                if sha256:
+                    uploaded_model_hashes[file.rfilename] = sha256
+    except Exception as e:
+        print(f"[yellow]Warning: Could not fetch uploaded model hashes: {e}[/]")
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         create_reproduce_folder(
@@ -519,6 +578,7 @@ def upload_reproduce_folder(
             settings,
             checkpoint_path=checkpoint_path,
             trial=trial,
+            uploaded_model_hashes=uploaded_model_hashes,
         )
 
         reproduce_dir = tmp_path / "reproduce"

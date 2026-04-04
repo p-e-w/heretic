@@ -435,8 +435,12 @@ This directory contains the necessary information and assets to reproduce the re
 
 1. Ensure your hardware and environment match the specifications in the **System Environment** section above.
 2. Install the exact package versions listed in `requirements.txt`.
-3. Place the provided `config.toml` in your working directory and run `heretic` without any additional arguments.
-4. Verify the integrity of the reproduced files by comparing their SHA256 hashes against the manifest in `SHA256SUMS`.
+3. Place the provided `config.toml` in your working directory.
+4. Run `heretic` without any additional arguments.
+5. Verify the integrity of the reproduced files by comparing their SHA256 hashes against the manifest in `SHA256SUMS`.
+
+> [!TIP]
+> To use the included Optuna study journal `{checkpoint_filename}`, place it in a `checkpoints/` directory before running `heretic` on the same model.
 
 > [!IMPORTANT]
 > Make sure to install correct PyTorch version from: `{install_hint}`

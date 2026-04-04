@@ -71,5 +71,8 @@ heretic = "heretic.main:main"
 requires = ["uv_build>=0.8.11,<0.9.0"]
 build-backend = "uv_build"
 
+[tool.uv]
+exclude-newer = "7 days"
+
 [tool.uv.build-backend]
 module-name = "heretic"

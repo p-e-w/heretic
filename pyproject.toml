@@ -39,8 +39,8 @@ dependencies = [
     "pydantic-settings~=2.13",
     "questionary~=2.1",
     "rich~=14.3",
-    "tqdm~=4.67",
     "tomli-w~=1.2",
+    "tqdm~=4.67",
     "transformers~=5.3",
 ]
 

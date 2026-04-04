@@ -333,26 +333,6 @@ def generate_requirements_txt() -> str:
     return "\n".join(sorted_requirements) + "\n"
 
 
-def generate_environment_txt() -> str:
-    """Collects OS, Python, CPU, Heretic, and PyTorch/GPU information."""
-    version_info = get_heretic_version_info()
-    version = f"v{version_info.version}" if version_info.version else "Unknown version"
-    origin = f" (Origin: {version_info.origin})" if version_info.origin else ""
-
-    return f"""Environment Snapshot
-====================
-OS: {platform.platform()} ({platform.machine()})
-CPU: {get_cpu_info()}
-Python: {get_python_env_info()}
-Heretic: {version}{origin}
-
-PyTorch & Accelerators
-----------------------
-PyTorch Version: {torch.__version__}
-{Text.from_markup(get_accelerator_info(include_warnings=False)).plain}
-"""
-
-
 def set_seed(seed: int):
     """Sets the seed for all RNGs."""
     random.seed(seed)
@@ -366,7 +346,6 @@ def generate_reproduce_readme(
     trial: Trial,
     timestamp: str | None = None,
     base_model_commit: str | None = None,
-    uploaded_model_hashes: dict[str, str] | None = None,
 ) -> str:
     """Generates a README.md for the reproduce/ folder."""
     torch_version = torch.__version__
@@ -383,7 +362,7 @@ def generate_reproduce_readme(
             device_names = {torch.cuda.get_device_name(i) for i in range(count)}
             if len(device_names) > 1:
                 heterogeneous_warning = """
-> [WARNING!]
+> [!WARNING]
 > **Heterogeneous GPUs Detected!**
 > This system uses multiple non-identical GPUs. When operations are distributed across different GPUs (e.g. via `device_map='auto'`), non-deterministic behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
@@ -394,61 +373,73 @@ def generate_reproduce_readme(
         if version_info.origin and version_info.origin.startswith("Git"):
             repo_info = version_info.origin.split("Git (")[1].strip(")")
             origin_warning = f"""
-> [NOTE]
+> [!NOTE]
 > **Git Installation Detected**
 > This system installed `heretic-llm` from source repository: `{repo_info}`.
 > To reproduce these results, you must install Heretic from this exact repository and commit.
 """
         elif version_info.origin == "Local":
             origin_warning = """
-> [WARNING!]
+> [!WARNING]
 > **Local Code Detected!**
 > This system installed `heretic-llm` from a local directory or wheel. Uncommitted or experimental code may have been executed. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
         else:
             origin_warning = """
-> [WARNING!]
+> [!WARNING]
 > **Non-Standard Installation Detected!**
 > This system installed `heretic-llm` from an unknown non-standard source. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
 
-    timestamp_str = f"- **Timestamp (UTC):** `{timestamp}`\n" if timestamp else ""
+    timestamp_str = f"- **Run started at (UTC):** `{timestamp}`\n" if timestamp else ""
     commit_str = (
         f"- **Base Model Commit:** `{base_model_commit}`\n" if base_model_commit else ""
     )
 
-    hashes_str = ""
-    if uploaded_model_hashes:
-        hashes_str = "## SHA256 hashes of uploaded model\n\n| Filename | SHA256 |\n| :--- | :--- |\n"
-        for filename, sha256 in uploaded_model_hashes.items():
-            hashes_str += f"| `{filename}` | `{sha256}` |\n"
-        hashes_str += "\n"
+    accelerator_report = Text.from_markup(
+        get_accelerator_info(include_warnings=False)
+    ).plain
 
     return f"""# Reproduction Guide
 
 This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}
 
-## Selected Trial
+## Model Information
 
 - **Base Model:** `{settings.model}`
-{commit_str}{timestamp_str}- **Trial number:** `#{trial.user_attrs["index"]}`
+{commit_str}{timestamp_str}
+## Selected Trial
 
-{hashes_str}## Contents
+- **Trial number:** `#{trial.user_attrs["index"]}`
+
+## System Environment
+
+- **OS:** {platform.platform()} ({platform.machine()})
+- **CPU:** {get_cpu_info()}
+- **Python:** {get_python_env_info()}
+- **Heretic:** v{version_info.version}{f" (Origin: {version_info.origin})" if version_info.origin else ""}
+- **PyTorch Version:** {torch.__version__}
+
+### Accelerators
+{accelerator_report}
+
+## Contents
 
 - **config.toml**: The exact configuration used, including the seed `{settings.seed}`.
-- **environment.txt**: Details about the OS, Python, Heretic, PyTorch, Driver and hardware used.
 - **requirements.txt**: The exact versions of all installed Python packages.
 - **{checkpoint_filename}**: The Optuna study journal containing the history of all trials.
+- **reproduce.json**: A machine-readable version of this report.
+- **SHA256SUMS**: Cryptographic hashes for all uploaded weight files (if applicable).
 
 ## How to Reproduce
 
-1. Ensure your hardware and environment match the specifications in `environment.txt`.
+1. Ensure your hardware and environment match the specifications in the **System Environment** section above.
 2. Install the exact package versions listed in `requirements.txt`.
 3. Place the provided `config.toml` in your working directory and run `heretic` without any additional arguments.
-4. Verify the integrity of the reproduced files by comparing their SHA256 hashes against the manifest in `reproduce/`.
+4. Verify the integrity of the reproduced files by comparing their SHA256 hashes against the manifest in `SHA256SUMS`.
 
-> Make sure to install correct PyTorch version from `environment.txt`. 
-> e.g., `{install_hint}`
+> [!IMPORTANT]
+> Make sure to install correct PyTorch version from: `{install_hint}`
 """
 
 
@@ -483,11 +474,22 @@ def generate_reproduce_json(
         "trial": {
             "index": trial.user_attrs.get("index"),
             "parameters": trial.user_attrs.get("parameters"),
+            "refusals": trial.user_attrs.get("refusals"),
+            "kl_divergence": trial.user_attrs.get("kl_divergence"),
         },
-        "timestamp_utc": timestamp,
+        "timestamp": timestamp,
         "uploaded_model_hashes": uploaded_model_hashes or {},
     }
     return json.dumps(data, indent=4)
+
+
+def generate_sha256sums(hashes: dict[str, str]) -> str:
+    """Generates a GNU Coreutils compatible SHA256SUMS file content."""
+    lines = []
+    for filename, sha256 in sorted(hashes.items()):
+        # Use '*' to indicate binary mode for model weights.
+        lines.append(f"{sha256} *{filename}")
+    return "\n".join(lines) + "\n"
 
 
 def create_reproduce_folder(
@@ -502,7 +504,8 @@ def create_reproduce_folder(
 
     checkpoint_filename = Path(checkpoint_path).name
 
-    timestamp = datetime.now(timezone.utc).isoformat()
+    # Strip microseconds from timestamp.
+    timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     base_model_commit = None
     if not Path(settings.model).exists():
         try:
@@ -519,9 +522,6 @@ def create_reproduce_folder(
     (reproduce_dir / "requirements.txt").write_text(
         generate_requirements_txt(), encoding="utf-8"
     )
-    (reproduce_dir / "environment.txt").write_text(
-        generate_environment_txt(), encoding="utf-8"
-    )
     (reproduce_dir / "README.md").write_text(
         generate_reproduce_readme(
             settings,
@@ -529,10 +529,13 @@ def create_reproduce_folder(
             trial,
             timestamp=timestamp,
             base_model_commit=base_model_commit,
-            uploaded_model_hashes=uploaded_model_hashes,
         ),
         encoding="utf-8",
     )
+    if uploaded_model_hashes:
+        (reproduce_dir / "SHA256SUMS").write_text(
+            generate_sha256sums(uploaded_model_hashes), encoding="utf-8"
+        )
     (reproduce_dir / "reproduce.json").write_text(
         generate_reproduce_json(
             settings,
@@ -569,7 +572,8 @@ def upload_reproduce_folder(
                     if sha256:
                         uploaded_model_hashes[file.rfilename] = sha256
     except Exception as e:
-        print(f"[yellow]Warning: Could not fetch uploaded model hashes: {e}[/]")
+        # Fail if integrity checks cannot be completed.
+        raise RuntimeError(f"Could not fetch uploaded model hashes: {e}") from e
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)

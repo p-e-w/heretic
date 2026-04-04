@@ -149,7 +149,7 @@ def get_mps_driver_version() -> str | None:
 class HereticVersionInfo:
     """Detailed information about the heretic-llm installation."""
 
-    version: str | None
+    version: str
     origin: str | None
     is_standard_pypi: bool
     metadata: dict[str, Any]
@@ -159,15 +159,8 @@ def get_heretic_version_info() -> HereticVersionInfo:
     """Detects version and installation source (PyPI, Git, Local) of heretic-llm."""
     package_name = "heretic-llm"
     origin_metadata: dict[str, Any] = {"type": "unknown"}
-    try:
-        distribution = importlib.metadata.distribution(package_name)
-    except importlib.metadata.PackageNotFoundError:
-        return HereticVersionInfo(
-            version=None,
-            origin=None,
-            is_standard_pypi=False,
-            metadata=origin_metadata,
-        )
+    # This package must be installed for this code to run.
+    distribution = importlib.metadata.distribution(package_name)
 
     base_version = distribution.version.lstrip("v")
 
@@ -340,20 +333,14 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
     count = len(devices)
     total_vram = sum(d.get("vram_gb", 0) for d in devices)
 
-    if info["type"] in ("CUDA", "ROCm"):
-        vram_suffix = f" ({total_vram:.2f} GB total VRAM)" if total_vram > 0 else ""
-        report = f"Detected [bold]{count}[/] {info['type']} device(s){vram_suffix}\n"
-    else:
-        report = f"Detected [bold]{count or 1}[/] {info['type']} device(s)\n"
+    vram_suffix = f" ({total_vram:.2f} GB total VRAM)" if total_vram > 0 else ""
+    report = f"Detected [bold]{count or 1}[/] {info['type']} device(s){vram_suffix}\n"
 
     if info.get("api_name") and info.get("api_version"):
         report += f"{info['api_name']}: [bold]{info['api_version']}[/]\n"
 
     driver = info.get("driver_version") or "Unknown"
-    driver_label = (
-        "Driver Version (macOS)" if info["type"] == "MPS" else "Driver Version"
-    )
-    report += f"{driver_label}: [bold]{driver}[/]\n"
+    report += f"Driver Version: [bold]{driver}[/]\n"
 
     for i, dev in enumerate(devices):
         vram = f" ({dev['vram_gb']:.2f} GB)" if dev.get("vram_gb") else ""
@@ -389,10 +376,9 @@ def get_cpu_info() -> str:
     """Gets the CPU brand name and instruction set capability."""
     info = get_cpu_info_dict()
     parts = []
-    if info["family"]:
-        parts.append(
-            f"Family {info['family']}, Model {info['model']}, Stepping {info['stepping']}"
-        )
+    parts.append(
+        f"Family {info['family']}, Model {info['model']}, Stepping {info['stepping']}"
+    )
     if info["cores"] and info["threads"]:
         parts.append(f"{info['cores']} Cores, {info['threads']} Threads")
     if info["speed"]:
@@ -433,13 +419,10 @@ def get_python_env_info() -> str:
 
 def get_package_version(name: str) -> str | None:
     """Gets the installed version of a package, stripping local suffixes like +cu128."""
-    try:
-        # Normalize name: pip considers hyphens and underscores equivalent.
-        normalized_name = name.lower().replace("_", "-")
-        version_str = importlib.metadata.version(normalized_name)
-        return version_str.split("+")[0] if "+" in version_str else version_str
-    except importlib.metadata.PackageNotFoundError:
-        return None
+    # Normalize name: pip considers hyphens and underscores equivalent.
+    normalized_name = name.lower().replace("_", "-")
+    version_str = importlib.metadata.version(normalized_name)
+    return version_str.split("+")[0] if "+" in version_str else version_str
 
 
 def get_requirements_dict() -> dict[str, str]:
@@ -447,15 +430,12 @@ def get_requirements_dict() -> dict[str, str]:
     core_packages = ["heretic-llm", "torch", "torchaudio", "torchvision"]
 
     # Add direct dependencies defined in the distribution.
-    try:
-        distribution = importlib.metadata.distribution("heretic-llm")
-        if distribution.requires:
-            for requirement in distribution.requires:
-                match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
-                if match:
-                    core_packages.append(match.group(0))
-    except importlib.metadata.PackageNotFoundError:
-        pass
+    distribution = importlib.metadata.distribution("heretic-llm")
+    if distribution.requires:
+        for requirement in distribution.requires:
+            match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
+            if match:
+                core_packages.append(match.group(0))
 
     # Lookup versions and deduplicate.
     dependencies = {}

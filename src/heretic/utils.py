@@ -15,9 +15,16 @@ from accelerate.utils import (
     is_mlu_available,
     is_musa_available,
     is_sdaa_available,
-    is_tpu_available,
     is_xpu_available,
 )
+
+
+def is_tpu_available() -> bool:
+    try:
+        from accelerate.utils import is_tpu_available as _is_tpu_available
+        return _is_tpu_available()
+    except ImportError:
+        return False
 
 
 def detect_tpu() -> bool:

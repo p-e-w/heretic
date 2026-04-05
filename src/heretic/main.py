@@ -807,7 +807,21 @@ def run():
                             if strategy is None:
                                 continue
 
-                            if not Path(settings.model).exists():
+                            # Reproducibility requires that the model and both datasets
+                            # are available on the HuggingFace Hub.
+                            can_reproduce = (
+                                not Path(settings.model).exists()
+                                and not Path(settings.good_prompts.dataset).exists()
+                                and not Path(settings.bad_prompts.dataset).exists()
+                                and not Path(
+                                    settings.good_evaluation_prompts.dataset
+                                ).exists()
+                                and not Path(
+                                    settings.bad_evaluation_prompts.dataset
+                                ).exists()
+                            )
+
+                            if can_reproduce:
                                 include_reproduce = prompt_confirm(
                                     """Include 'reproduce' folder?
 This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""

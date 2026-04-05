@@ -34,6 +34,7 @@ from accelerate.utils import (
     is_musa_available,
     is_npu_available,
     is_sdaa_available,
+    is_tpu_available,
     is_xpu_available,
 )
 from huggingface_hub import ModelCard, ModelCardData
@@ -198,6 +199,21 @@ def run():
             print(
                 f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/] ({vram:.2f} GB)"
             )
+    elif is_tpu_available():
+        try:
+            import jax
+            jax_devices = jax.devices()
+            count = len(jax_devices)
+            tpu_type = "TPU"
+            if jax_devices:
+                device_type = jax_devices[0].device_kind
+                if device_type:
+                    tpu_type = device_type
+            print(f"Detected [bold]{count}[/] {tpu_type} device(s)")
+            for i, device in enumerate(jax_devices):
+                print(f"* TPU {i}: [bold]{device.device_kind}[/]")
+        except ImportError:
+            print("Detected [bold]TPU (via accelerate)[/]")
     elif is_xpu_available():
         count = torch.xpu.device_count()
         print(f"Detected [bold]{count}[/] XPU device(s):")
@@ -220,6 +236,8 @@ def run():
             print(f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
     elif is_npu_available():
         print(f"NPU detected (CANN version: [bold]{torch.version.cann}[/])")  # ty:ignore[unresolved-attribute]
+    elif is_tpu_available():
+        print("Detected [bold]TPU (via accelerate)[/]")
     elif torch.backends.mps.is_available():
         print("Detected [bold]1[/] MPS device (Apple Metal)")
     else:

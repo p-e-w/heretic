@@ -2,9 +2,11 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import math
+import os
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Type, cast
+from urllib.parse import urlparse
 
 import bitsandbytes as bnb
 import torch
@@ -31,6 +33,57 @@ from transformers.generation import (
 
 from .config import QuantizationMethod, RowNormalization, Settings
 from .utils import Prompt, batchify, empty_cache, print
+
+
+def _is_remote_path(model: str) -> bool:
+    if os.path.isdir(model):
+        return False
+    parsed = urlparse(model)
+    return bool(parsed.scheme and parsed.netloc)
+
+
+def _fix_extra_special_tokens(model: str) -> None:
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        return
+
+    try:
+        config_path = hf_hub_download(repo_id=model, filename="tokenizer_config.json")
+    except Exception:
+        return
+
+    import json
+
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+    except Exception:
+        return
+
+    modified = False
+
+    if "extra_special_tokens" in config and isinstance(config["extra_special_tokens"], list):
+        tokens_dict = {}
+        for token in config["extra_special_tokens"]:
+            if isinstance(token, dict) and "id" in token and "content" in token:
+                tokens_dict[token["id"]] = token
+        if tokens_dict:
+            config["extra_special_tokens"] = tokens_dict
+            modified = True
+
+    if "added_tokens_decoder" in config and isinstance(config["added_tokens_decoder"], list):
+        tokens_dict = {}
+        for token in config["added_tokens_decoder"]:
+            if isinstance(token, dict) and "id" in token:
+                tokens_dict[str(token["id"])] = token
+        if tokens_dict:
+            config["added_tokens_decoder"] = tokens_dict
+            modified = True
+
+    if modified:
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
 
 
 def get_model_class(
@@ -64,6 +117,9 @@ class Model:
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
+
+        if _is_remote_path(settings.model):
+            _fix_extra_special_tokens(settings.model)
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             settings.model,

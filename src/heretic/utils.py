@@ -14,9 +14,21 @@ import torch
 from accelerate.utils import (
     is_mlu_available,
     is_musa_available,
+    is_npu_available,
     is_sdaa_available,
+    is_tpu_available,
     is_xpu_available,
 )
+
+
+def detect_tpu() -> bool:
+    if is_tpu_available():
+        return True
+    try:
+        import jax
+        return bool(jax.devices())
+    except ImportError:
+        return False
 from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
@@ -49,6 +61,13 @@ def print_memory_usage():
         reserved = sum(torch.xpu.memory_reserved(device) for device in range(count))
         p("Allocated XPU memory", allocated)
         p("Reserved XPU memory", reserved)
+    elif is_tpu_available():
+        try:
+            import jax
+            for jax_device in jax.devices():
+                p(f"Allocated TPU memory ({jax_device})", jax_device.memory_stats().get("bytes_in_use", 0))
+        except ImportError:
+            pass
     elif torch.backends.mps.is_available():
         p("Allocated MPS memory", torch.mps.current_allocated_memory())
         p("Driver (reserved) MPS memory", torch.mps.driver_allocated_memory())
@@ -235,9 +254,6 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
 
 
 def empty_cache():
-    # Collecting garbage is not an idempotent operation, and to avoid OOM errors,
-    # gc.collect() has to be called both before and after emptying the backend cache.
-    # See https://github.com/p-e-w/heretic/pull/17 for details.
     gc.collect()
 
     if torch.cuda.is_available():
@@ -245,11 +261,17 @@ def empty_cache():
     elif is_xpu_available():
         torch.xpu.empty_cache()
     elif is_mlu_available():
-        torch.mlu.empty_cache()  # ty:ignore[unresolved-attribute]
+        torch.mlu.empty_cache()
     elif is_sdaa_available():
-        torch.sdaa.empty_cache()  # ty:ignore[unresolved-attribute]
+        torch.sdaa.empty_cache()
     elif is_musa_available():
-        torch.musa.empty_cache()  # ty:ignore[unresolved-attribute]
+        torch.musa.empty_cache()
+    elif is_tpu_available():
+        try:
+            import jax
+            jax.clear_caches()
+        except ImportError:
+            pass
     elif torch.backends.mps.is_available():
         torch.mps.empty_cache()
 

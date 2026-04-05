@@ -320,7 +320,7 @@ def get_accelerator_info_dict() -> dict[str, Any]:
 
 
 def get_accelerator_info(include_warnings: bool = True) -> str:
-    """The single source of truth for hardware detection and formatting."""
+    """Convenience wrapper for hardware detection and console-friendly formatting."""
     info = get_accelerator_info_dict()
 
     if info["type"] is None:

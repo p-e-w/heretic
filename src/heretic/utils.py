@@ -25,17 +25,13 @@ from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
-from rich.text import Text
 from transformers import AutoConfig
 
 from .config import DatasetSpecification, Settings
 from .system import (
-    get_accelerator_info,
     get_accelerator_info_dict,
-    get_cpu_info,
     get_cpu_info_dict,
     get_heretic_version_info,
-    get_python_env_info,
     get_python_env_info_dict,
     get_requirements_dict,
     is_xpu_available,
@@ -396,9 +392,61 @@ def generate_reproduce_readme(
         f"- **Base Model Commit:** `{base_model_commit}`\n" if base_model_commit else ""
     )
 
-    accelerator_report = Text.from_markup(
-        get_accelerator_info(include_warnings=False)
-    ).plain
+    # System and Accelerator info using structured dictionaries.
+    cpu = get_cpu_info_dict()
+    python_env = get_python_env_info_dict()
+    accelerator = get_accelerator_info_dict()
+
+    # Build System Environment section.
+    system_env_lines = [
+        f"- **OS:** `{platform.platform()}` (`{platform.machine()}`)",
+        f"- **CPU:** `{cpu['brand'] or 'Unknown CPU'}`",
+        f"  - **Architecture:** Family `{cpu['family']}`, Model `{cpu['model']}`, Stepping `{cpu['stepping']}`",
+        f"  - **Topology:** `{cpu['cores']}` Cores, `{cpu['threads']}` Threads",
+    ]
+    if cpu["speed"]:
+        system_env_lines.append(f"  - **Speed:** `{cpu['speed']}`")
+    if cpu["capability"]:
+        system_env_lines.append(f"  - **Capability:** `{cpu['capability']}`")
+
+    system_env_lines.extend(
+        [
+            f"- **Python:** `{python_env['version']}` (`{python_env['implementation']}`, `{python_env['compiler']}`) [`{python_env['environment']}`]",
+            f"- **Heretic:** `v{version_info.version}`"
+            + (f" (Origin: `{version_info.origin}`)" if version_info.origin else ""),
+            f"- **PyTorch:** `{torch.__version__}`",
+        ]
+    )
+    system_environment_report = "\n".join(system_env_lines)
+
+    # Build Accelerators section.
+    if accelerator["type"] is None:
+        accelerator_report = "> [!WARNING]\n> **No GPU or other accelerator detected.**"
+    else:
+        devices = accelerator["devices"]
+        total_vram = sum(d.get("vram_gb", 0) for d in devices)
+        vram_suffix = f" (`{total_vram:.2f} GB` total VRAM)" if total_vram > 0 else ""
+        accelerator_lines = [
+            f"- **{accelerator['type']}:** Detected `{len(devices)}` device(s){vram_suffix}"
+        ]
+
+        if accelerator.get("api_name") and accelerator.get("api_version"):
+            accelerator_lines.append(
+                f"  - **{accelerator['api_name']}:** `{accelerator['api_version']}`"
+            )
+
+        if accelerator.get("driver_version"):
+            accelerator_lines.append(
+                f"  - **Driver Version:** `{accelerator['driver_version']}`"
+            )
+
+        accelerator_lines.append("- **Devices:**")
+        for i, dev in enumerate(devices):
+            vram = f" (`{dev['vram_gb']:.2f} GB`)" if dev.get("vram_gb") else ""
+            accelerator_lines.append(
+                f"  - **{accelerator['type']} {i}:** `{dev['name']}`{vram}"
+            )
+        accelerator_report = "\n".join(accelerator_lines)
 
     return f"""# Reproduction Guide
 
@@ -410,17 +458,14 @@ This directory contains the necessary information and assets to reproduce the re
 {commit_str}{timestamp_str}
 ## Selected Trial
 
-- **Trial number:** `#{trial.user_attrs["index"]}`
+- **Trial Number:** `#{trial.user_attrs["index"]}`
 
 ## System Environment
 
-- **OS:** {platform.platform()} ({platform.machine()})
-- **CPU:** {get_cpu_info()}
-- **Python:** {get_python_env_info()}
-- **Heretic:** v{version_info.version}{f" (Origin: {version_info.origin})" if version_info.origin else ""}
-- **PyTorch Version:** {torch.__version__}
+{system_environment_report}
 
 ### Accelerators
+
 {accelerator_report}
 
 ## Contents

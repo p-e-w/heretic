@@ -14,7 +14,6 @@ import torch
 from accelerate.utils import (
     is_mlu_available,
     is_musa_available,
-    is_npu_available,
     is_sdaa_available,
     is_tpu_available,
     is_xpu_available,
@@ -29,6 +28,8 @@ def detect_tpu() -> bool:
         return bool(jax.devices())
     except ImportError:
         return False
+
+
 from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
@@ -266,7 +267,7 @@ def empty_cache():
         torch.sdaa.empty_cache()
     elif is_musa_available():
         torch.musa.empty_cache()
-    elif is_tpu_available():
+    elif detect_tpu():
         try:
             import jax
             jax.clear_caches()

@@ -552,6 +552,7 @@ def run():
 
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)
+        trial.set_user_attr("total_refusal_prompts", len(evaluator.bad_prompts))
 
         return score
 

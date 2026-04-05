@@ -481,6 +481,8 @@ This directory contains the necessary information and assets to reproduce the re
 ## Selected Trial
 
 - **Trial Number:** `#{trial.user_attrs["index"]}`
+- **Refusal Count:** `{trial.user_attrs.get("refusals")}/{trial.user_attrs.get("total_refusal_prompts")}`
+- **KL Divergence:** `{trial.user_attrs.get("kl_divergence", 0):.6f}`
 
 ## System Environment
 
@@ -546,6 +548,7 @@ def generate_reproduce_json(
             "parameters": trial.user_attrs.get("parameters"),
             "metrics": {
                 "refusals": trial.user_attrs.get("refusals"),
+                "total_refusal_prompts": trial.user_attrs.get("total_refusal_prompts"),
                 "kl_divergence": trial.user_attrs.get("kl_divergence"),
             },
         },

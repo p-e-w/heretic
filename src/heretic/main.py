@@ -807,18 +807,16 @@ def run():
                             if strategy is None:
                                 continue
 
-                            # Reproducibility requires that the model and both datasets
-                            # are available on the HuggingFace Hub.
-                            can_reproduce = (
-                                not Path(settings.model).exists()
-                                and not Path(settings.good_prompts.dataset).exists()
-                                and not Path(settings.bad_prompts.dataset).exists()
-                                and not Path(
-                                    settings.good_evaluation_prompts.dataset
-                                ).exists()
-                                and not Path(
-                                    settings.bad_evaluation_prompts.dataset
-                                ).exists()
+                            # Reproducibility requires that the model and all datasets
+                            # are available on the Hugging Face Hub (not local paths).
+                            datasets = [
+                                settings.good_prompts.dataset,
+                                settings.bad_prompts.dataset,
+                                settings.good_evaluation_prompts.dataset,
+                                settings.bad_evaluation_prompts.dataset,
+                            ]
+                            can_reproduce = not Path(settings.model).exists() and all(
+                                not Path(d).exists() for d in datasets
                             )
 
                             if can_reproduce:

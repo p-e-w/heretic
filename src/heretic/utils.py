@@ -476,10 +476,11 @@ def generate_reproduce_json(
         "requirements": get_requirements_dict(),
         "settings": settings.model_dump(exclude_none=True),
         "trial": {
-            "index": trial.user_attrs.get("index"),
             "parameters": trial.user_attrs.get("parameters"),
-            "refusals": trial.user_attrs.get("refusals"),
-            "kl_divergence": trial.user_attrs.get("kl_divergence"),
+            "metrics": {
+                "refusals": trial.user_attrs.get("refusals"),
+                "kl_divergence": trial.user_attrs.get("kl_divergence"),
+            },
         },
         "timestamp": timestamp,
         "uploaded_model_hashes": uploaded_model_hashes or {},

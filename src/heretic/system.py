@@ -426,22 +426,41 @@ def get_package_version(name: str) -> str | None:
 
 
 def get_requirements_dict() -> dict[str, str]:
-    """Collects only direct heretic-llm dependencies plus torch, torchvision, torchaudio."""
-    core_packages = ["heretic-llm", "torch", "torchaudio", "torchvision"]
+    """Recursively finds all direct and transitive dependencies of heretic-llm and core libraries."""
+    # We start with heretic-llm and the core compute libraries.
+    packages_to_check = ["heretic-llm", "torch", "torchaudio", "torchvision"]
+    visited = set()
+    required_packages = set()
 
-    # Add direct dependencies defined in the distribution.
-    distribution = importlib.metadata.distribution("heretic-llm")
-    if distribution.requires:
-        for requirement in distribution.requires:
-            match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
-            if match:
-                core_packages.append(match.group(0))
+    while packages_to_check:
+        package = packages_to_check.pop(0)
+        # Normalize name: pip considers hyphens and underscores equivalent.
+        normalized_package = package.lower().replace("_", "-")
+        if normalized_package in visited:
+            continue
+        visited.add(normalized_package)
 
-    # Lookup versions and deduplicate.
+        try:
+            distribution = importlib.metadata.distribution(normalized_package)
+            required_packages.add(normalized_package)
+            if distribution.requires:
+                for requirement in distribution.requires:
+                    # Requirements can include environment markers like '; extra == "hf"'
+                    # or version constraints. We just want the base package name.
+                    match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
+                    if match:
+                        dep_name = match.group(0).lower().replace("_", "-")
+                        if dep_name not in visited:
+                            packages_to_check.append(dep_name)
+        except importlib.metadata.PackageNotFoundError:
+            # If a package is listed as a dependency but not installed, we skip it.
+            continue
+
+    # Lookup versions for all discovered packages.
     dependencies = {}
-    for name in set(core_packages):
+    for name in required_packages:
         version_str = get_package_version(name)
         if version_str:
-            dependencies[name.lower().replace("_", "-")] = version_str
+            dependencies[name] = version_str
 
     return dependencies

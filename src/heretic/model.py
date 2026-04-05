@@ -81,7 +81,12 @@ def _fix_extra_special_tokens(model: str) -> dict | None:
             config["added_tokens_decoder"] = original
 
     if modified:
-        return {"extra_special_tokens": config.get("extra_special_tokens"), "added_tokens_decoder": config.get("added_tokens_decoder")}
+        kwargs = {}
+        if "extra_special_tokens" in config:
+            kwargs["extra_special_tokens"] = config["extra_special_tokens"]
+        if "added_tokens_decoder" in config:
+            kwargs["added_tokens_decoder"] = config["added_tokens_decoder"]
+        return kwargs if kwargs else None
 
     return None
 

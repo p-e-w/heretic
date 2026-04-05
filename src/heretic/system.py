@@ -353,11 +353,7 @@ def get_cpu_info_dict() -> dict[str, str | int | None]:
     """Gets granular CPU identifiers using the py-cpuinfo library."""
     info = cpuinfo.get_cpu_info()
 
-    capability = None
-    try:
-        capability = str(torch.backends.cpu.get_cpu_capability())
-    except Exception:
-        pass
+    capability = str(torch.backends.cpu.get_cpu_capability())
 
     return {
         "brand": info.get("brand_raw"),

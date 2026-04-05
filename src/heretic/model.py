@@ -59,23 +59,26 @@ def _fix_extra_special_tokens(model: str) -> dict | None:
 
     modified = False
 
-    if "extra_special_tokens" in config and isinstance(config["extra_special_tokens"], list):
-        tokens_dict = {}
-        for token in config["extra_special_tokens"]:
-            if isinstance(token, dict) and "id" in token and "content" in token:
-                tokens_dict[token["id"]] = token
-        if tokens_dict:
-            config["extra_special_tokens"] = tokens_dict
+    if "extra_special_tokens" in config:
+        original = config["extra_special_tokens"]
+        if isinstance(original, list):
+            config["extra_special_tokens"] = {}
             modified = True
+        elif isinstance(original, dict):
+            config["extra_special_tokens"] = original
 
-    if "added_tokens_decoder" in config and isinstance(config["added_tokens_decoder"], list):
-        tokens_dict = {}
-        for token in config["added_tokens_decoder"]:
-            if isinstance(token, dict) and "id" in token:
-                tokens_dict[str(token["id"])] = token
-        if tokens_dict:
-            config["added_tokens_decoder"] = tokens_dict
-            modified = True
+    if "added_tokens_decoder" in config:
+        original = config["added_tokens_decoder"]
+        if isinstance(original, list):
+            tokens_dict = {}
+            for token in original:
+                if isinstance(token, dict) and "id" in token:
+                    tokens_dict[str(token["id"])] = token
+            if tokens_dict:
+                config["added_tokens_decoder"] = tokens_dict
+                modified = True
+        elif isinstance(original, dict):
+            config["added_tokens_decoder"] = original
 
     if modified:
         return {"extra_special_tokens": config.get("extra_special_tokens"), "added_tokens_decoder": config.get("added_tokens_decoder")}

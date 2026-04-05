@@ -509,8 +509,10 @@ def create_reproduce_folder(
 
     checkpoint_filename = Path(checkpoint_path).name
 
-    # Strip microseconds from timestamp.
-    timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    # Strip microseconds and timezone for a clean format.
+    timestamp = (
+        datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None).isoformat()
+    )
     base_model_commit = None
     if not Path(settings.model).exists():
         try:

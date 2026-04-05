@@ -38,7 +38,7 @@ def _is_remote_path(model: str) -> bool:
     return not os.path.isdir(model)
 
 
-def _fix_extra_special_tokens(model: str) -> str | None:
+def _fix_extra_special_tokens(model: str) -> dict | None:
     try:
         from huggingface_hub import hf_hub_download
     except ImportError:
@@ -78,14 +78,7 @@ def _fix_extra_special_tokens(model: str) -> str | None:
             modified = True
 
     if modified:
-        import tempfile
-        import shutil
-
-        temp_dir = tempfile.mkdtemp()
-        temp_path = os.path.join(temp_dir, "tokenizer_config.json")
-        with open(temp_path, "w") as f:
-            json.dump(config, f, indent=2)
-        return temp_path
+        return {"extra_special_tokens": config.get("extra_special_tokens"), "added_tokens_decoder": config.get("added_tokens_decoder")}
 
     return None
 
@@ -122,14 +115,16 @@ class Model:
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
-        temp_tokenizer_config = None
+        tokenizer_kwargs = {}
         if _is_remote_path(settings.model):
-            temp_tokenizer_config = _fix_extra_special_tokens(settings.model)
+            fixed_config = _fix_extra_special_tokens(settings.model)
+            if fixed_config:
+                tokenizer_kwargs.update(fixed_config)
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             settings.model,
             trust_remote_code=settings.trust_remote_code,
-            tokenizer_config_file=temp_tokenizer_config,
+            **tokenizer_kwargs,
         )
 
         # Fallback for tokenizers that don't declare a special pad token.

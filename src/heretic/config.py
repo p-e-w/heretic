@@ -59,6 +59,10 @@ class DatasetSpecification(BaseModel):
         default=None,
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
     )
+    commit: str | None = Field(
+        default=None,
+        description="Hugging Face commit hash of the dataset.",
+    )
 
 
 class BenchmarkSpecification(BaseModel):

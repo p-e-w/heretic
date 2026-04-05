@@ -387,10 +387,29 @@ def generate_reproduce_readme(
 > This system installed `heretic-llm` from an unknown non-standard source. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
 
-    timestamp_str = f"- **Run started at (UTC):** `{timestamp}`\n" if timestamp else ""
-    commit_str = (
-        f"- **Base Model Commit:** `{base_model_commit}`\n" if base_model_commit else ""
-    )
+    def format_hf_link(
+        name: str, commit: str | None = None, is_dataset: bool = False
+    ) -> str:
+        if Path(name).exists():
+            return f"`{name}` (Local)"
+
+        prefix = "datasets/" if is_dataset else ""
+        base_url = f"https://huggingface.co/{prefix}{name}"
+        link = f"[{name}]({base_url})"
+        if commit:
+            commit_url = f"{base_url}/commit/{commit}"
+            link += f" (Commit: [{commit[:7]}]({commit_url}))"
+        return link
+
+    model_link = format_hf_link(settings.model, base_model_commit)
+    dataset_info = f"""## Dataset Information
+
+- **Good Prompts:** {format_hf_link(settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
+- **Bad Prompts:** {format_hf_link(settings.bad_prompts.dataset, settings.bad_prompts.commit, is_dataset=True)}
+- **Good Evaluation Prompts:** {format_hf_link(settings.good_evaluation_prompts.dataset, settings.good_evaluation_prompts.commit, is_dataset=True)}
+- **Bad Evaluation Prompts:** {format_hf_link(settings.bad_evaluation_prompts.dataset, settings.bad_evaluation_prompts.commit, is_dataset=True)}"""
+
+    timestamp_str = f"- **Run started at (UTC):** `{timestamp}`" if timestamp else ""
 
     # System and Accelerator info using structured dictionaries.
     cpu = get_cpu_info_dict()
@@ -454,8 +473,11 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## Model Information
 
-- **Base Model:** `{settings.model}`
-{commit_str}{timestamp_str}
+- **Base Model:** {model_link}
+{timestamp_str}
+
+{dataset_info}
+
 ## Selected Trial
 
 - **Trial Number:** `#{trial.user_attrs["index"]}`
@@ -554,19 +576,29 @@ def create_reproduce_folder(
 
     checkpoint_filename = Path(checkpoint_path).name
 
+    # Fetch commit hashes for all HF datasets to ensure reproducibility.
+    for spec in [
+        settings.good_prompts,
+        settings.bad_prompts,
+        settings.good_evaluation_prompts,
+        settings.bad_evaluation_prompts,
+    ]:
+        if not Path(spec.dataset).exists():
+            # Fail if the dataset is missing or unreachable.
+            spec.commit = huggingface_hub.dataset_info(spec.dataset).sha
+
+    # Fetch commit hash for the base model if it's on HF.
+    base_model_commit = None
+    if not Path(settings.model).exists():
+        try:
+            base_model_commit = AutoConfig.from_pretrained(settings.model)._commit_hash
+        except Exception:
+            pass
+
     # Strip microseconds and timezone for a clean format.
     timestamp = (
         datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None).isoformat()
     )
-    base_model_commit = None
-    if not Path(settings.model).exists():
-        try:
-            config = AutoConfig.from_pretrained(
-                settings.model, trust_remote_code=settings.trust_remote_code
-            )
-            base_model_commit = getattr(config, "_commit_hash", None)
-        except Exception:
-            pass
 
     (reproduce_dir / "config.toml").write_text(
         generate_config_toml(settings), encoding="utf-8"

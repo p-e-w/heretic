@@ -664,7 +664,6 @@ def upload_reproduce_folder(
             ".hdf5",
             ".json",
             ".model",
-            ".txt",
         )
         if info.siblings is not None:
             for file in info.siblings:

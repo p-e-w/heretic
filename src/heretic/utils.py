@@ -651,20 +651,8 @@ def upload_reproduce_folder(
     try:
         api = huggingface_hub.HfApi()
         info = api.model_info(repo_id=repo_id, files_metadata=True, token=token)
-        # Weights and Tokenizers extensions are usually these.
-        # tokenizers library uses .json and SentencePiece uses .model
-        weight_extensions = (
-            ".safetensors",
-            ".bin",
-            ".pt",
-            ".pth",
-            ".pkl",
-            ".ckpt",
-            ".h5",
-            ".hdf5",
-            ".json",
-            ".model",
-        )
+        # For weights, we only care about safetensors.
+        weight_extensions = (".safetensors",)
         if info.siblings is not None:
             for file in info.siblings:
                 if file.rfilename.endswith(weight_extensions):

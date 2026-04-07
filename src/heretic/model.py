@@ -162,22 +162,22 @@ class Model:
         assert isinstance(self.model, PreTrainedModel)
 
         # Always use LoRA adapters for abliteration (faster reload, no weight modification).
-        # Collect actual leaf module names from the model for LoRA targeting.
-        # This is more robust than splitting component keys (e.g. "attn.o_proj" -> "o_proj")
-        # because hybrid models like Qwen3.5 MoE have modules with different names
-        # across layers (e.g. "o_proj" on attention layers, "out_proj" on linear attention layers).
+        # Collect exact module paths from the model for LoRA targeting.
+        # Using full module names avoids matching unsupported wrapper modules
+        # that happen to share the same leaf name (e.g. Gemma4ClippableLinear
+        # wrappers named "q_proj"/"o_proj"), while still supporting hybrid
+        # architectures with differing projection names across layers.
         target_modules_set: set[str] = set()
+        module_id_to_full_name = {
+            id(module): module_name
+            for module_name, module in self.model.named_modules()
+        }
 
         for layer_index, layer in enumerate(self.get_layers()):
-            module_id_to_leaf_name = {
-                id(module): module_name.split(".")[-1]
-                for module_name, module in layer.named_modules()
-            }
-
             for modules in self.get_layer_modules(layer_index).values():
                 for module in modules:
-                    if id(module) in module_id_to_leaf_name:
-                        target_modules_set.add(module_id_to_leaf_name[id(module)])
+                    if id(module) in module_id_to_full_name:
+                        target_modules_set.add(module_id_to_full_name[id(module)])
 
         target_modules = list(target_modules_set)
 
@@ -340,6 +340,14 @@ class Model:
         modules = {}
 
         def try_add(component: str, module: Any):
+            # Some architectures (e.g. Gemma 4) wrap a standard Linear layer
+            # in a thin container module that PEFT cannot target directly.
+            # Use the inner Linear so LoRA injection and later weight access
+            # operate on the supported leaf module.
+            with suppress(Exception):
+                if isinstance(module.linear, Module):  # ty:ignore[attr-defined]
+                    module = module.linear  # ty:ignore[attr-defined]
+
             # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
             if isinstance(module, Module):
                 if component not in modules:

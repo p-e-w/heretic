@@ -393,52 +393,44 @@ def run():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
-    print()
-    print("Checking for common response prefix...")
-    prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
-    responses = model.get_responses_batched(prefix_check_prompts)
-
-    # Despite being located in os.path, commonprefix actually performs
-    # a naive string operation without any path-specific logic,
-    # which is exactly what we need here. Trailing spaces are removed
-    # to avoid issues where multiple different tokens that all start
-    # with a space character lead to the common prefix ending with
-    # a space, which would result in an uncommon tokenization.
-    model.response_prefix = commonprefix(responses).rstrip(" ")
-
-    # Suppress CoT output.
-    recheck_prefix = False
-    if model.response_prefix:
-        # When using any of the predefined prefixes below, we need to check that
-        # the prefix is actually complete (e.g. not missing a trailing newline).
-        recheck_prefix = True
-        if model.response_prefix.startswith("<think>"):
-            # Most thinking models.
-            model.response_prefix = "<think></think>"
-        elif model.response_prefix.startswith("<|channel|>analysis<|message|>"):
-            # gpt-oss.
-            model.response_prefix = "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>"
-        elif model.response_prefix.startswith("<thought>"):
-            # Unknown, suggested by user.
-            model.response_prefix = "<thought></thought>"
-        elif model.response_prefix.startswith("[THINK]"):
-            # Unknown, suggested by user.
-            model.response_prefix = "[THINK][/THINK]"
-        else:
-            recheck_prefix = False
-
-    if model.response_prefix:
-        print(f"* Prefix found: [bold]{model.response_prefix!r}[/]")
-    else:
-        print("* None found")
-
-    if recheck_prefix:
-        print("* Rechecking with prefix...")
+    if settings.response_prefix is None:
+        print()
+        print("Checking for common response prefix...")
+        prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
         responses = model.get_responses_batched(prefix_check_prompts)
-        additional_prefix = commonprefix(responses).rstrip(" ")
-        if additional_prefix:
-            model.response_prefix += additional_prefix
-            print(f"* Extended prefix found: [bold]{model.response_prefix!r}[/]")
+
+        # Despite being located in os.path, commonprefix actually performs
+        # a naive string operation without any path-specific logic,
+        # which is exactly what we need here. Trailing spaces are removed
+        # to avoid issues where multiple different tokens that all start
+        # with a space character lead to the common prefix ending with
+        # a space, which would result in an uncommon tokenization.
+        settings.response_prefix = commonprefix(responses).rstrip(" ")
+
+        if settings.response_prefix:
+            print(f"* Prefix found: [bold]{settings.response_prefix!r}[/]")
+
+            for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
+                if settings.response_prefix.startswith(cot_initializer):
+                    settings.response_prefix = closed_cot_block
+                    print(
+                        f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
+                    )
+
+                    # When using a Chain-of-Thought skip, we need to check that the prefix
+                    # is actually complete (e.g. not missing a trailing newline).
+                    print("* Rechecking with prefix...")
+                    responses = model.get_responses_batched(prefix_check_prompts)
+                    additional_prefix = commonprefix(responses).rstrip(" ")
+                    if additional_prefix:
+                        settings.response_prefix += additional_prefix
+                        print(
+                            f"* Extended prefix found: [bold]{settings.response_prefix!r}[/]"
+                        )
+
+                    break
+        else:
+            print("* None found")
 
     evaluator = Evaluator(settings, model)
 

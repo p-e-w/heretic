@@ -1,6 +1,14 @@
 # Optional: OpenAI-compatible server for Heretic Gemma 3 (vision + text).
-# Use a dedicated virtualenv with a CUDA-compatible PyTorch stack; see
-# https://docs.vllm.ai/en/latest/getting_started/installation.html
+#
+# Before `pip install -r requirements-vllm.txt`:
+# - Use Python 3.10–3.12 (3.14 is often unsupported by torch/vLLM wheels).
+# - Install NVIDIA drivers + a CUDA stack that matches PyTorch (see pytorch.org).
+# - Install PyTorch first: the package name is `torch`, not `pytorch`.
+#   https://pytorch.org/get-started/locally/
+#
+# Windows: upstream vLLM is Linux-oriented; many people use WSL2 (Ubuntu) with CUDA,
+# or follow https://docs.vllm.ai/en/latest/getting_started/installation.html
+# and community Windows wheels if you stay on native Windows.
 #
 #   pip install -r requirements-vllm.txt
 #

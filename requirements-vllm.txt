@@ -1,0 +1,7 @@
+# Optional: OpenAI-compatible server for Heretic Gemma 3 (vision + text).
+# Use a dedicated virtualenv with a CUDA-compatible PyTorch stack; see
+# https://docs.vllm.ai/en/latest/getting_started/installation.html
+#
+#   pip install -r requirements-vllm.txt
+#
+vllm

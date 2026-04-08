@@ -621,24 +621,17 @@ def run():
                 min_divergence = kl_divergence
                 best_trials.append(trial)
 
-        choices = []
-        selected_trial_number = study.user_attrs.get("selected_trial_number")
-        for trial in sorted_trials:
-            is_best = trial in best_trials
-            is_selected = trial.number == selected_trial_number
-
-            if is_best or is_selected:
-                label = f"[Trial {trial.user_attrs['index']:>3}] "
-                if is_selected:
-                    label += "[SELECTED] "
-                label += (
+        choices = [
+            Choice(
+                title=(
+                    f"[Trial {trial.user_attrs['index']:>3}] "
                     f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
                     f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
-                )
-                if is_selected and not is_best:
-                    label += " [yellow](Dominated by newer trials)[/]"
-
-                choices.append(Choice(title=label, value=trial))
+                ),
+                value=trial,
+            )
+            for trial in best_trials
+        ]
 
         choices.append(
             Choice(
@@ -768,7 +761,6 @@ def run():
                                 model.tokenizer.save_pretrained(save_directory)
 
                             print(f"Model saved to [bold]{save_directory}[/].")
-                            study.set_user_attr("selected_trial_number", trial.number)
 
                         case "Upload the model to Hugging Face":
                             # We don't use huggingface_hub.login() because that stores the token on disk,
@@ -821,6 +813,10 @@ def run():
                             )
 
                             if can_reproduce:
+                                # Pin the number of trials to the number of actual completed trials
+                                # for the reproduction configuration.
+                                settings.n_trials = count_completed_trials()
+
                                 include_reproduce = prompt_confirm(
                                     """Include 'reproduce' folder?
 This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
@@ -850,7 +846,6 @@ This saves your exact configuration and system information, along with the study
                                     private=private,
                                     token=token,
                                 )
-                            study.set_user_attr("selected_trial_number", trial.number)
 
                             # If the model path exists locally and includes the
                             # card, use it directly. If the model path doesn't

@@ -60,7 +60,6 @@ class Model:
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.response_prefix = ""
         self.needs_reload = False
 
         print()
@@ -566,10 +565,12 @@ class Model:
             ),
         )
 
-        if self.response_prefix:
+        if self.settings.response_prefix:
             # Append the common response prefix to the prompts so that evaluation happens
             # at the point where responses start to differ for different prompts.
-            chat_prompts = [prompt + self.response_prefix for prompt in chat_prompts]
+            chat_prompts = [
+                prompt + self.settings.response_prefix for prompt in chat_prompts
+            ]
 
         inputs = self.tokenizer(
             chat_prompts,

@@ -442,7 +442,12 @@ def get_requirements_dict() -> dict[str, str]:
             if distribution.requires:
                 for requirement in distribution.requires:
                     # Requirements can include environment markers like '; extra == "hf"'
-                    # or version constraints. We just want the base package name.
+                    # or version constraints. We should ignore optional 'extra' dependencies
+                    # to keep the reproduction environment clean and relevant.
+                    if ";" in requirement and "extra ==" in requirement:
+                        continue
+
+                    # We just want the base package name.
                     match = re.match(r"^([a-zA-Z0-9_\-]+)", requirement)
                     if match:
                         dep_name = match.group(0).lower().replace("_", "-")

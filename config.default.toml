@@ -25,7 +25,7 @@ quantization = "none"
 device_map = "auto"
 
 # Maximum memory to allocate per device.
-# max_memory = {"0": "20GB", "cpu": "64GB"}
+# max_memory = { "0" = "20GB", "cpu" = "64GB" }
 
 # Number of input sequences to process in parallel (0 = auto).
 batch_size = 0  # auto

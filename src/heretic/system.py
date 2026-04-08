@@ -459,7 +459,14 @@ def get_requirements_dict() -> dict[str, str]:
 
     # Lookup versions for all discovered packages.
     dependencies = {}
+    version_info = get_heretic_version_info()
     for name in required_packages:
+        # If heretic-llm was installed from source (Git/Local), exclude it
+        # from requirements.txt to prevent pip from downloading an unrelated
+        # version from PyPI during reproduction.
+        if name == "heretic-llm" and not version_info.is_standard_pypi:
+            continue
+
         version_str = get_package_version(name)
         if version_str:
             dependencies[name] = version_str

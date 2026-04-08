@@ -565,7 +565,7 @@ def run():
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
-        score, kl_divergence, refusals = evaluator.get_score()
+        score, kl_divergence, refusals, false_refusals = evaluator.get_score()
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / (trial_index - start_index)) * (
@@ -581,6 +581,7 @@ def run():
 
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)
+        trial.set_user_attr("false_refusals", false_refusals)
 
         return score
 

@@ -634,7 +634,7 @@ def create_reproduce_folder(
         encoding="utf-8",
     )
 
-    # Copy Optuna study journal
+    # Copy Optuna study journal.
     checkpoint_file = Path(checkpoint_path)
     if checkpoint_file.exists():
         (reproduce_dir / checkpoint_file.name).write_bytes(checkpoint_file.read_bytes())

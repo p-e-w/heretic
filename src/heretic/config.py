@@ -119,7 +119,7 @@ class Settings(BaseSettings):
 
     max_memory: Dict[str, str] | None = Field(
         default=None,
-        description='Maximum memory to allocate per device (e.g., {"0": "20GB", "cpu": "64GB"}).',
+        description='Maximum memory to allocate per device (e.g., { "0" = "20GB", "cpu" = "64GB" }).',
     )
 
     trust_remote_code: bool | None = Field(

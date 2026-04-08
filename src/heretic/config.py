@@ -227,6 +227,30 @@ class Settings(BaseSettings):
         ),
     )
 
+    target_components: list[str] = Field(
+        default=["attn.o_proj", "mlp.down_proj"],
+        description=(
+            "List of component names to target for abliteration. "
+            'Currently supported values are "attn.o_proj" and "mlp.down_proj".'
+        ),
+    )
+
+    use_ara: bool = Field(
+        default=True,
+        description=(
+            "Whether to use Arbitrary-Rank Ablation (ARA), an abliteration method based on matrix optimization, "
+            "instead of traditional directional ablation."
+        ),
+    )
+
+    use_piqa: bool = Field(
+        default=False,
+        description=(
+            "Whether to use the Physical Interaction: Question Answering (PIQA) benchmark "
+            "as the quality metric instead of the Kullback-Leibler divergence."
+        ),
+    )
+
     orthogonalize_direction: bool = Field(
         default=False,
         description=(
@@ -236,7 +260,7 @@ class Settings(BaseSettings):
     )
 
     row_normalization: RowNormalization = Field(
-        default=RowNormalization.NONE,
+        default=RowNormalization.FULL,
         description=(
             "How to apply row normalization of the weights. Options: "
             '"none" (no normalization), '

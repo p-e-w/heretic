@@ -25,7 +25,6 @@ from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
-from transformers import AutoConfig
 
 from .config import DatasetSpecification, Settings
 from .system import (
@@ -594,7 +593,7 @@ def create_reproduce_folder(
     base_model_commit = None
     if not Path(settings.model).exists():
         try:
-            base_model_commit = AutoConfig.from_pretrained(settings.model)._commit_hash
+            base_model_commit = huggingface_hub.model_info(settings.model).sha
         except Exception:
             pass
 

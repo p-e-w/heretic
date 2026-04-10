@@ -544,6 +544,7 @@ def generate_reproduce_json(
         "requirements": get_requirements_dict(),
         "settings": settings.model_dump(exclude_none=True),
         "trial": {
+            "direction_index": trial.user_attrs.get("direction_index"),
             "parameters": trial.user_attrs.get("parameters"),
             "metrics": {
                 "refusals": trial.user_attrs.get("refusals"),

@@ -419,7 +419,7 @@ def generate_reproduce_readme(
     system_env_lines = [
         f"- **OS:** `{platform.platform()}` (`{platform.machine()}`)",
         f"- **CPU:** `{cpu['brand'] or 'Unknown CPU'}`",
-        f"  - **Architecture:** Family `{cpu['family']}`, Model `{cpu['model']}`, Stepping `{cpu['stepping']}`",
+        f"  - **Information:** Family `{cpu['family']}`, Model `{cpu['model']}`, Stepping `{cpu['stepping']}`",
     ]
 
     system_env_lines.extend(

@@ -420,12 +420,7 @@ def generate_reproduce_readme(
         f"- **OS:** `{platform.platform()}` (`{platform.machine()}`)",
         f"- **CPU:** `{cpu['brand'] or 'Unknown CPU'}`",
         f"  - **Architecture:** Family `{cpu['family']}`, Model `{cpu['model']}`, Stepping `{cpu['stepping']}`",
-        f"  - **Topology:** `{cpu['cores']}` Cores, `{cpu['threads']}` Threads",
     ]
-    if cpu["speed"]:
-        system_env_lines.append(f"  - **Speed:** `{cpu['speed']}`")
-    if cpu["capability"]:
-        system_env_lines.append(f"  - **Capability:** `{cpu['capability']}`")
 
     system_env_lines.extend(
         [

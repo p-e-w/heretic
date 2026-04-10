@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import cpuinfo
-import psutil
 import torch
 from accelerate.utils import (
     is_mlu_available,
@@ -353,37 +352,26 @@ def get_cpu_info_dict() -> dict[str, str | int | None]:
     """Gets granular CPU identifiers using the py-cpuinfo library."""
     info = cpuinfo.get_cpu_info()
 
-    capability = str(torch.backends.cpu.get_cpu_capability())
-
     return {
         "brand": info.get("brand_raw"),
         "vendor": info.get("vendor_id_raw"),
         "family": info.get("family"),
         "model": info.get("model"),
         "stepping": info.get("stepping"),
-        "cores": psutil.cpu_count(logical=False),
-        "threads": psutil.cpu_count(logical=True),
-        "speed": info.get("hz_advertised_friendly"),
-        "capability": capability,
     }
 
 
 def get_cpu_info() -> str:
-    """Gets the CPU brand name and instruction set capability."""
+    """Gets the CPU brand name."""
     info = get_cpu_info_dict()
     parts = []
     parts.append(
         f"Family {info['family']}, Model {info['model']}, Stepping {info['stepping']}"
     )
-    if info["cores"] and info["threads"]:
-        parts.append(f"{info['cores']} Cores, {info['threads']} Threads")
-    if info["speed"]:
-        parts.append(info["speed"])
 
     details = f" ({'; '.join(parts)})" if parts else ""
     brand = info["brand"] or "Unknown CPU"
-    capability = f" [Capability: {info['capability']}]" if info["capability"] else ""
-    return f"{brand}{details}{capability}"
+    return f"{brand}{details}"
 
 
 def get_python_env_info_dict() -> dict[str, str]:

@@ -91,6 +91,10 @@ n_trials = 200
 # Number of trials that use random sampling for the purpose of exploration.
 n_startup_trials = 60
 
+# Random seed for reproducible optimization. Set to an integer to enable.
+# Applies to Python's random module, NumPy, PyTorch, and Optuna.
+# seed = 75
+
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"
 
@@ -140,6 +144,7 @@ split = "train[:400]"
 column = "text"
 residual_plot_label = '"Harmless" prompts'
 residual_plot_color = "royalblue"
+commit = ""
 
 # Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
 [bad_prompts]
@@ -148,15 +153,18 @@ split = "train[:400]"
 column = "text"
 residual_plot_label = '"Harmful" prompts'
 residual_plot_color = "darkorange"
+commit = ""
 
 # Dataset of prompts that tend to not result in refusals (used for evaluating model performance).
 [good_evaluation_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
+commit = ""
 
 # Dataset of prompts that tend to result in refusals (used for evaluating model performance).
 [bad_evaluation_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
+commit = ""

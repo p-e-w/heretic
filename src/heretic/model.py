@@ -30,7 +30,8 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, RowNormalization, Settings
-from .utils import Prompt, batchify, empty_cache, print
+from .system import empty_cache
+from .utils import Prompt, batchify, print
 
 
 def get_model_class(

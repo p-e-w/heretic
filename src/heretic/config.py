@@ -59,6 +59,10 @@ class DatasetSpecification(BaseModel):
         default=None,
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
     )
+    commit: str | None = Field(
+        default=None,
+        description="Hugging Face commit hash of the dataset.",
+    )
 
 
 class BenchmarkSpecification(BaseModel):
@@ -274,6 +278,14 @@ class Settings(BaseSettings):
     n_startup_trials: int = Field(
         default=60,
         description="Number of trials that use random sampling for the purpose of exploration.",
+    )
+
+    seed: int | None = Field(
+        default=None,
+        description=(
+            "Random seed for reproducible optimization. "
+            "Applies to Python's random module, NumPy, PyTorch, and Optuna."
+        ),
     )
 
     study_checkpoint_dir: str = Field(

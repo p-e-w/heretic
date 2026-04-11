@@ -3,6 +3,20 @@
 
 # ruff: noqa: E402
 
+import sys
+
+from .config import Settings
+
+
+def _is_help_invocation() -> bool:
+    args = sys.argv[1:]
+    return "-h" in args or "--help" in args
+
+
+# Parse and handle CLI help before importing heavyweight ML/runtime dependencies.
+if _is_help_invocation():
+    Settings()  # ty:ignore[missing-argument]
+
 from .progress import patch_tqdm
 
 # This patches tqdm class definitions, which must happen
@@ -13,7 +27,6 @@ import logging
 import math
 import os
 import random
-import sys
 import time
 import warnings
 from dataclasses import asdict
@@ -45,7 +58,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod, Settings
+from .config import QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .system import empty_cache, get_accelerator_info

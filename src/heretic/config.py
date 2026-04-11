@@ -126,6 +126,11 @@ class Settings(BaseSettings):
         description='Maximum memory to allocate per device (e.g., { "0" = "20GB", "cpu" = "64GB" }).',
     )
 
+    cpu_offload: bool = Field(
+        default=False,
+        description="Whether to enable FP32 CPU offload for quantized models (suggested by transformers for VRAM issues).",
+    )
+
     trust_remote_code: bool | None = Field(
         default=None,
         description="Whether to trust remote code when loading the model.",

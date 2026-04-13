@@ -132,14 +132,6 @@ class Settings(BaseSettings):
         description="Number of input sequences to process in parallel (0 = auto).",
     )
 
-    offload_outputs_to_cpu: bool = Field(
-        default=False,
-        description=(
-            "Whether to move intermediate analysis tensors (such as residuals and logprobs) "
-            "to CPU memory as soon as possible to reduce peak VRAM usage."
-        ),
-    )
-
     max_batch_size: int = Field(
         default=128,
         description="Maximum batch size to try when automatically determining the optimal batch size.",
@@ -352,6 +344,14 @@ class Settings(BaseSettings):
     system_prompt: str = Field(
         default="You are a helpful assistant.",
         description="System prompt to use when prompting the model.",
+    )
+
+    offload_outputs_to_cpu: bool = Field(
+        default=True,
+        description=(
+            "Whether to move intermediate analysis tensors (such as residuals and logprobs) "
+            "to CPU memory as soon as possible to reduce peak VRAM usage."
+        ),
     )
 
     good_prompts: DatasetSpecification = Field(

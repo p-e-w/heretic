@@ -450,7 +450,6 @@ def run():
 
     good_residuals = None
     bad_residuals = None
-    analyzer = None
 
     if needs_full_residuals:
         print("* Obtaining residuals for good prompts...")
@@ -462,6 +461,12 @@ def run():
         bad_means = bad_residuals.mean(dim=0)
 
         analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
+
+        if settings.print_residual_geometry:
+            analyzer.print_residual_geometry()
+
+        if settings.plot_residuals:
+            analyzer.plot_residuals()
     else:
         print("* Obtaining residual mean for good prompts...")
         good_means = model.get_residuals_mean(good_prompts)
@@ -480,13 +485,6 @@ def run():
             refusal_directions - projection_vector.unsqueeze(1) * good_directions
         )
         refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
-
-    if analyzer is not None:
-        if settings.print_residual_geometry:
-            analyzer.print_residual_geometry()
-
-        if settings.plot_residuals:
-            analyzer.plot_residuals()
 
     # We don't need the residuals after computing refusal directions.
     del good_residuals, bad_residuals, analyzer

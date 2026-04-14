@@ -658,9 +658,6 @@ class Model:
         # problems during calculations involving residual vectors.
         residuals = residuals.to(torch.float32)
 
-        del hidden_states
-        del outputs
-
         if 0 <= self.settings.winsorization_quantile < 1:
             # Apply symmetric winsorization to each layer of the per-prompt residuals.
             abs_residuals = torch.abs(residuals)
@@ -704,9 +701,6 @@ class Model:
 
             total_count += batch_residuals.shape[0]
 
-            del batch_residuals
-            del batch_sum
-
         assert running_sum is not None, (
             "No prompts were provided for residual averaging."
         )
@@ -735,8 +729,7 @@ class Model:
 
         # The returned tensor has shape (prompt, token).
         logprobs = F.log_softmax(logits, dim=-1)
-
-        del logits
+        
         del outputs
 
         if self.settings.offload_outputs_to_cpu:

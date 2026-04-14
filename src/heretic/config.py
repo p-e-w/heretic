@@ -77,8 +77,8 @@ class ScorerConfig(BaseModel):
     plugin: str
     direction: Literal["minimize", "maximize", "not_set"]
     instance_name: str | None = None
-      
-      
+
+
 class BenchmarkSpecification(BaseModel):
     task: str = Field(
         description="Task ID of the benchmark in the Language Model Evaluation Harness."

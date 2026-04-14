@@ -618,7 +618,6 @@ class Model:
         skip_special_tokens: bool = False,
     ) -> list[str]:
         responses = []
-
         for batch in batchify(prompts, self.settings.batch_size):
             for response in self.get_responses(
                 batch,
@@ -681,11 +680,9 @@ class Model:
 
         return torch.cat(residuals, dim=0)
 
-    # We work with logprobs rather than probabilities for numerical stability
-    # when computing the KL divergence.
-    def get_logprobs(self, prompts: list[Prompt]) -> Tensor:
-        # We only generate one token, and we return the (log) probability distributions
-        # over the vocabulary at that token position, for each prompt.
+    def get_logits(self, prompts: list[Prompt]) -> Tensor:
+        # We only generate one token, and we return the raw logits over the vocabulary
+        # at that token position, for each prompt.
         _, outputs = self.generate(
             prompts,
             max_new_tokens=1,
@@ -702,15 +699,15 @@ class Model:
         logits = cast(tuple[FloatTensor], outputs.scores)[0]
 
         # The returned tensor has shape (prompt, token).
-        return F.log_softmax(logits, dim=-1)
+        return logits
 
-    def get_logprobs_batched(self, prompts: list[Prompt]) -> Tensor:
-        logprobs = []
+    def get_logits_batched(self, prompts: list[Prompt]) -> Tensor:
+        logits = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            logprobs.append(self.get_logprobs(batch))
+            logits.append(self.get_logits(batch))
 
-        return torch.cat(logprobs, dim=0)
+        return torch.cat(logits, dim=0)
 
     def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
         # This cast is valid because str is the return type

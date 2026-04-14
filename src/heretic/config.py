@@ -60,6 +60,10 @@ class DatasetSpecification(BaseModel):
         default=None,
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
     )
+    commit: str | None = Field(
+        default=None,
+        description="Hugging Face commit hash of the dataset.",
+    )
 
 
 class ScorerConfig(BaseModel):
@@ -133,7 +137,7 @@ class Settings(BaseSettings):
 
     max_memory: Dict[str, str] | None = Field(
         default=None,
-        description='Maximum memory to allocate per device (e.g., {"0": "20GB", "cpu": "64GB"}).',
+        description='Maximum memory to allocate per device (e.g., { "0" = "20GB", "cpu" = "64GB" }).',
     )
 
     trust_remote_code: bool | None = Field(
@@ -154,6 +158,45 @@ class Settings(BaseSettings):
     max_response_length: int = Field(
         default=100,
         description="Maximum number of tokens to generate for each response.",
+    )
+
+    response_prefix: str | None = Field(
+        default=None,
+        description=(
+            "Common prefix to assume for all responses, so that evaluation happens "
+            "at the point where responses start to differ for different prompts. "
+            "If not set, the prefix is determined automatically by comparing multiple responses."
+        ),
+    )
+
+    chain_of_thought_skips: list[tuple[str, str]] = Field(
+        default=[
+            # Most thinking models.
+            (
+                "<think>",
+                "<think></think>",
+            ),
+            # gpt-oss.
+            (
+                "<|channel|>analysis<|message|>",
+                "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>",
+            ),
+            # Unknown, suggested by user.
+            (
+                "<thought>",
+                "<thought></thought>",
+            ),
+            # Unknown, suggested by user.
+            (
+                "[THINK]",
+                "[THINK][/THINK]",
+            ),
+        ],
+        description=(
+            "List of pairs of the form (cot_initializer, closed_cot_block) used to skip "
+            "the Chain-of-Thought block in responses, so that evaluation happens "
+            "at the start of the actual response."
+        ),
     )
 
     print_residual_geometry: bool = Field(
@@ -237,6 +280,14 @@ class Settings(BaseSettings):
     n_startup_trials: int = Field(
         default=60,
         description="Number of trials that use random sampling for the purpose of exploration.",
+    )
+
+    seed: int | None = Field(
+        default=None,
+        description=(
+            "Random seed for reproducible optimization. "
+            "Applies to Python's random module, NumPy, PyTorch, and Optuna."
+        ),
     )
 
     study_checkpoint_dir: str = Field(

@@ -35,9 +35,11 @@ dependencies = [
     "optuna~=4.7",
     "peft~=0.18",
     "psutil~=7.2",
+    "py-cpuinfo~=9.0",
     "pydantic-settings~=2.13",
     "questionary~=2.1",
     "rich~=14.3",
+    "tomli-w~=1.2",
     "tqdm~=4.67",
     "transformers~=5.3",
 ]
@@ -70,6 +72,9 @@ heretic = "heretic.main:main"
 [build-system]
 requires = ["uv_build>=0.8.11,<0.9.0"]
 build-backend = "uv_build"
+
+[tool.uv]
+exclude-newer = "7 days"
 
 [tool.uv.build-backend]
 module-name = "heretic"

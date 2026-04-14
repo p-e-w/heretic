@@ -3,6 +3,20 @@
 
 # ruff: noqa: E402
 
+import sys
+
+from .config import Settings
+
+
+def _is_help_invocation() -> bool:
+    args = sys.argv[1:]
+    return "-h" in args or "--help" in args
+
+
+# Parse and handle CLI help before importing heavyweight ML/runtime dependencies.
+if _is_help_invocation():
+    Settings()  # ty:ignore[missing-argument]
+
 from .progress import patch_tqdm
 
 # This patches tqdm class definitions, which must happen
@@ -12,7 +26,7 @@ patch_tqdm()
 import logging
 import math
 import os
-import sys
+import random
 import time
 import warnings
 from dataclasses import asdict
@@ -29,13 +43,6 @@ import questionary
 import torch
 import torch.nn.functional as F
 import transformers
-from accelerate.utils import (
-    is_mlu_available,
-    is_musa_available,
-    is_npu_available,
-    is_sdaa_available,
-    is_xpu_available,
-)
 from huggingface_hub import ModelCard, ModelCardData
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
@@ -50,21 +57,24 @@ from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod, Settings
+from .config import QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .system import empty_cache, get_accelerator_info
 from .utils import (
-    empty_cache,
     format_duration,
     get_readme_intro,
     get_trial_parameters,
     load_prompts,
     print,
     print_memory_usage,
+    prompt_confirm,
     prompt_password,
     prompt_path,
     prompt_select,
     prompt_text,
+    set_seed,
+    upload_reproduce_folder,
 )
 
 
@@ -185,46 +195,12 @@ def run():
         )
         return
 
-    # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
-    if torch.cuda.is_available():
-        count = torch.cuda.device_count()
-        total_vram = sum(torch.cuda.mem_get_info(i)[1] for i in range(count))
-        print(
-            f"Detected [bold]{count}[/] CUDA device(s) ({total_vram / (1024**3):.2f} GB total VRAM):"
-        )
-        for i in range(count):
-            vram = torch.cuda.mem_get_info(i)[1] / (1024**3)
-            print(
-                f"* GPU {i}: [bold]{torch.cuda.get_device_name(i)}[/] ({vram:.2f} GB)"
-            )
-    elif is_xpu_available():
-        count = torch.xpu.device_count()
-        print(f"Detected [bold]{count}[/] XPU device(s):")
-        for i in range(count):
-            print(f"* XPU {i}: [bold]{torch.xpu.get_device_name(i)}[/]")
-    elif is_mlu_available():
-        count = torch.mlu.device_count()  # ty:ignore[unresolved-attribute]
-        print(f"Detected [bold]{count}[/] MLU device(s):")
-        for i in range(count):
-            print(f"* MLU {i}: [bold]{torch.mlu.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
-    elif is_sdaa_available():
-        count = torch.sdaa.device_count()  # ty:ignore[unresolved-attribute]
-        print(f"Detected [bold]{count}[/] SDAA device(s):")
-        for i in range(count):
-            print(f"* SDAA {i}: [bold]{torch.sdaa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
-    elif is_musa_available():
-        count = torch.musa.device_count()  # ty:ignore[unresolved-attribute]
-        print(f"Detected [bold]{count}[/] MUSA device(s):")
-        for i in range(count):
-            print(f"* MUSA {i}: [bold]{torch.musa.get_device_name(i)}[/]")  # ty:ignore[unresolved-attribute]
-    elif is_npu_available():
-        print(f"NPU detected (CANN version: [bold]{torch.version.cann}[/])")  # ty:ignore[unresolved-attribute]
-    elif torch.backends.mps.is_available():
-        print("Detected [bold]1[/] MPS device (Apple Metal)")
-    else:
-        print(
-            "[bold yellow]No GPU or other accelerator detected. Operations will be slow.[/]"
-        )
+    if settings.seed is None:
+        settings.seed = random.randint(0, 2**32 - 1)
+
+    set_seed(settings.seed)
+
+    print(get_accelerator_info())
 
     # We don't need gradients as we only do inference.
     torch.set_grad_enabled(False)
@@ -392,52 +368,44 @@ def run():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
-    print()
-    print("Checking for common response prefix...")
-    prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
-    responses = model.get_responses_batched(prefix_check_prompts)
-
-    # Despite being located in os.path, commonprefix actually performs
-    # a naive string operation without any path-specific logic,
-    # which is exactly what we need here. Trailing spaces are removed
-    # to avoid issues where multiple different tokens that all start
-    # with a space character lead to the common prefix ending with
-    # a space, which would result in an uncommon tokenization.
-    model.response_prefix = commonprefix(responses).rstrip(" ")
-
-    # Suppress CoT output.
-    recheck_prefix = False
-    if model.response_prefix:
-        # When using any of the predefined prefixes below, we need to check that
-        # the prefix is actually complete (e.g. not missing a trailing newline).
-        recheck_prefix = True
-        if model.response_prefix.startswith("<think>"):
-            # Most thinking models.
-            model.response_prefix = "<think></think>"
-        elif model.response_prefix.startswith("<|channel|>analysis<|message|>"):
-            # gpt-oss.
-            model.response_prefix = "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>"
-        elif model.response_prefix.startswith("<thought>"):
-            # Unknown, suggested by user.
-            model.response_prefix = "<thought></thought>"
-        elif model.response_prefix.startswith("[THINK]"):
-            # Unknown, suggested by user.
-            model.response_prefix = "[THINK][/THINK]"
-        else:
-            recheck_prefix = False
-
-    if model.response_prefix:
-        print(f"* Prefix found: [bold]{model.response_prefix!r}[/]")
-    else:
-        print("* None found")
-
-    if recheck_prefix:
-        print("* Rechecking with prefix...")
+    if settings.response_prefix is None:
+        print()
+        print("Checking for common response prefix...")
+        prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
         responses = model.get_responses_batched(prefix_check_prompts)
-        additional_prefix = commonprefix(responses).rstrip(" ")
-        if additional_prefix:
-            model.response_prefix += additional_prefix
-            print(f"* Extended prefix found: [bold]{model.response_prefix!r}[/]")
+
+        # Despite being located in os.path, commonprefix actually performs
+        # a naive string operation without any path-specific logic,
+        # which is exactly what we need here. Trailing spaces are removed
+        # to avoid issues where multiple different tokens that all start
+        # with a space character lead to the common prefix ending with
+        # a space, which would result in an uncommon tokenization.
+        settings.response_prefix = commonprefix(responses).rstrip(" ")
+
+        if settings.response_prefix:
+            print(f"* Prefix found: [bold]{settings.response_prefix!r}[/]")
+
+            for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
+                if settings.response_prefix.startswith(cot_initializer):
+                    settings.response_prefix = closed_cot_block
+                    print(
+                        f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
+                    )
+
+                    # When using a Chain-of-Thought skip, we need to check that the prefix
+                    # is actually complete (e.g. not missing a trailing newline).
+                    print("* Rechecking with prefix...")
+                    responses = model.get_responses_batched(prefix_check_prompts)
+                    additional_prefix = commonprefix(responses).rstrip(" ")
+                    if additional_prefix:
+                        settings.response_prefix += additional_prefix
+                        print(
+                            f"* Extended prefix found: [bold]{settings.response_prefix!r}[/]"
+                        )
+
+                    break
+        else:
+            print("* None found")
 
     evaluator = Evaluator(settings, model)
 
@@ -616,6 +584,7 @@ def run():
             n_startup_trials=settings.n_startup_trials,
             n_ei_candidates=128,
             multivariate=True,
+            seed=settings.seed,
         ),
         storage=storage,
         directions=directions,
@@ -859,6 +828,30 @@ def run():
                             if strategy is None:
                                 continue
 
+                            # Reproducibility requires that the model and all datasets
+                            # are available on the Hugging Face Hub (not local paths).
+                            datasets = [
+                                settings.good_prompts.dataset,
+                                settings.bad_prompts.dataset,
+                                settings.good_evaluation_prompts.dataset,
+                                settings.bad_evaluation_prompts.dataset,
+                            ]
+                            can_reproduce = not Path(settings.model).exists() and all(
+                                not Path(d).exists() for d in datasets
+                            )
+
+                            if can_reproduce:
+                                # Pin the number of trials to the number of actual completed trials
+                                # for the reproduction configuration.
+                                settings.n_trials = count_completed_trials()
+
+                                include_reproduce = prompt_confirm(
+                                    """Include 'reproduce' folder?
+This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
+                                )
+                            else:
+                                include_reproduce = False
+
                             if strategy == "adapter":
                                 print("Uploading LoRA adapter...")
                                 model.model.push_to_hub(
@@ -921,7 +914,19 @@ def run():
                                 )
                                 card.push_to_hub(repo_id, token=token)
 
-                            print(f"Model uploaded to [bold]{repo_id}[/].")
+                            if include_reproduce:
+                                upload_reproduce_folder(
+                                    repo_id,
+                                    settings,
+                                    token,
+                                    checkpoint_path=study_checkpoint_file,
+                                    trial=trial,
+                                )
+                                print(
+                                    f"Model and reproducibility files uploaded to [bold]{repo_id}[/]."
+                                )
+                            else:
+                                print(f"Model uploaded to [bold]{repo_id}[/].")
 
                         case "Chat with the model":
                             print()
@@ -985,6 +990,7 @@ def run():
                             hflm = HFLM(
                                 pretrained=model.model,  # ty:ignore[invalid-argument-type]
                                 tokenizer=model.tokenizer,  # ty:ignore[invalid-argument-type]
+                                batch_size="auto",
                             )
 
                             table = Table()
@@ -1008,7 +1014,6 @@ def run():
                                         results = lm_eval.simple_evaluate(
                                             model=hflm,
                                             tasks=[benchmark.task],
-                                            batch_size="auto",
                                         )
                                         return results["results"][benchmark.task]
 

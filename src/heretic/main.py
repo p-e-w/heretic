@@ -544,7 +544,8 @@ def run():
 
         trial.set_user_attr("kl_divergence", kl_divergence)
         trial.set_user_attr("refusals", refusals)
-        trial.set_user_attr("total_refusal_prompts", len(evaluator.bad_prompts))
+        trial.set_user_attr("base_refusals", evaluator.base_refusals)
+        trial.set_user_attr("n_bad_prompts", len(evaluator.bad_prompts))
 
         return score
 
@@ -873,13 +874,7 @@ This saves your exact configuration and system information, along with the study
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
                                 card.text = (
-                                    get_readme_intro(
-                                        settings,
-                                        trial,
-                                        evaluator.base_refusals,
-                                        evaluator.bad_prompts,
-                                    )
-                                    + card.text
+                                    get_readme_intro(settings, trial) + card.text
                                 )
                                 card.push_to_hub(repo_id, token=token)
 

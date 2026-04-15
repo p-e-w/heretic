@@ -31,6 +31,11 @@ class DatasetSpecification(BaseModel):
         description="Hugging Face dataset ID, or path to dataset on disk."
     )
 
+    commit: str | None = Field(
+        default=None,
+        description="Hugging Face commit hash of the dataset.",
+    )
+
     split: str = Field(description="Portion of the dataset to use.")
 
     column: str = Field(description="Column in the dataset that contains the prompts.")
@@ -58,10 +63,6 @@ class DatasetSpecification(BaseModel):
     residual_plot_color: str | None = Field(
         default=None,
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
-    )
-    commit: str | None = Field(
-        default=None,
-        description="Hugging Face commit hash of the dataset.",
     )
 
 

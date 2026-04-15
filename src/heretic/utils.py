@@ -214,6 +214,7 @@ def load_prompts(
             # Path is a local directory.
             dataset = load_dataset(
                 path,
+                revision=specification.commit,
                 split=split_str,
                 # Don't require the number of examples (lines) per split to be pre-defined.
                 verification_mode=VerificationMode.NO_CHECKS,
@@ -269,12 +270,7 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     return params
 
 
-def get_readme_intro(
-    settings: Settings,
-    trial: Trial,
-    base_refusals: int,
-    bad_prompts: list[Prompt],
-) -> str:
+def get_readme_intro(settings: Settings, trial: Trial) -> str:
     if Path(settings.model).exists():
         # Hide the path, which may contain private information.
         model_link = "a model"
@@ -304,9 +300,9 @@ def get_readme_intro(
 | Metric | This model | Original model ({model_link}) |
 | :----- | :--------: | :---------------------------: |
 | **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
-| **Refusals** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
-        len(bad_prompts)
-    } |
+| **Refusals** | {trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]} | {
+        trial.user_attrs["base_refusals"]
+    }/{trial.user_attrs["n_bad_prompts"]} |
 
 -----
 
@@ -315,11 +311,13 @@ def get_readme_intro(
 
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
+
     return tomli_w.dumps(settings.model_dump(exclude_none=True))
 
 
 def generate_requirements_txt() -> str:
     """Collects direct project dependencies as a formatted string."""
+
     requirements = get_requirements_dict()
     sorted_requirements = sorted(
         [f"{name}=={version}" for name, version in requirements.items()],
@@ -330,9 +328,28 @@ def generate_requirements_txt() -> str:
 
 def set_seed(seed: int):
     """Sets the seed for all RNGs."""
+
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+
+def format_hf_link(
+    name: str,
+    commit: str | None = None,
+    is_dataset: bool = False,
+) -> str:
+    if Path(name).exists():
+        return f"`{name}` (Local)"
+
+    prefix = "datasets/" if is_dataset else ""
+    base_url = f"https://huggingface.co/{prefix}{name}"
+    link = f"[{name}]({base_url})"
+    if commit:
+        commit_url = f"{base_url}/commit/{commit}"
+        link += f" (Commit: [{commit[:7]}]({commit_url}))"
+
+    return link
 
 
 def generate_reproduce_readme(
@@ -342,7 +359,8 @@ def generate_reproduce_readme(
     timestamp: str | None = None,
     base_model_commit: str | None = None,
 ) -> str:
-    """Generates a README.md for the reproduce/ folder."""
+    """Generates the contents of a README.md for the reproduce/ folder."""
+
     torch_version = torch.__version__
     install_hint = f"pip install torch=={torch_version}"
     if "+" in torch_version:
@@ -385,20 +403,6 @@ def generate_reproduce_readme(
 > **Non-Standard Installation Detected!**
 > This system installed `heretic-llm` from an unknown non-standard source. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
-
-    def format_hf_link(
-        name: str, commit: str | None = None, is_dataset: bool = False
-    ) -> str:
-        if Path(name).exists():
-            return f"`{name}` (Local)"
-
-        prefix = "datasets/" if is_dataset else ""
-        base_url = f"https://huggingface.co/{prefix}{name}"
-        link = f"[{name}]({base_url})"
-        if commit:
-            commit_url = f"{base_url}/commit/{commit}"
-            link += f" (Commit: [{commit[:7]}]({commit_url}))"
-        return link
 
     model_link = format_hf_link(settings.model, base_model_commit)
     dataset_info = f"""## Dataset Information
@@ -475,8 +479,8 @@ This directory contains the necessary information and assets to reproduce the re
 ## Selected Trial
 
 - **Trial Number:** `#{trial.user_attrs["index"]}`
-- **Refusal Count:** `{trial.user_attrs.get("refusals")}/{trial.user_attrs.get("total_refusal_prompts")}`
-- **KL Divergence:** `{trial.user_attrs.get("kl_divergence", 0):.6f}`
+- **Refusal Count:** `{trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]}`
+- **KL Divergence:** `{trial.user_attrs["kl_divergence"]:.6f}`
 
 ## System Environment
 
@@ -503,7 +507,7 @@ This directory contains the necessary information and assets to reproduce the re
 5. Verify the integrity of the reproduced files by comparing their SHA256 hashes against the manifest in `SHA256SUMS`.
 
 > [!TIP]
-> To use the included Optuna study journal `{checkpoint_filename}`, place it in a `checkpoints/` directory before running `heretic` on the same model.
+> To use the included Optuna study journal `{checkpoint_filename}`, place it in the checkpoints directory (usually `checkpoints/`) before running `heretic` on the same model.
 
 > [!IMPORTANT]
 > Make sure to install correct PyTorch version from: `{install_hint}`
@@ -517,48 +521,62 @@ def generate_reproduce_json(
     base_model_commit: str | None = None,
     uploaded_model_hashes: dict[str, str] | None = None,
 ) -> str:
-    """Generates a reproduce.json file for the reproduce/ folder."""
+    """Generates the contents of a reproduce.json file for the reproduce/ folder."""
+
     version_info = get_heretic_version_info()
+
     data = {
+        "version": "1",  # Version number of the reproduce.json file format, to allow for future changes.
+        "timestamp": timestamp,
+        # TODO: Remove this, it's redundant with settings!
         "base_model": {
             "id": settings.model,
-            "commit_hash": base_model_commit,
+            "commit": base_model_commit,
         },
         "system": {
-            "os": {"platform": platform.platform(), "machine": platform.machine()},
-            "cpu": get_cpu_info_dict(),
             "python": get_python_env_info_dict(),
+            "os": {
+                "platform": platform.platform(),
+                "machine": platform.machine(),
+            },
+            "cpu": get_cpu_info_dict(),
+            "accelerator": get_accelerator_info_dict(),
+        },
+        "environment": {
             "heretic": {
                 "version": version_info.version,
                 "is_standard_pypi": version_info.is_standard_pypi,
                 "metadata": version_info.metadata,
             },
             "pytorch_version": torch.__version__,
-            "accelerator": get_accelerator_info_dict(),
+            "requirements": get_requirements_dict(),
         },
-        "requirements": get_requirements_dict(),
         "settings": settings.model_dump(exclude_none=True),
-        "trial": {
-            "direction_index": trial.user_attrs.get("direction_index"),
-            "parameters": trial.user_attrs.get("parameters"),
-            "metrics": {
-                "refusals": trial.user_attrs.get("refusals"),
-                "total_refusal_prompts": trial.user_attrs.get("total_refusal_prompts"),
-                "kl_divergence": trial.user_attrs.get("kl_divergence"),
-            },
+        "parameters": {
+            "direction_index": trial.user_attrs["direction_index"],
+            "abliteration_parameters": trial.user_attrs["parameters"],
         },
-        "timestamp": timestamp,
-        "uploaded_model_hashes": uploaded_model_hashes or {},
+        "metrics": {
+            "kl_divergence": trial.user_attrs["kl_divergence"],
+            "refusals": trial.user_attrs["refusals"],
+            "base_refusals": trial.user_attrs["base_refusals"],
+            "n_bad_prompts": trial.user_attrs["n_bad_prompts"],
+        },
+        "hashes": uploaded_model_hashes or {},
     }
+
     return json.dumps(data, indent=4)
 
 
 def generate_sha256sums(hashes: dict[str, str]) -> str:
-    """Generates a GNU Coreutils compatible SHA256SUMS file content."""
+    """Generates GNU Coreutils compatible SHA256SUMS file content."""
+
     lines = []
+
     for filename, sha256 in sorted(hashes.items()):
         # Use '*' to indicate binary mode for model weights.
         lines.append(f"{sha256} *{filename}")
+
     return "\n".join(lines) + "\n"
 
 
@@ -568,7 +586,7 @@ def create_reproduce_folder(
     checkpoint_path: str | Path,
     trial: Trial,
     uploaded_model_hashes: dict[str, str] | None = None,
-) -> None:
+):
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
 
@@ -581,17 +599,10 @@ def create_reproduce_folder(
         settings.good_evaluation_prompts,
         settings.bad_evaluation_prompts,
     ]:
-        if not Path(spec.dataset).exists():
-            # Fail if the dataset is missing or unreachable.
-            spec.commit = huggingface_hub.dataset_info(spec.dataset).sha
+        spec.commit = huggingface_hub.dataset_info(spec.dataset).sha
 
-    # Fetch commit hash for the base model if it's on HF.
-    base_model_commit = None
-    if not Path(settings.model).exists():
-        try:
-            base_model_commit = huggingface_hub.model_info(settings.model).sha
-        except Exception:
-            pass
+    # Fetch commit hash for the base model.
+    base_model_commit = huggingface_hub.model_info(settings.model).sha
 
     # Strip microseconds and timezone for a clean format.
     timestamp = (
@@ -599,10 +610,12 @@ def create_reproduce_folder(
     )
 
     (reproduce_dir / "config.toml").write_text(
-        generate_config_toml(settings), encoding="utf-8"
+        generate_config_toml(settings),
+        encoding="utf-8",
     )
     (reproduce_dir / "requirements.txt").write_text(
-        generate_requirements_txt(), encoding="utf-8"
+        generate_requirements_txt(),
+        encoding="utf-8",
     )
     (reproduce_dir / "README.md").write_text(
         generate_reproduce_readme(
@@ -616,7 +629,8 @@ def create_reproduce_folder(
     )
     if uploaded_model_hashes:
         (reproduce_dir / "SHA256SUMS").write_text(
-            generate_sha256sums(uploaded_model_hashes), encoding="utf-8"
+            generate_sha256sums(uploaded_model_hashes),
+            encoding="utf-8",
         )
     (reproduce_dir / "reproduce.json").write_text(
         generate_reproduce_json(
@@ -641,22 +655,24 @@ def upload_reproduce_folder(
     token: str,
     checkpoint_path: str | Path,
     trial: Trial,
-) -> None:
+):
+    api = huggingface_hub.HfApi()
+    info = api.model_info(repo_id=repo_id, files_metadata=True, token=token)
+
+    if not info.siblings:
+        raise RuntimeError("Could not fetch uploaded model hashes.")
+
+    # For weights, we only care about safetensors.
+    weight_extensions = (".safetensors",)
+
     uploaded_model_hashes = {}
-    try:
-        api = huggingface_hub.HfApi()
-        info = api.model_info(repo_id=repo_id, files_metadata=True, token=token)
-        # For weights, we only care about safetensors.
-        weight_extensions = (".safetensors",)
-        if info.siblings is not None:
-            for file in info.siblings:
-                if file.rfilename.endswith(weight_extensions):
-                    sha256 = getattr(file, "lfs", {}).get("sha256")
-                    if sha256:
-                        uploaded_model_hashes[file.rfilename] = sha256
-    except Exception as e:
-        # Fail if integrity checks cannot be completed.
-        raise RuntimeError(f"Could not fetch uploaded model hashes: {e}") from e
+
+    for file in info.siblings:
+        if file.rfilename.endswith(weight_extensions):
+            sha256 = getattr(file, "lfs", {}).get("sha256")
+            if not sha256:
+                raise RuntimeError("Could not fetch uploaded model hashes.")
+            uploaded_model_hashes[file.rfilename] = sha256
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)

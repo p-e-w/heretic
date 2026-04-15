@@ -270,6 +270,16 @@ class Settings(BaseSettings):
         ),
     )
 
+    kl_tokens: int = Field(
+        default=1,
+        description=(
+            "Number of tokens to generate when computing KL divergence. "
+            "Higher values give a more robust quality signal at the cost of slower evaluation. "
+            "The KL divergence is averaged across all token positions. "
+            "Recommended: 1 (fastest, default), 3-5 (good tradeoff), >5 (diminishing returns)."
+        ),
+    )
+
     n_trials: int = Field(
         default=200,
         description="Number of abliteration trials to run during optimization.",

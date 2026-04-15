@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import copy
 from enum import Enum
 from typing import Dict
 
@@ -12,6 +13,12 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     TomlConfigSettingsSource,
 )
+
+# !!!IMPORTANT!!!
+#
+# Any settings added to the classes defined in this module
+# must be evaluated for privacy implications and added to
+# the logic in get_essential_settings if required.
 
 
 class QuantizationMethod(str, Enum):
@@ -460,3 +467,47 @@ class Settings(BaseSettings):
             file_secret_settings,
             TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )
+
+
+def get_essential_settings(settings: Settings) -> Settings:
+    """
+    Returns a stripped-down version of the settings object that only contains
+    settings that directly influence the results of the abliteration run.
+    In particular, this object contains no file system paths other than (possibly)
+    paths to local models and datasets.
+    """
+
+    essential_settings = copy.deepcopy(settings)
+
+    del essential_settings.evaluate_model
+
+    # We always use the default for security reasons.
+    del essential_settings.trust_remote_code
+
+    # When storing a settings object, the batch size is already fixed,
+    # either determined by the automatic mechanism or by explicit user choice.
+    del essential_settings.max_batch_size
+
+    # When storing a settings object, the response prefix is already fixed,
+    # either determined by the automatic mechanism or by explicit user choice.
+    del essential_settings.chain_of_thought_skips
+
+    del essential_settings.print_responses
+    del essential_settings.print_residual_geometry
+    del essential_settings.plot_residuals
+    del essential_settings.residual_plot_path
+    del essential_settings.residual_plot_title
+    del essential_settings.residual_plot_style
+    del essential_settings.study_checkpoint_dir
+    del essential_settings.benchmarks
+
+    for dataset in [
+        essential_settings.good_prompts,
+        essential_settings.bad_prompts,
+        essential_settings.good_evaluation_prompts,
+        essential_settings.bad_evaluation_prompts,
+    ]:
+        del dataset.residual_plot_label
+        del dataset.residual_plot_color
+
+    return essential_settings

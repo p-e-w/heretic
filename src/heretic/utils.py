@@ -26,7 +26,7 @@ from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
 
-from .config import DatasetSpecification, Settings
+from .config import DatasetSpecification, Settings, get_essential_settings
 from .system import (
     get_accelerator_info_dict,
     get_cpu_info_dict,
@@ -312,7 +312,7 @@ def get_readme_intro(settings: Settings, trial: Trial) -> str:
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
 
-    return tomli_w.dumps(settings.model_dump(exclude_none=True))
+    return tomli_w.dumps(get_essential_settings(settings).model_dump(exclude_none=True))
 
 
 def generate_requirements_txt() -> str:
@@ -551,7 +551,7 @@ def generate_reproduce_json(
             "pytorch_version": torch.__version__,
             "requirements": get_requirements_dict(),
         },
-        "settings": settings.model_dump(exclude_none=True),
+        "settings": get_essential_settings(settings).model_dump(exclude_none=True),
         "parameters": {
             "direction_index": trial.user_attrs["direction_index"],
             "abliteration_parameters": trial.user_attrs["parameters"],

@@ -685,6 +685,9 @@ class Model:
         return torch.cat(residuals, dim=0)
 
     def get_residuals_mean(self, prompts: list[Prompt]) -> Tensor:
+        if not prompts:
+            raise ValueError("prompts must not be empty")
+
         running_sum = None
         total_count = 0
 
@@ -701,10 +704,6 @@ class Model:
 
             total_count += batch_residuals.shape[0]
 
-        assert running_sum is not None, (
-            "No prompts were provided for residual averaging."
-        )
-
         return (running_sum / total_count).to(torch.float32)
 
     # We work with logprobs rather than probabilities for numerical stability
@@ -717,6 +716,7 @@ class Model:
             max_new_tokens=1,
             output_scores=True,
             return_dict_in_generate=True,
+            use_cache=False,
         )
 
         # This cast is valid because GenerateDecoderOnlyOutput is the return type

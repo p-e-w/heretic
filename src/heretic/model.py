@@ -729,7 +729,7 @@ class Model:
 
         # The returned tensor has shape (prompt, token).
         logprobs = F.log_softmax(logits, dim=-1)
-        
+
         del outputs
 
         if self.settings.offload_outputs_to_cpu:

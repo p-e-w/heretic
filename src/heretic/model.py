@@ -62,12 +62,17 @@ class Model:
         self.settings = settings
         self.needs_reload = False
 
+        self.revision_kwargs = {}
+        if settings.model_commit is not None:
+            self.revision_kwargs["revision"] = settings.model_commit
+
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             settings.model,
             trust_remote_code=settings.trust_remote_code,
+            **self.revision_kwargs,
         )
 
         # Fallback for tokenizers that don't declare a special pad token.
@@ -108,6 +113,7 @@ class Model:
                     device_map=settings.device_map,
                     max_memory=self.max_memory,
                     trust_remote_code=self.trusted_models.get(settings.model),
+                    **self.revision_kwargs,
                     **extra_kwargs,
                 )
 
@@ -257,6 +263,7 @@ class Model:
                 torch_dtype=self.model.dtype,
                 device_map="cpu",
                 trust_remote_code=self.trusted_models.get(self.settings.model),
+                **self.revision_kwargs,
             )
 
             # Apply LoRA adapters to the CPU model
@@ -318,6 +325,7 @@ class Model:
             device_map=self.settings.device_map,
             max_memory=self.max_memory,
             trust_remote_code=self.trusted_models.get(self.settings.model),
+            **self.revision_kwargs,
             **extra_kwargs,
         )
 

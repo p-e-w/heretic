@@ -66,7 +66,7 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings) -> str | None:
+def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
     """
     Prompts the user for how to proceed with saving the model.
     Provides info to the user if the model is quantized on memory use.
@@ -95,7 +95,8 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
                     settings.model,
                     device_map="meta",
                     torch_dtype=torch.bfloat16,
-                    trust_remote_code=True,
+                    trust_remote_code=model.trusted_models.get(settings.model),
+                    **model.revision_kwargs,
                 )
                 footprint_bytes = meta_model.get_memory_footprint()
                 footprint_gb = footprint_bytes / (1024**3)
@@ -752,7 +753,7 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -803,7 +804,7 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 

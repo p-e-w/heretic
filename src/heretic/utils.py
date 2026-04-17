@@ -357,7 +357,6 @@ def generate_reproduce_readme(
     checkpoint_filename: str,
     trial: Trial,
     timestamp: str | None = None,
-    base_model_commit: str | None = None,
 ) -> str:
     """Generates the contents of a README.md for the reproduce/ folder."""
 
@@ -404,7 +403,7 @@ def generate_reproduce_readme(
 > This system installed `heretic-llm` from an unknown non-standard source. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
 
-    model_link = format_hf_link(settings.model, base_model_commit)
+    model_link = format_hf_link(settings.model, settings.model_commit)
     dataset_info = f"""## Dataset Information
 
 - **Good Prompts:** {format_hf_link(settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
@@ -518,7 +517,6 @@ def generate_reproduce_json(
     settings: Settings,
     trial: Trial,
     timestamp: str | None = None,
-    base_model_commit: str | None = None,
     uploaded_model_hashes: dict[str, str] | None = None,
 ) -> str:
     """Generates the contents of a reproduce.json file for the reproduce/ folder."""
@@ -528,11 +526,6 @@ def generate_reproduce_json(
     data = {
         "version": "1",  # Version number of the reproduce.json file format, to allow for future changes.
         "timestamp": timestamp,
-        # TODO: Remove this, it's redundant with settings!
-        "base_model": {
-            "id": settings.model,
-            "commit": base_model_commit,
-        },
         "system": {
             "python": get_python_env_info_dict(),
             "os": {
@@ -592,6 +585,9 @@ def create_reproduce_folder(
 
     checkpoint_filename = Path(checkpoint_path).name
 
+    # Fetch commit hash for the base model.
+    settings.model_commit = huggingface_hub.model_info(settings.model).sha
+
     # Fetch commit hashes for all HF datasets to ensure reproducibility.
     for spec in [
         settings.good_prompts,
@@ -600,9 +596,6 @@ def create_reproduce_folder(
         settings.bad_evaluation_prompts,
     ]:
         spec.commit = huggingface_hub.dataset_info(spec.dataset).sha
-
-    # Fetch commit hash for the base model.
-    base_model_commit = huggingface_hub.model_info(settings.model).sha
 
     # Strip microseconds and timezone for a clean format.
     timestamp = (
@@ -623,7 +616,6 @@ def create_reproduce_folder(
             checkpoint_filename,
             trial,
             timestamp=timestamp,
-            base_model_commit=base_model_commit,
         ),
         encoding="utf-8",
     )
@@ -637,7 +629,6 @@ def create_reproduce_folder(
             settings,
             trial,
             timestamp=timestamp,
-            base_model_commit=base_model_commit,
             uploaded_model_hashes=uploaded_model_hashes,
         ),
         encoding="utf-8",

@@ -88,6 +88,11 @@ class BenchmarkSpecification(BaseModel):
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
+    model_commit: str | None = Field(
+        default=None,
+        description="Hugging Face commit hash of the model.",
+    )
+
     evaluate_model: str | None = Field(
         default=None,
         description=(

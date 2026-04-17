@@ -704,6 +704,8 @@ class Model:
 
             total_count += batch_residuals.shape[0]
 
+        assert running_sum is not None
+
         return (running_sum / total_count).to(torch.float32)
 
     # We work with logprobs rather than probabilities for numerical stability

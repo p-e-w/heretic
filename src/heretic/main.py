@@ -421,13 +421,33 @@ def run():
 
     print()
     print("Calculating per-layer refusal directions...")
-    print("* Obtaining residuals for good prompts...")
-    good_residuals = model.get_residuals_batched(good_prompts)
-    print("* Obtaining residuals for bad prompts...")
-    bad_residuals = model.get_residuals_batched(bad_prompts)
 
-    good_means = good_residuals.mean(dim=0)
-    bad_means = bad_residuals.mean(dim=0)
+    needs_full_residuals = settings.print_residual_geometry or settings.plot_residuals
+
+    good_residuals = None
+    bad_residuals = None
+
+    if needs_full_residuals:
+        print("* Obtaining residuals for good prompts...")
+        good_residuals = model.get_residuals_batched(good_prompts)
+        print("* Obtaining residuals for bad prompts...")
+        bad_residuals = model.get_residuals_batched(bad_prompts)
+
+        good_means = good_residuals.mean(dim=0)
+        bad_means = bad_residuals.mean(dim=0)
+
+        analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
+
+        if settings.print_residual_geometry:
+            analyzer.print_residual_geometry()
+
+        if settings.plot_residuals:
+            analyzer.plot_residuals()
+    else:
+        print("* Obtaining residual mean for good prompts...")
+        good_means = model.get_residuals_mean(good_prompts)
+        print("* Obtaining residual mean for bad prompts...")
+        bad_means = model.get_residuals_mean(bad_prompts)
 
     refusal_directions = F.normalize(bad_means - good_means, p=2, dim=1)
 
@@ -441,14 +461,6 @@ def run():
             refusal_directions - projection_vector.unsqueeze(1) * good_directions
         )
         refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
-
-    analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
-
-    if settings.print_residual_geometry:
-        analyzer.print_residual_geometry()
-
-    if settings.plot_residuals:
-        analyzer.plot_residuals()
 
     # We don't need the residuals after computing refusal directions.
     del good_residuals, bad_residuals, analyzer

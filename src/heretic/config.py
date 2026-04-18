@@ -397,6 +397,14 @@ class Settings(BaseSettings):
         description="System prompt to use when prompting the model.",
     )
 
+    offload_outputs_to_cpu: bool = Field(
+        default=True,
+        description=(
+            "Whether to move intermediate analysis tensors (such as residuals and logprobs) "
+            "to CPU memory as soon as possible to reduce peak VRAM usage."
+        ),
+    )
+
     good_prompts: DatasetSpecification = Field(
         default=DatasetSpecification(
             dataset="mlabonne/harmless_alpaca",

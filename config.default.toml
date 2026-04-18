@@ -137,6 +137,12 @@ refusal_markers = [
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 
+# Move intermediate analysis tensors (such as residuals and logprobs)
+# to CPU memory as soon as possible to reduce peak VRAM usage.
+# This lowers peak VRAM usage during residual analysis and evaluation,
+# but may slightly reduce performance due to host/device transfers.
+offload_outputs_to_cpu = true
+
 # Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"

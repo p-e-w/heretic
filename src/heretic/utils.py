@@ -155,18 +155,6 @@ def prompt_password(message: str) -> str:
         return questionary.password(message).ask()
 
 
-def prompt_confirm(message: str, default: bool = True) -> bool:
-    if is_notebook():
-        print()
-        choices = "[Y/n]" if default else "[y/N]"
-        result = input(f"{message} {choices} ").strip().lower()
-        if not result:
-            return default
-        return result in ("y", "yes")
-    else:
-        return questionary.confirm(message, default=default).ask()
-
-
 def format_duration(seconds: float) -> str:
     seconds = round(seconds)
     hours, seconds = divmod(seconds, 3600)
@@ -178,6 +166,18 @@ def format_duration(seconds: float) -> str:
         return f"{minutes}m {seconds}s"
     else:
         return f"{seconds}s"
+
+
+def is_hf_path(path: str) -> bool:
+    """Checks whether a path likely refers to a Hugging Face repository."""
+
+    return (
+        not path.startswith("/")
+        and not path.endswith("/")
+        and path.count("/") == 1
+        and "\\" not in path
+        and not Path(path).exists()
+    )
 
 
 @dataclass
@@ -270,7 +270,11 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     return params
 
 
-def get_readme_intro(settings: Settings, trial: Trial) -> str:
+def get_readme_intro(
+    settings: Settings,
+    trial: Trial,
+    contains_reproducibility_information: bool,
+) -> str:
     if Path(settings.model).exists():
         # Hide the path, which may contain private information.
         model_link = "a model"
@@ -281,7 +285,11 @@ def get_readme_intro(settings: Settings, trial: Trial) -> str:
     return f"""# This is a decensored version of {
         model_link
     }, made using [Heretic](https://github.com/p-e-w/heretic) v{version_info.version}
-
+{
+        f"{chr(10)}**This model is reproducible!** See the [`reproduce`](reproduce) directory and its [README](reproduce/README.md) for more information.{chr(10)}"
+        if contains_reproducibility_information
+        else ""
+    }
 ## Abliteration parameters
 
 | Parameter | Value |
@@ -356,28 +364,77 @@ def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
     trial: Trial,
-    timestamp: str | None = None,
+    include_system_information: bool,
 ) -> str:
     """Generates the contents of a README.md for the reproduce/ folder."""
 
-    torch_version = torch.__version__
-    install_hint = f"pip install torch=={torch_version}"
-    if "+" in torch_version:
-        suffix = torch_version.split("+")[1]
-        if suffix:
-            install_hint += f" --index-url https://download.pytorch.org/whl/{suffix}"
-
     heterogeneous_warning = ""
-    if torch.cuda.is_available():
-        count = torch.cuda.device_count()
-        if count > 1:
-            device_names = {torch.cuda.get_device_name(i) for i in range(count)}
-            if len(device_names) > 1:
-                heterogeneous_warning = """
+
+    if include_system_information:
+        if torch.cuda.is_available():
+            count = torch.cuda.device_count()
+            if count > 1:
+                device_names = {torch.cuda.get_device_name(i) for i in range(count)}
+                if len(device_names) > 1:
+                    heterogeneous_warning = """
 > [!WARNING]
-> **Heterogeneous GPUs Detected!**
-> This system uses multiple non-identical GPUs. When operations are distributed across different GPUs (e.g. via `device_map='auto'`), non-deterministic behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**
+> **Heterogeneous GPUs!**
+> This model was generated using multiple non-identical GPUs. When operations are distributed across different GPUs (e.g. via `device_map='auto'`),
+> non-deterministic behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
+
+        cpu = get_cpu_info_dict()
+        python_env = get_python_env_info_dict()
+
+        accelerators = get_accelerator_info_dict()
+        if accelerators["type"] is None:
+            accelerator_report = "**No GPU or other accelerator detected.**"
+        else:
+            devices = accelerators["devices"]
+            total_vram = sum(d.get("vram_gb", 0) for d in devices)
+            vram_suffix = (
+                f" (`{total_vram:.2f} GB` total VRAM)" if total_vram > 0 else ""
+            )
+            accelerator_lines = [
+                f"- **{accelerators['type']}:** Detected `{len(devices)}` device(s){vram_suffix}"
+            ]
+
+            if accelerators.get("api_name") and accelerators.get("api_version"):
+                accelerator_lines.append(
+                    f"  - **{accelerators['api_name']}:** `{accelerators['api_version']}`"
+                )
+
+            if accelerators.get("driver_version"):
+                accelerator_lines.append(
+                    f"  - **Driver Version:** `{accelerators['driver_version']}`"
+                )
+
+            accelerator_lines.append("- **Devices:**")
+            for i, dev in enumerate(devices):
+                vram = f" (`{dev['vram_gb']:.2f} GB`)" if dev.get("vram_gb") else ""
+                accelerator_lines.append(
+                    f"  - **{accelerators['type']} {i}:** `{dev['name']}`{vram}"
+                )
+            accelerator_report = "\n".join(accelerator_lines)
+
+        system_report = f"""## System
+
+- **Python:** `{python_env["version"]}` (`{python_env["implementation"]}`, `{python_env["compiler"]}`) [`{python_env["environment"]}`]
+- **Operating system:** `{platform.platform()}` (`{platform.machine()}`)
+- **CPU:** `{cpu["brand"] or "Unknown CPU"}`
+
+### Accelerators
+
+{accelerator_report}
+
+"""
+        system_instructions = (
+            "1. Ensure your system matches the specifications in the **System** section above. "
+            "Exact reproducibility is only guaranteed if all aspects of your system are identical to the one the model was originally generated on.\n"
+        )
+    else:
+        system_report = ""
+        system_instructions = ""
 
     version_info = get_heretic_version_info()
     origin_warning = ""
@@ -386,138 +443,91 @@ def generate_reproduce_readme(
             repo_info = version_info.origin.split("Git (")[1].strip(")")
             origin_warning = f"""
 > [!NOTE]
-> **Git Installation Detected**
-> This system installed `heretic-llm` from source repository: `{repo_info}`.
-> To reproduce these results, you must install Heretic from this exact repository and commit.
+> **Git installation!**
+> This system installed Heretic from a Git repository: `{repo_info}`.
+> To reproduce the model, you must install Heretic from this exact repository and commit.
 """
         elif version_info.origin == "Local":
             origin_warning = """
 > [!WARNING]
-> **Local Code Detected!**
-> This system installed `heretic-llm` from a local directory or wheel. Uncommitted or experimental code may have been executed. **Reproducibility ***cannot*** be guaranteed in this environment.**
+> **Local code!**
+> This system installed Heretic from a local directory or wheel. Uncommitted or experimental code may have been executed.
+> **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
         else:
             origin_warning = """
 > [!WARNING]
-> **Non-Standard Installation Detected!**
-> This system installed `heretic-llm` from an unknown non-standard source. **Reproducibility ***cannot*** be guaranteed in this environment.**
+> **Non-standard installation!**
+> This system installed Heretic from an unknown non-standard source.
+> **Reproducibility ***cannot*** be guaranteed in this environment.**
 """
 
-    model_link = format_hf_link(settings.model, settings.model_commit)
-    dataset_info = f"""## Dataset Information
-
-- **Good Prompts:** {format_hf_link(settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
-- **Bad Prompts:** {format_hf_link(settings.bad_prompts.dataset, settings.bad_prompts.commit, is_dataset=True)}
-- **Good Evaluation Prompts:** {format_hf_link(settings.good_evaluation_prompts.dataset, settings.good_evaluation_prompts.commit, is_dataset=True)}
-- **Bad Evaluation Prompts:** {format_hf_link(settings.bad_evaluation_prompts.dataset, settings.bad_evaluation_prompts.commit, is_dataset=True)}"""
-
-    timestamp_str = f"- **Run started at (UTC):** `{timestamp}`" if timestamp else ""
-
-    # System and Accelerator info using structured dictionaries.
-    cpu = get_cpu_info_dict()
-    python_env = get_python_env_info_dict()
-    accelerator = get_accelerator_info_dict()
-
-    # Build System Environment section.
-    system_env_lines = [
-        f"- **OS:** `{platform.platform()}` (`{platform.machine()}`)",
-        f"- **CPU:** `{cpu['brand'] or 'Unknown CPU'}`",
-        f"  - **Information:** Family `{cpu['family']}`, Model `{cpu['model']}`, Stepping `{cpu['stepping']}`",
-    ]
-
-    system_env_lines.extend(
-        [
-            f"- **Python:** `{python_env['version']}` (`{python_env['implementation']}`, `{python_env['compiler']}`) [`{python_env['environment']}`]",
-            f"- **Heretic:** `v{version_info.version}`"
-            + (f" (Origin: `{version_info.origin}`)" if version_info.origin else ""),
-            f"- **PyTorch:** `{torch.__version__}`",
-        ]
-    )
-    system_environment_report = "\n".join(system_env_lines)
-
-    # Build Accelerators section.
-    if accelerator["type"] is None:
-        accelerator_report = "> [!WARNING]\n> **No GPU or other accelerator detected.**"
-    else:
-        devices = accelerator["devices"]
-        total_vram = sum(d.get("vram_gb", 0) for d in devices)
-        vram_suffix = f" (`{total_vram:.2f} GB` total VRAM)" if total_vram > 0 else ""
-        accelerator_lines = [
-            f"- **{accelerator['type']}:** Detected `{len(devices)}` device(s){vram_suffix}"
-        ]
-
-        if accelerator.get("api_name") and accelerator.get("api_version"):
-            accelerator_lines.append(
-                f"  - **{accelerator['api_name']}:** `{accelerator['api_version']}`"
+    pytorch_version = torch.__version__
+    pytorch_install_command = f"pip install torch=={pytorch_version}"
+    if "+" in pytorch_version:
+        suffix = pytorch_version.split("+")[1]
+        if suffix:
+            pytorch_install_command += (
+                f" --index-url https://download.pytorch.org/whl/{suffix}"
             )
 
-        if accelerator.get("driver_version"):
-            accelerator_lines.append(
-                f"  - **Driver Version:** `{accelerator['driver_version']}`"
-            )
-
-        accelerator_lines.append("- **Devices:**")
-        for i, dev in enumerate(devices):
-            vram = f" (`{dev['vram_gb']:.2f} GB`)" if dev.get("vram_gb") else ""
-            accelerator_lines.append(
-                f"  - **{accelerator['type']} {i}:** `{dev['name']}`{vram}"
-            )
-        accelerator_report = "\n".join(accelerator_lines)
-
-    return f"""# Reproduction Guide
+    return f"""# Reproduction guide
 
 This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}
 
-## Model Information
+## Models
 
-- **Base Model:** {model_link}
-{timestamp_str}
+- **Base model:** {format_hf_link(settings.model, settings.model_commit)}
 
-{dataset_info}
+## Datasets
 
-## Selected Trial
+- **Good prompts:** {format_hf_link(settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
+- **Bad prompts:** {format_hf_link(settings.bad_prompts.dataset, settings.bad_prompts.commit, is_dataset=True)}
+- **Good evaluation prompts:** {format_hf_link(settings.good_evaluation_prompts.dataset, settings.good_evaluation_prompts.commit, is_dataset=True)}
+- **Bad evaluation prompts:** {format_hf_link(settings.bad_evaluation_prompts.dataset, settings.bad_evaluation_prompts.commit, is_dataset=True)}
 
-- **Trial Number:** `#{trial.user_attrs["index"]}`
-- **Refusal Count:** `{trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]}`
-- **KL Divergence:** `{trial.user_attrs["kl_divergence"]:.6f}`
+## Selected trial
 
-## System Environment
+- **Trial number:** `{trial.user_attrs["index"]}`
+- **KL divergence:** `{trial.user_attrs["kl_divergence"]:.6f}`
+- **Refusals:** `{trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]}`
 
-{system_environment_report}
+{system_report}## Environment
 
-### Accelerators
+- **Heretic:** `v{version_info.version}`{f" (Origin: `{version_info.origin}`)" if version_info.origin else ""}
+- **PyTorch:** `{pytorch_version}`
+- **Other dependencies:** See [`requirements.txt`](requirements.txt).
 
-{accelerator_report}
+## Contents of this directory
 
-## Contents
+- [`requirements.txt`](requirements.txt): The exact versions of all Python packages.
+- [`config.toml`](config.toml): The exact configuration used, including the RNG seed.
+- [`{checkpoint_filename}`]({checkpoint_filename}): The Optuna study journal containing the history of all trials.
+- [`SHA256SUMS`](SHA256SUMS): Cryptographic hashes for all weight files.
+- [`reproduce.json`](reproduce.json): A machine-readable file containing all reproducibility information.
 
-- **config.toml**: The exact configuration used, including the seed `{settings.seed}`.
-- **requirements.txt**: The exact versions of all installed Python packages.
-- **{checkpoint_filename}**: The Optuna study journal containing the history of all trials.
-- **reproduce.json**: A machine-readable version of this report.
-- **SHA256SUMS**: Cryptographic hashes for all uploaded weight files (if applicable).
+## How to reproduce
 
-## How to Reproduce
-
-1. Ensure your hardware and environment match the specifications in the **System Environment** section above.
-2. Install the exact package versions listed in `requirements.txt`.
-3. Place the provided `config.toml` in your working directory.
-4. Run `heretic` without any additional arguments.
-5. Verify the integrity of the reproduced files by comparing their SHA256 hashes against the manifest in `SHA256SUMS`.
+{system_instructions}1. Install the exact version of Heretic indicated in the **Environment** section above, from its original source.
+1. Install the packages listed in `requirements.txt`: `pip install -r requirements.txt`
+1. Install the correct version of PyTorch: `{pytorch_install_command}`
+1. Place the provided `config.toml` in your working directory.
+1. Run Heretic without any additional arguments: `heretic`
+1. Wait for the run to finish, then select trial **{trial.user_attrs["index"]}** and export the model.
+1. Verify that the weight files have been exactly reproduced by comparing their SHA-256 hashes against those in `SHA256SUMS`: `sha256sum -c SHA256SUMS` (or look at the hashes online if you uploaded to Hugging Face)
 
 > [!TIP]
-> To use the included Optuna study journal `{checkpoint_filename}`, place it in the checkpoints directory (usually `checkpoints/`) before running `heretic` on the same model.
-
-> [!IMPORTANT]
-> Make sure to install correct PyTorch version from: `{install_hint}`
+> To use the included Optuna study journal `{checkpoint_filename}`, place it in the checkpoints directory (usually `checkpoints/`) before running Heretic.
+> This allows you to export other models from the Pareto front, or to run additional trials without having to re-run the stored trials.
 """
 
 
 def generate_reproduce_json(
     settings: Settings,
     trial: Trial,
-    timestamp: str | None = None,
-    uploaded_model_hashes: dict[str, str] | None = None,
+    timestamp: str,
+    uploaded_model_hashes: dict[str, str],
+    include_system_information: bool,
 ) -> str:
     """Generates the contents of a reproduce.json file for the reproduce/ folder."""
 
@@ -526,15 +536,7 @@ def generate_reproduce_json(
     data = {
         "version": "1",  # Version number of the reproduce.json file format, to allow for future changes.
         "timestamp": timestamp,
-        "system": {
-            "python": get_python_env_info_dict(),
-            "os": {
-                "platform": platform.platform(),
-                "machine": platform.machine(),
-            },
-            "cpu": get_cpu_info_dict(),
-            "accelerator": get_accelerator_info_dict(),
-        },
+        "system": None,  # Defined here to preserve insertion order.
         "environment": {
             "heretic": {
                 "version": version_info.version,
@@ -555,8 +557,21 @@ def generate_reproduce_json(
             "base_refusals": trial.user_attrs["base_refusals"],
             "n_bad_prompts": trial.user_attrs["n_bad_prompts"],
         },
-        "hashes": uploaded_model_hashes or {},
+        "hashes": uploaded_model_hashes,
     }
+
+    if include_system_information:
+        data["system"] = {
+            "python": get_python_env_info_dict(),
+            "os": {
+                "platform": platform.platform(),
+                "machine": platform.machine(),
+            },
+            "cpu": get_cpu_info_dict(),
+            "accelerators": get_accelerator_info_dict(),
+        }
+    else:
+        del data["system"]
 
     return json.dumps(data, indent=4)
 
@@ -578,7 +593,8 @@ def create_reproduce_folder(
     settings: Settings,
     checkpoint_path: str | Path,
     trial: Trial,
-    uploaded_model_hashes: dict[str, str] | None = None,
+    uploaded_model_hashes: dict[str, str],
+    include_system_information: bool,
 ):
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
@@ -602,34 +618,39 @@ def create_reproduce_folder(
         datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None).isoformat()
     )
 
-    (reproduce_dir / "config.toml").write_text(
-        generate_config_toml(settings),
-        encoding="utf-8",
-    )
     (reproduce_dir / "requirements.txt").write_text(
         generate_requirements_txt(),
         encoding="utf-8",
     )
-    (reproduce_dir / "README.md").write_text(
-        generate_reproduce_readme(
-            settings,
-            checkpoint_filename,
-            trial,
-            timestamp=timestamp,
-        ),
+
+    (reproduce_dir / "config.toml").write_text(
+        generate_config_toml(settings),
         encoding="utf-8",
     )
+
     if uploaded_model_hashes:
         (reproduce_dir / "SHA256SUMS").write_text(
             generate_sha256sums(uploaded_model_hashes),
             encoding="utf-8",
         )
+
     (reproduce_dir / "reproduce.json").write_text(
         generate_reproduce_json(
             settings,
             trial,
             timestamp=timestamp,
             uploaded_model_hashes=uploaded_model_hashes,
+            include_system_information=include_system_information,
+        ),
+        encoding="utf-8",
+    )
+
+    (reproduce_dir / "README.md").write_text(
+        generate_reproduce_readme(
+            settings,
+            checkpoint_filename,
+            trial,
+            include_system_information=include_system_information,
         ),
         encoding="utf-8",
     )
@@ -646,6 +667,7 @@ def upload_reproduce_folder(
     token: str,
     checkpoint_path: str | Path,
     trial: Trial,
+    include_system_information: bool,
 ):
     api = huggingface_hub.HfApi()
     info = api.model_info(repo_id=repo_id, files_metadata=True, token=token)
@@ -673,6 +695,7 @@ def upload_reproduce_folder(
             checkpoint_path=checkpoint_path,
             trial=trial,
             uploaded_model_hashes=uploaded_model_hashes,
+            include_system_information=include_system_information,
         )
 
         reproduce_dir = tmp_path / "reproduce"

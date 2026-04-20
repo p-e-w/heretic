@@ -53,10 +53,10 @@ from .utils import (
     format_duration,
     get_readme_intro,
     get_trial_parameters,
+    is_hf_path,
     load_prompts,
     print,
     print_memory_usage,
-    prompt_confirm,
     prompt_password,
     prompt_path,
     prompt_select,
@@ -816,21 +816,41 @@ def run():
                                 settings.good_evaluation_prompts.dataset,
                                 settings.bad_evaluation_prompts.dataset,
                             ]
-                            can_reproduce = not Path(settings.model).exists() and all(
-                                not Path(d).exists() for d in datasets
+                            is_reproducible = is_hf_path(settings.model) and all(
+                                is_hf_path(dataset) for dataset in datasets
                             )
 
-                            if can_reproduce:
-                                # Pin the number of trials to the number of actual completed trials
-                                # for the reproduction configuration.
-                                settings.n_trials = count_completed_trials()
-
-                                include_reproduce = prompt_confirm(
-                                    """Include 'reproduce' folder?
-This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
+                            if is_reproducible:
+                                print(
+                                    (
+                                        "Heretic can add information to the repository that allows others to reproduce the model. "
+                                        "This is optional, but valuable to the community as both a learning tool and to preserve computational work already done. "
+                                        "Guaranteeing reproducibility requires basic system information (Python and OS version, CPU and GPU/accelerator info) "
+                                        "as tensor operations can give different results in different system environments. "
+                                        "[bold]The information does not include any file system paths or other private data.[/]"
+                                    )
                                 )
+                                reproducibility_information = prompt_select(
+                                    "Which reproducibility information do you want to add?",
+                                    [
+                                        Choice(
+                                            title="Full: Settings, package versions, and system information",
+                                            value="full",
+                                        ),
+                                        Choice(
+                                            title="Basic: Settings and package versions",
+                                            value="basic",
+                                        ),
+                                        Choice(
+                                            title="Don't add any reproducibility information",
+                                            value="none",
+                                        ),
+                                    ],
+                                )
+                                if reproducibility_information is None:
+                                    continue
                             else:
-                                include_reproduce = False
+                                reproducibility_information = "none"
 
                             if strategy == "adapter":
                                 print("Uploading LoRA adapter...")
@@ -880,24 +900,35 @@ This saves your exact configuration and system information, along with the study
                                 card.data.tags.append("uncensored")
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
+                                if reproducibility_information != "none":
+                                    card.data.tags.append("reproducible")
                                 card.text = (
-                                    get_readme_intro(settings, trial) + card.text
+                                    get_readme_intro(
+                                        settings,
+                                        trial,
+                                        reproducibility_information != "none",
+                                    )
+                                    + card.text
                                 )
                                 card.push_to_hub(repo_id, token=token)
 
-                            if include_reproduce:
+                            if reproducibility_information != "none":
+                                # Set the number of trials to the number of actual completed trials
+                                # for the reproduction configuration.
+                                settings.n_trials = count_completed_trials()
+
                                 upload_reproduce_folder(
                                     repo_id,
                                     settings,
                                     token,
                                     checkpoint_path=study_checkpoint_file,
                                     trial=trial,
+                                    include_system_information=(
+                                        reproducibility_information == "full"
+                                    ),
                                 )
-                                print(
-                                    f"Model and reproducibility files uploaded to [bold]{repo_id}[/]."
-                                )
-                            else:
-                                print(f"Model uploaded to [bold]{repo_id}[/].")
+
+                            print(f"Model uploaded to [bold]{repo_id}[/].")
 
                         case "Chat with the model":
                             print()

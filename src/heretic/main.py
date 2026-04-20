@@ -426,6 +426,7 @@ def run():
 
     good_residuals = None
     bad_residuals = None
+    analyzer = None
 
     if needs_full_residuals:
         print("* Obtaining residuals for good prompts...")

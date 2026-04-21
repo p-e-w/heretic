@@ -4,6 +4,7 @@
 import math
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Type, cast
 
 import bitsandbytes as bnb
@@ -33,11 +34,73 @@ from .config import QuantizationMethod, RowNormalization, Settings
 from .system import empty_cache
 from .utils import Prompt, batchify, print
 
+class UnsupportedLocalModelPathError(ValueError):
+    """
+    Raised when a local model file path cannot be mapped to a Transformers checkpoint.
+    """
+
+
+def _looks_like_transformers_checkpoint(model_dir: Path) -> bool:
+    """
+    Checks whether a directory appears to contain a loadable Transformers checkpoint.
+    """
+    if not (model_dir / "config.json").is_file():
+        return False
+
+    if (model_dir / "model.safetensors.index.json").is_file():
+        return True
+
+    for pattern in [
+        "*.safetensors",
+        "pytorch_model*.bin",
+        "model*.bin",
+        "*.pt",
+        "*.pth",
+    ]:
+        if any(model_dir.glob(pattern)):
+            return True
+
+    return False
+
+
+def resolve_model_source(model: str) -> str:
+    """
+    Resolves a model argument to a source string supported by Transformers loaders.
+    """
+    model_path = Path(model).expanduser()
+
+    if model_path.is_dir():
+        return str(model_path.resolve())
+
+    if model_path.is_file():
+        model_dir = model_path.parent.resolve()
+
+        if _looks_like_transformers_checkpoint(model_dir):
+            # Users often pass a single weight file (for example a GGUF file) even though
+            # Heretic operates on full Transformers checkpoints. If the surrounding
+            # directory contains a valid checkpoint, load from that directory.
+            print(
+                f"* Detected local model file [bold]{model_path.name}[/]; using checkpoint directory [bold]{model_dir}[/]."
+            )
+            return str(model_dir)
+
+        raise UnsupportedLocalModelPathError(
+            (
+                f"Local model path '{model}' points to a file, but its parent directory "
+                "does not look like a Transformers checkpoint. "
+                "Use a Hugging Face model ID or a local checkpoint directory containing "
+                "config.json and model weights."
+            )
+        )
+
+    return model
+
 
 def get_model_class(
     model: str,
 ) -> Type[AutoModelForImageTextToText] | Type[AutoModelForCausalLM]:
-    configs = PretrainedConfig.get_config_dict(model)
+    model_source = resolve_model_source(model)
+    configs = PretrainedConfig.get_config_dict(model_source)
 
     if any([("vision_config" in config) for config in configs]):
         return AutoModelForImageTextToText
@@ -57,16 +120,18 @@ class Model:
     model: PreTrainedModel | PeftModel
     tokenizer: PreTrainedTokenizerBase
     peft_config: LoraConfig
+    model_source: str
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self.needs_reload = False
+        self.model_source = resolve_model_source(settings.model)
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            settings.model,
+            self.model_source,
             trust_remote_code=settings.trust_remote_code,
         )
 
@@ -85,10 +150,11 @@ class Model:
             if settings.max_memory
             else None
         )
-        self.trusted_models = {settings.model: settings.trust_remote_code}
+        self.trusted_models = {self.model_source: settings.trust_remote_code}
 
         if self.settings.evaluate_model is not None:
-            self.trusted_models[settings.evaluate_model] = settings.trust_remote_code
+            evaluate_model_source = resolve_model_source(self.settings.evaluate_model)
+            self.trusted_models[evaluate_model_source] = settings.trust_remote_code
 
         for dtype in settings.dtypes:
             print(f"* Trying dtype [bold]{dtype}[/]...")
@@ -102,19 +168,19 @@ class Model:
                 if quantization_config is not None:
                     extra_kwargs["quantization_config"] = quantization_config
 
-                self.model = get_model_class(settings.model).from_pretrained(
-                    settings.model,
+                self.model = get_model_class(self.model_source).from_pretrained(
+                    self.model_source,
                     dtype=dtype,
                     device_map=settings.device_map,
                     max_memory=self.max_memory,
-                    trust_remote_code=self.trusted_models.get(settings.model),
+                    trust_remote_code=self.trusted_models.get(self.model_source),
                     **extra_kwargs,
                 )
 
                 # If we reach this point and the model requires trust_remote_code,
                 # either the user accepted, or settings.trust_remote_code is True.
-                if self.trusted_models.get(settings.model) is None:
-                    self.trusted_models[settings.model] = True
+                if self.trusted_models.get(self.model_source) is None:
+                    self.trusted_models[self.model_source] = True
 
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
@@ -252,11 +318,12 @@ class Model:
 
             # Load base model in full precision on CPU to avoid VRAM issues
             print("* Loading base model on CPU (this may take a while)...")
-            base_model = get_model_class(self.settings.model).from_pretrained(
-                self.settings.model,
+            model_source = resolve_model_source(self.settings.model)
+            base_model = get_model_class(model_source).from_pretrained(
+                model_source,
                 torch_dtype=self.model.dtype,
                 device_map="cpu",
-                trust_remote_code=self.trusted_models.get(self.settings.model),
+                trust_remote_code=self.trusted_models.get(model_source),
             )
 
             # Apply LoRA adapters to the CPU model
@@ -291,8 +358,11 @@ class Model:
         - Slow path: If switching models or after merge_and_unload(),
           performs full model reload with quantization config.
         """
+        model_source = resolve_model_source(self.settings.model)
+        if model_source not in self.trusted_models:
+            self.trusted_models[model_source] = self.settings.trust_remote_code
         current_model = getattr(self.model.config, "name_or_path", None)
-        if current_model == self.settings.model and not self.needs_reload:
+        if current_model == model_source and not self.needs_reload:
             # Reset LoRA adapters to zero (identity transformation)
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
@@ -312,16 +382,22 @@ class Model:
         if quantization_config is not None:
             extra_kwargs["quantization_config"] = quantization_config
 
-        self.model = get_model_class(self.settings.model).from_pretrained(
-            self.settings.model,
+        self.model = get_model_class(model_source).from_pretrained(
+            model_source,
             dtype=dtype,
             device_map=self.settings.device_map,
             max_memory=self.max_memory,
-            trust_remote_code=self.trusted_models.get(self.settings.model),
+            trust_remote_code=self.trusted_models.get(model_source),
             **extra_kwargs,
         )
 
+        # If we reach this point and trust_remote_code had been undecided (None),
+        # loading succeeded with trusted code, so keep that decision for subsequent reloads.
+        if self.trusted_models.get(model_source) is None:
+            self.trusted_models[model_source] = True
+
         self._apply_lora()
+        self.model_source = model_source
 
         self.needs_reload = False
 

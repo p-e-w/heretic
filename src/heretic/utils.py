@@ -275,21 +275,28 @@ def get_readme_intro(
     trial: Trial,
     contains_reproducibility_information: bool,
 ) -> str:
-    if Path(settings.model).exists():
+    if is_hf_path(settings.model):
+        model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
+    else:
         # Hide the path, which may contain private information.
         model_link = "a model"
-    else:
-        model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
 
     version_info = get_heretic_version_info()
+
+    if contains_reproducibility_information:
+        reproducibility_instructions = """
+> [!TIP]
+> **This model is reproducible!**
+>
+> See the [README](reproduce/README.md) in the `reproduce` directory for more information.
+"""
+    else:
+        reproducibility_instructions = ""
+
     return f"""# This is a decensored version of {
         model_link
     }, made using [Heretic](https://github.com/p-e-w/heretic) v{version_info.version}
-{
-        f"{chr(10)}**This model is reproducible!** See the [`reproduce`](reproduce) directory and its [README](reproduce/README.md) for more information.{chr(10)}"
-        if contains_reproducibility_information
-        else ""
-    }
+{reproducibility_instructions}
 ## Abliteration parameters
 
 | Parameter | Value |
@@ -355,7 +362,7 @@ def format_hf_link(
     link = f"[{name}]({base_url})"
     if commit:
         commit_url = f"{base_url}/commit/{commit}"
-        link += f" (Commit: [{commit[:7]}]({commit_url}))"
+        link += f" (Commit: [`{commit[:7]}`]({commit_url}))"
 
     return link
 
@@ -378,9 +385,12 @@ def generate_reproduce_readme(
                 if len(device_names) > 1:
                     heterogeneous_warning = """
 > [!WARNING]
-> **Heterogeneous GPUs!**
-> This model was generated using multiple non-identical GPUs. When operations are distributed across different GPUs (e.g. via `device_map='auto'`),
-> non-deterministic behavior can occur. **Reproducibility ***cannot*** be guaranteed in this environment.**
+> **Heterogeneous GPUs**
+>
+> This model was generated using multiple non-identical GPUs. When operations are distributed across different GPUs
+> (e.g. via `device_map='auto'`), non-deterministic behavior can occur.
+>
+> Reproducibility *cannot* be guaranteed in this environment.
 """
 
         cpu = get_cpu_info_dict()
@@ -391,37 +401,35 @@ def generate_reproduce_readme(
             accelerator_report = "**No GPU or other accelerator detected.**"
         else:
             devices = accelerators["devices"]
-            total_vram = sum(d.get("vram_gb", 0) for d in devices)
-            vram_suffix = (
-                f" (`{total_vram:.2f} GB` total VRAM)" if total_vram > 0 else ""
-            )
+            total_vram = sum(device.get("vram_gb", 0) for device in devices)
+            vram_suffix = f" ({total_vram:.2f} GB total VRAM)" if total_vram > 0 else ""
             accelerator_lines = [
-                f"- **{accelerators['type']}:** Detected `{len(devices)}` device(s){vram_suffix}"
+                f"- **{accelerators['type']}:** Detected {len(devices)} device(s){vram_suffix}"
             ]
 
             if accelerators.get("api_name") and accelerators.get("api_version"):
                 accelerator_lines.append(
-                    f"  - **{accelerators['api_name']}:** `{accelerators['api_version']}`"
+                    f"  - **{accelerators['api_name']}:** {accelerators['api_version']}"
                 )
 
             if accelerators.get("driver_version"):
                 accelerator_lines.append(
-                    f"  - **Driver Version:** `{accelerators['driver_version']}`"
+                    f"  - **Driver Version:** {accelerators['driver_version']}"
                 )
 
             accelerator_lines.append("- **Devices:**")
-            for i, dev in enumerate(devices):
-                vram = f" (`{dev['vram_gb']:.2f} GB`)" if dev.get("vram_gb") else ""
+            for i, device in enumerate(devices):
+                vram = f" ({device['vram_gb']:.2f} GB)" if device.get("vram_gb") else ""
                 accelerator_lines.append(
-                    f"  - **{accelerators['type']} {i}:** `{dev['name']}`{vram}"
+                    f"  - **{accelerators['type']} {i}:** {device['name']}{vram}"
                 )
             accelerator_report = "\n".join(accelerator_lines)
 
         system_report = f"""## System
 
-- **Python:** `{python_env["version"]}` (`{python_env["implementation"]}`, `{python_env["compiler"]}`) [`{python_env["environment"]}`]
-- **Operating system:** `{platform.platform()}` (`{platform.machine()}`)
-- **CPU:** `{cpu["brand"] or "Unknown CPU"}`
+- **Python:** {python_env["version"]} ({python_env["implementation"]}, {python_env["compiler"]}) [{python_env["environment"]}]
+- **Operating system:** {platform.platform()} ({platform.machine()})
+- **CPU:** {cpu["brand"] or "Unknown"}
 
 ### Accelerators
 
@@ -440,26 +448,32 @@ def generate_reproduce_readme(
     origin_warning = ""
     if not version_info.is_standard_pypi:
         if version_info.origin and version_info.origin.startswith("Git"):
-            repo_info = version_info.origin.split("Git (")[1].strip(")")
+            repo_info = version_info.origin.split("Git (")[1].rstrip(")")
             origin_warning = f"""
-> [!NOTE]
-> **Git installation!**
-> This system installed Heretic from a Git repository: `{repo_info}`.
+> [!IMPORTANT]
+> **Git installation**
+>
+> This system installed Heretic from a Git repository: {repo_info}
+>
 > To reproduce the model, you must install Heretic from this exact repository and commit.
 """
         elif version_info.origin == "Local":
             origin_warning = """
 > [!WARNING]
-> **Local code!**
+> **Local code**
+>
 > This system installed Heretic from a local directory or wheel. Uncommitted or experimental code may have been executed.
-> **Reproducibility ***cannot*** be guaranteed in this environment.**
+>
+> Reproducibility *cannot* be guaranteed in this environment.
 """
         else:
             origin_warning = """
 > [!WARNING]
-> **Non-standard installation!**
+> **Non-standard installation**
+>
 > This system installed Heretic from an unknown non-standard source.
-> **Reproducibility ***cannot*** be guaranteed in this environment.**
+>
+> Reproducibility *cannot* be guaranteed in this environment.
 """
 
     pytorch_version = torch.__version__
@@ -488,14 +502,14 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## Selected trial
 
-- **Trial number:** `{trial.user_attrs["index"]}`
-- **KL divergence:** `{trial.user_attrs["kl_divergence"]:.6f}`
-- **Refusals:** `{trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]}`
+- **Trial number:** {trial.user_attrs["index"]}
+- **KL divergence:** {trial.user_attrs["kl_divergence"]:.6f}
+- **Refusals:** {trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]}
 
 {system_report}## Environment
 
-- **Heretic:** `v{version_info.version}`{f" (Origin: `{version_info.origin}`)" if version_info.origin else ""}
-- **PyTorch:** `{pytorch_version}`
+- **Heretic:** v{version_info.version}{f" (Origin: {version_info.origin})" if version_info.origin else ""}
+- **PyTorch:** {pytorch_version}
 - **Other dependencies:** See [`requirements.txt`](requirements.txt).
 
 ## Contents of this directory
@@ -518,6 +532,7 @@ This directory contains the necessary information and assets to reproduce the re
 
 > [!TIP]
 > To use the included Optuna study journal `{checkpoint_filename}`, place it in the checkpoints directory (usually `checkpoints/`) before running Heretic.
+>
 > This allows you to export other models from the Pareto front, or to run additional trials without having to re-run the stored trials.
 """
 

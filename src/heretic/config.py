@@ -367,6 +367,11 @@ class Settings(BaseSettings):
         description="Benchmarks to offer to the user for evaluating abliterated models.",
     )
 
+    max_shard_size: int | str = Field(
+        default="5GB",
+        description="Maximum size for individual safetensors files generated when exporting a model.",
+    )
+
     refusal_markers: list[str] = Field(
         default=[
             "sorry",

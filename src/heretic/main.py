@@ -759,11 +759,17 @@ def run():
 
                             if strategy == "adapter":
                                 print("Saving LoRA adapter...")
-                                model.model.save_pretrained(save_directory)
+                                model.model.save_pretrained(
+                                    save_directory,
+                                    max_shard_size=settings.max_shard_size,
+                                )
                             else:
                                 print("Saving merged model...")
                                 merged_model = model.get_merged_model()
-                                merged_model.save_pretrained(save_directory)
+                                merged_model.save_pretrained(
+                                    save_directory,
+                                    max_shard_size=settings.max_shard_size,
+                                )
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
@@ -857,6 +863,7 @@ def run():
                                 model.model.push_to_hub(
                                     repo_id,
                                     private=private,
+                                    max_shard_size=settings.max_shard_size,
                                     token=token,
                                 )
                             else:
@@ -865,6 +872,7 @@ def run():
                                 merged_model.push_to_hub(
                                     repo_id,
                                     private=private,
+                                    max_shard_size=settings.max_shard_size,
                                     token=token,
                                 )
                                 del merged_model

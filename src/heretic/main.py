@@ -443,6 +443,9 @@ def run():
 
         if settings.plot_residuals:
             analyzer.plot_residuals()
+
+        # We don't need the full residuals after computing their means and analyzing geometry.
+        del good_residuals, bad_residuals, analyzer
     else:
         print("* Obtaining residual mean for good prompts...")
         good_means = model.get_residuals_mean(good_prompts)
@@ -462,8 +465,7 @@ def run():
         )
         refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
 
-    # We don't need the residuals after computing refusal directions.
-    del good_residuals, bad_residuals, analyzer
+    # Clear cache before starting the optimization study.
     empty_cache()
 
     trial_index = 0

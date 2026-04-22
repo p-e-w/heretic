@@ -43,7 +43,6 @@ import questionary
 import torch
 import torch.nn.functional as F
 import transformers
-from huggingface_hub import ModelCard, ModelCardData
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -61,10 +60,10 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .model_card_utils import get_model_card
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
-    get_readme_intro,
     get_trial_parameters,
     is_hf_path,
     load_prompts,
@@ -779,6 +778,7 @@ def run():
                                     save_directory,
                                     max_shard_size=settings.max_shard_size,
                                 )
+                                card = get_model_card(settings, trial, "", True)
                             else:
                                 print("Saving merged model...")
                                 merged_model = model.get_merged_model()
@@ -789,6 +789,10 @@ def run():
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
+                                card = get_model_card(settings, trial, "", False)
+
+                            if card is not None:
+                                card.save(f"{save_directory}/README.md")
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -882,6 +886,12 @@ def run():
                                     max_shard_size=settings.max_shard_size,
                                     token=token,
                                 )
+                                card = get_model_card(
+                                    settings,
+                                    trial,
+                                    reproducibility_information,
+                                    True,
+                                )
                             else:
                                 print("Uploading merged model...")
                                 merged_model = model.get_merged_model()
@@ -899,37 +909,14 @@ def run():
                                     token=token,
                                 )
 
-                            if is_hf_path(settings.model):
-                                card = ModelCard.load(settings.model)
-                            else:
-                                card_path = (
-                                    Path(settings.model)
-                                    / huggingface_hub.constants.REPOCARD_NAME
+                                card = get_model_card(
+                                    settings,
+                                    trial,
+                                    reproducibility_information,
+                                    False,
                                 )
-                                if card_path.exists():
-                                    card = ModelCard.load(card_path)
-                                else:
-                                    card = None
 
                             if card is not None:
-                                if card.data is None:
-                                    card.data = ModelCardData()
-                                if card.data.tags is None:
-                                    card.data.tags = []
-                                card.data.tags.append("heretic")
-                                card.data.tags.append("uncensored")
-                                card.data.tags.append("decensored")
-                                card.data.tags.append("abliterated")
-                                if reproducibility_information != "none":
-                                    card.data.tags.append("reproducible")
-                                card.text = (
-                                    get_readme_intro(
-                                        settings,
-                                        trial,
-                                        reproducibility_information != "none",
-                                    )
-                                    + card.text
-                                )
                                 card.push_to_hub(repo_id, token=token)
 
                             if reproducibility_information != "none":

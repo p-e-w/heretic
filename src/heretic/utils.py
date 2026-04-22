@@ -272,60 +272,6 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     return params
 
 
-def get_readme_intro(
-    settings: Settings,
-    trial: Trial,
-    contains_reproducibility_information: bool,
-) -> str:
-    if is_hf_path(settings.model):
-        model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
-    else:
-        # Hide the path, which may contain private information.
-        model_link = "a model"
-
-    version_info = get_heretic_version_info()
-
-    if contains_reproducibility_information:
-        reproducibility_instructions = """
-> [!TIP]
-> **This model is reproducible!**
->
-> See the [README](reproduce/README.md) in the `reproduce` directory for more information.
-"""
-    else:
-        reproducibility_instructions = ""
-
-    return f"""# This is a decensored version of {
-        model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version_info.version}
-{reproducibility_instructions}
-## Abliteration parameters
-
-| Parameter | Value |
-| :-------- | :---: |
-{
-        chr(10).join(
-            [
-                f"| **{name}** | {value} |"
-                for name, value in get_trial_parameters(trial).items()
-            ]
-        )
-    }
-
-## Performance
-
-| Metric | This model | Original model ({model_link}) |
-| :----- | :--------: | :---------------------------: |
-| **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
-| **Refusals** | {trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]} | {
-        trial.user_attrs["base_refusals"]
-    }/{trial.user_attrs["n_bad_prompts"]} |
-
------
-
-"""
-
-
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
 

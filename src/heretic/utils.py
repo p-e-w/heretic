@@ -269,50 +269,6 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
     return params
 
 
-def get_readme_intro(
-    settings: Settings,
-    trial: Trial,
-    base_refusals: int,
-    bad_prompts: list[Prompt],
-) -> str:
-    if Path(settings.model).exists():
-        # Hide the path, which may contain private information.
-        model_link = "a model"
-    else:
-        model_link = f"[{settings.model}](https://huggingface.co/{settings.model})"
-
-    version_info = get_heretic_version_info()
-    return f"""# This is a decensored version of {
-        model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version_info.version}
-
-## Abliteration parameters
-
-| Parameter | Value |
-| :-------- | :---: |
-{
-        chr(10).join(
-            [
-                f"| **{name}** | {value} |"
-                for name, value in get_trial_parameters(trial).items()
-            ]
-        )
-    }
-
-## Performance
-
-| Metric | This model | Original model ({model_link}) |
-| :----- | :--------: | :---------------------------: |
-| **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
-| **Refusals** | {trial.user_attrs["refusals"]}/{len(bad_prompts)} | {base_refusals}/{
-        len(bad_prompts)
-    } |
-
------
-
-"""
-
-
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
     return tomli_w.dumps(settings.model_dump(exclude_none=True))

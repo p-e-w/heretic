@@ -43,7 +43,6 @@ import questionary
 import torch
 import torch.nn.functional as F
 import transformers
-from huggingface_hub import ModelCard, ModelCardData
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -61,10 +60,10 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .model_card_utils import get_model_card
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
-    get_readme_intro,
     get_trial_parameters,
     load_prompts,
     print,
@@ -774,6 +773,7 @@ def run():
                             if strategy == "adapter":
                                 print("Saving LoRA adapter...")
                                 model.model.save_pretrained(save_directory)
+                                card = get_model_card(settings, trial, evaluator, True)
                             else:
                                 print("Saving merged model...")
                                 merged_model = model.get_merged_model()
@@ -781,6 +781,10 @@ def run():
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
+                                card = get_model_card(settings, trial, evaluator, False)
+
+                            if card is not None:
+                                card.save(f"{save_directory}/README.md")
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -853,6 +857,7 @@ This saves your exact configuration and system information, along with the study
                                     private=private,
                                     token=token,
                                 )
+                                card = get_model_card(settings, trial, evaluator, True)
                             else:
                                 print("Uploading merged model...")
                                 merged_model = model.get_merged_model()
@@ -869,40 +874,9 @@ This saves your exact configuration and system information, along with the study
                                     token=token,
                                 )
 
-                            # If the model path exists locally and includes the
-                            # card, use it directly. If the model path doesn't
-                            # exist locally, it can be assumed to be a model
-                            # hosted on the Hugging Face Hub, in which case
-                            # we can retrieve the model card.
-                            model_path = Path(settings.model)
-                            if model_path.exists():
-                                card_path = (
-                                    model_path / huggingface_hub.constants.REPOCARD_NAME
-                                )
-                                if card_path.exists():
-                                    card = ModelCard.load(card_path)
-                                else:
-                                    card = None
-                            else:
-                                card = ModelCard.load(settings.model)
+                                card = get_model_card(settings, trial, evaluator, False)
+
                             if card is not None:
-                                if card.data is None:
-                                    card.data = ModelCardData()
-                                if card.data.tags is None:
-                                    card.data.tags = []
-                                card.data.tags.append("heretic")
-                                card.data.tags.append("uncensored")
-                                card.data.tags.append("decensored")
-                                card.data.tags.append("abliterated")
-                                card.text = (
-                                    get_readme_intro(
-                                        settings,
-                                        trial,
-                                        evaluator.base_refusals,
-                                        evaluator.bad_prompts,
-                                    )
-                                    + card.text
-                                )
                                 card.push_to_hub(repo_id, token=token)
 
                             if include_reproduce:

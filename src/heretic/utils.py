@@ -26,7 +26,7 @@ from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
 
-from .config import DatasetSpecification, Settings, get_essential_settings
+from .config import DatasetSpecification, Settings
 from .system import (
     get_accelerator_info_dict,
     get_cpu_info_dict,
@@ -193,7 +193,13 @@ def load_prompts(
     path = specification.dataset
     split_str = specification.split
 
-    if os.path.isdir(path):
+    if is_hf_path(path):
+        dataset = load_dataset(
+            path,
+            revision=specification.commit,
+            split=split_str,
+        )
+    else:
         if Path(path, DATASET_STATE_JSON_FILENAME).exists():
             # Dataset saved with datasets.save_to_disk; needs special handling.
             # Path should be the subdirectory for a particular split.
@@ -211,19 +217,15 @@ def load_prompts(
             # Get the dataset by applying the indices.
             dataset = dataset[abs_instruction.from_ : abs_instruction.to]
         else:
-            # Path is a local directory.
+            # Path should be a local directory.
             dataset = load_dataset(
                 path,
-                revision=specification.commit,
                 split=split_str,
                 # Don't require the number of examples (lines) per split to be pre-defined.
                 verification_mode=VerificationMode.NO_CHECKS,
                 # But also don't use cached data, as the dataset may have changed on disk.
                 download_mode=DownloadMode.FORCE_REDOWNLOAD,
             )
-    else:
-        # Probably a repository path; let load_dataset figure it out.
-        dataset = load_dataset(path, split=split_str)
 
     prompts = list(dataset[specification.column])
 
@@ -327,18 +329,16 @@ def get_readme_intro(
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
 
-    return tomli_w.dumps(get_essential_settings(settings).model_dump(exclude_none=True))
+    return tomli_w.dumps(settings.model_dump(exclude_none=True))
 
 
 def generate_requirements_txt() -> str:
     """Collects direct project dependencies as a formatted string."""
 
-    requirements = get_requirements_dict()
-    sorted_requirements = sorted(
-        [f"{name}=={version}" for name, version in requirements.items()],
-        key=lambda x: x.lower(),
-    )
-    return "\n".join(sorted_requirements) + "\n"
+    requirements = [
+        f"{package}=={version}" for package, version in get_requirements_dict().items()
+    ]
+    return "\n".join(requirements) + "\n"
 
 
 def set_seed(seed: int):
@@ -350,16 +350,14 @@ def set_seed(seed: int):
 
 
 def format_hf_link(
-    name: str,
+    path: str,
     commit: str | None = None,
     is_dataset: bool = False,
 ) -> str:
-    if Path(name).exists():
-        return f"`{name}` (Local)"
-
     prefix = "datasets/" if is_dataset else ""
-    base_url = f"https://huggingface.co/{prefix}{name}"
-    link = f"[{name}]({base_url})"
+    base_url = f"https://huggingface.co/{prefix}{path}"
+    link = f"[{path}]({base_url})"
+
     if commit:
         commit_url = f"{base_url}/commit/{commit}"
         link += f" (Commit: [`{commit[:7]}`]({commit_url}))"
@@ -561,7 +559,7 @@ def generate_reproduce_json(
             "pytorch_version": torch.__version__,
             "requirements": get_requirements_dict(),
         },
-        "settings": get_essential_settings(settings).model_dump(exclude_none=True),
+        "settings": settings.model_dump(),
         "parameters": {
             "direction_index": trial.user_attrs["direction_index"],
             "abliteration_parameters": trial.user_attrs["parameters"],

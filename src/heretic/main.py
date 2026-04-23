@@ -58,7 +58,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod, get_essential_settings
+from .config import QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .system import empty_cache, get_accelerator_info
@@ -598,10 +598,7 @@ def run():
         load_if_exists=True,
     )
 
-    study.set_user_attr(
-        "settings",
-        get_essential_settings(settings).model_dump_json(exclude_none=True),
-    )
+    study.set_user_attr("settings", settings.model_dump_json())
     study.set_user_attr("finished", False)
 
     def count_completed_trials() -> int:
@@ -715,10 +712,7 @@ def run():
                     continue
 
                 settings.n_trials += n_additional_trials
-                study.set_user_attr(
-                    "settings",
-                    get_essential_settings(settings).model_dump_json(exclude_none=True),
-                )
+                study.set_user_attr("settings", settings.model_dump_json())
                 study.set_user_attr("finished", False)
 
                 try:
@@ -910,22 +904,18 @@ def run():
                                     token=token,
                                 )
 
-                            # If the model path exists locally and includes the
-                            # card, use it directly. If the model path doesn't
-                            # exist locally, it can be assumed to be a model
-                            # hosted on the Hugging Face Hub, in which case
-                            # we can retrieve the model card.
-                            model_path = Path(settings.model)
-                            if model_path.exists():
+                            if is_hf_path(settings.model):
+                                card = ModelCard.load(settings.model)
+                            else:
                                 card_path = (
-                                    model_path / huggingface_hub.constants.REPOCARD_NAME
+                                    Path(settings.model)
+                                    / huggingface_hub.constants.REPOCARD_NAME
                                 )
                                 if card_path.exists():
                                     card = ModelCard.load(card_path)
                                 else:
                                     card = None
-                            else:
-                                card = ModelCard.load(settings.model)
+
                             if card is not None:
                                 if card.data is None:
                                     card.data = ModelCardData()

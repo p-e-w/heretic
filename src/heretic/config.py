@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import copy
 from enum import Enum
 from typing import Dict
 
@@ -17,8 +16,8 @@ from pydantic_settings import (
 # !!!IMPORTANT!!!
 #
 # Any settings added to the classes defined in this module
-# must be evaluated for privacy implications and added to
-# the logic in get_essential_settings if required.
+# must be evaluated for privacy implications and have
+# exclude=True set in their field definitions if appropriate.
 
 
 class QuantizationMethod(str, Enum):
@@ -65,11 +64,13 @@ class DatasetSpecification(BaseModel):
     residual_plot_label: str | None = Field(
         default=None,
         description="Label to use for the dataset in plots of residual vectors.",
+        exclude=True,
     )
 
     residual_plot_color: str | None = Field(
         default=None,
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
+        exclude=True,
     )
 
 
@@ -99,6 +100,7 @@ class Settings(BaseSettings):
             "If this model ID or path is set, then instead of abliterating the main model, "
             "evaluate this model relative to the main model."
         ),
+        exclude=True,
     )
 
     dtypes: list[str] = Field(
@@ -142,6 +144,8 @@ class Settings(BaseSettings):
     trust_remote_code: bool | None = Field(
         default=None,
         description="Whether to trust remote code when loading the model.",
+        # For security reasons, we don't store this setting.
+        exclude=True,
     )
 
     batch_size: int = Field(
@@ -152,6 +156,9 @@ class Settings(BaseSettings):
     max_batch_size: int = Field(
         default=128,
         description="Maximum batch size to try when automatically determining the optimal batch size.",
+        # When storing a settings object, the batch size is already fixed,
+        # either determined by the automatic mechanism or by explicit user choice.
+        exclude=True,
     )
 
     max_response_length: int = Field(
@@ -196,36 +203,45 @@ class Settings(BaseSettings):
             "the Chain-of-Thought block in responses, so that evaluation happens "
             "at the start of the actual response."
         ),
+        # When storing a settings object, the response prefix is already fixed,
+        # either determined by the automatic mechanism or by explicit user choice.
+        exclude=True,
     )
 
     print_responses: bool = Field(
         default=False,
         description="Whether to print prompt/response pairs when counting refusals.",
+        exclude=True,
     )
 
     print_residual_geometry: bool = Field(
         default=False,
         description="Whether to print detailed information about residuals and refusal directions.",
+        exclude=True,
     )
 
     plot_residuals: bool = Field(
         default=False,
         description="Whether to generate plots showing PaCMAP projections of residual vectors.",
+        exclude=True,
     )
 
     residual_plot_path: str = Field(
         default="plots",
         description="Base path to save plots of residual vectors to.",
+        exclude=True,
     )
 
     residual_plot_title: str = Field(
         default='PaCMAP Projection of Residual Vectors for "Harmless" and "Harmful" Prompts',
         description="Title placed above plots of residual vectors.",
+        exclude=True,
     )
 
     residual_plot_style: str = Field(
         default="dark_background",
         description="Matplotlib style sheet to use for plots of residual vectors.",
+        exclude=True,
     )
 
     kl_divergence_scale: float = Field(
@@ -304,6 +320,7 @@ class Settings(BaseSettings):
     study_checkpoint_dir: str = Field(
         default="checkpoints",
         description="Directory to save and load study progress to/from.",
+        exclude=True,
     )
 
     benchmarks: list[BenchmarkSpecification] = Field(
@@ -365,6 +382,7 @@ class Settings(BaseSettings):
             ),
         ],
         description="Benchmarks to offer to the user for evaluating abliterated models.",
+        exclude=True,
     )
 
     max_shard_size: int | str = Field(
@@ -485,47 +503,3 @@ class Settings(BaseSettings):
             file_secret_settings,
             TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )
-
-
-def get_essential_settings(settings: Settings) -> Settings:
-    """
-    Returns a stripped-down version of the settings object that only contains
-    settings that directly influence the results of the abliteration run.
-    In particular, this object contains no file system paths other than (possibly)
-    paths to local models and datasets.
-    """
-
-    essential_settings = copy.deepcopy(settings)
-
-    del essential_settings.evaluate_model
-
-    # We always use the default for security reasons.
-    del essential_settings.trust_remote_code
-
-    # When storing a settings object, the batch size is already fixed,
-    # either determined by the automatic mechanism or by explicit user choice.
-    del essential_settings.max_batch_size
-
-    # When storing a settings object, the response prefix is already fixed,
-    # either determined by the automatic mechanism or by explicit user choice.
-    del essential_settings.chain_of_thought_skips
-
-    del essential_settings.print_responses
-    del essential_settings.print_residual_geometry
-    del essential_settings.plot_residuals
-    del essential_settings.residual_plot_path
-    del essential_settings.residual_plot_title
-    del essential_settings.residual_plot_style
-    del essential_settings.study_checkpoint_dir
-    del essential_settings.benchmarks
-
-    for dataset in [
-        essential_settings.good_prompts,
-        essential_settings.bad_prompts,
-        essential_settings.good_evaluation_prompts,
-        essential_settings.bad_evaluation_prompts,
-    ]:
-        del dataset.residual_plot_label
-        del dataset.residual_plot_color
-
-    return essential_settings

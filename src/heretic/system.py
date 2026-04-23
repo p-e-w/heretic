@@ -411,7 +411,7 @@ def get_python_env_info() -> str:
     return f"{info['version']} ({info['implementation']}, {info['compiler']}) [{info['environment']}]"
 
 
-def get_package_version(name: str) -> str | None:
+def get_package_version(name: str) -> str:
     """Gets the installed version of a package, stripping local suffixes like +cu128."""
 
     # Normalize name: pip considers hyphens and underscores equivalent.
@@ -427,6 +427,7 @@ def get_requirements_dict() -> dict[str, str]:
     # PyTorch is not listed as a dependency in the heretic-llm package
     # because installation is hardware-specific and must be done manually.
     packages_to_check = ["heretic-llm", "torch", "torchaudio", "torchvision"]
+
     visited = set()
     required_packages = set()
 
@@ -459,18 +460,19 @@ def get_requirements_dict() -> dict[str, str]:
             # If a package is listed as a dependency but not installed, we skip it.
             continue
 
+    required_packages_sorted = sorted(required_packages)
+
     # Lookup versions for all discovered packages.
     dependencies = {}
     version_info = get_heretic_version_info()
-    for name in required_packages:
+
+    for package in required_packages_sorted:
         # If heretic-llm was installed from source (Git/Local), exclude it
         # from requirements.txt to prevent pip from downloading an unrelated
         # version from PyPI during reproduction.
-        if name == "heretic-llm" and not version_info.is_standard_pypi:
+        if package == "heretic-llm" and not version_info.is_standard_pypi:
             continue
 
-        version_str = get_package_version(name)
-        if version_str:
-            dependencies[name] = version_str
+        dependencies[package] = get_package_version(package)
 
     return dependencies

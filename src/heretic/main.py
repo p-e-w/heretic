@@ -3,6 +3,20 @@
 
 # ruff: noqa: E402
 
+import sys
+
+from .config import Settings
+
+
+def _is_help_invocation() -> bool:
+    args = sys.argv[1:]
+    return "-h" in args or "--help" in args
+
+
+# Parse and handle CLI help before importing heavyweight ML/runtime dependencies.
+if _is_help_invocation():
+    Settings()  # ty:ignore[missing-argument]
+
 from .progress import patch_tqdm
 
 # This patches tqdm class definitions, which must happen
@@ -13,7 +27,6 @@ import logging
 import math
 import os
 import random
-import sys
 import time
 import warnings
 from dataclasses import asdict
@@ -45,7 +58,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod, Settings, get_essential_settings
+from .config import QuantizationMethod, get_essential_settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .system import empty_cache, get_accelerator_info
@@ -409,13 +422,36 @@ def run():
 
     print()
     print("Calculating per-layer refusal directions...")
-    print("* Obtaining residuals for good prompts...")
-    good_residuals = model.get_residuals_batched(good_prompts)
-    print("* Obtaining residuals for bad prompts...")
-    bad_residuals = model.get_residuals_batched(bad_prompts)
 
-    good_means = good_residuals.mean(dim=0)
-    bad_means = bad_residuals.mean(dim=0)
+    needs_full_residuals = settings.print_residual_geometry or settings.plot_residuals
+
+    good_residuals = None
+    bad_residuals = None
+
+    if needs_full_residuals:
+        print("* Obtaining residuals for good prompts...")
+        good_residuals = model.get_residuals_batched(good_prompts)
+        print("* Obtaining residuals for bad prompts...")
+        bad_residuals = model.get_residuals_batched(bad_prompts)
+
+        good_means = good_residuals.mean(dim=0)
+        bad_means = bad_residuals.mean(dim=0)
+
+        analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
+
+        if settings.print_residual_geometry:
+            analyzer.print_residual_geometry()
+
+        if settings.plot_residuals:
+            analyzer.plot_residuals()
+
+        # We don't need the full residuals after computing their means and analyzing geometry.
+        del good_residuals, bad_residuals, analyzer
+    else:
+        print("* Obtaining residual mean for good prompts...")
+        good_means = model.get_residuals_mean(good_prompts)
+        print("* Obtaining residual mean for bad prompts...")
+        bad_means = model.get_residuals_mean(bad_prompts)
 
     refusal_directions = F.normalize(bad_means - good_means, p=2, dim=1)
 
@@ -430,16 +466,7 @@ def run():
         )
         refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
 
-    analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
-
-    if settings.print_residual_geometry:
-        analyzer.print_residual_geometry()
-
-    if settings.plot_residuals:
-        analyzer.plot_residuals()
-
-    # We don't need the residuals after computing refusal directions.
-    del good_residuals, bad_residuals, analyzer
+    # Clear cache before starting the optimization study.
     empty_cache()
 
     trial_index = 0

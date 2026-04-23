@@ -150,7 +150,6 @@ split = "train[:400]"
 column = "text"
 residual_plot_label = '"Harmless" prompts'
 residual_plot_color = "royalblue"
-commit = ""
 
 # Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
 [bad_prompts]
@@ -159,18 +158,15 @@ split = "train[:400]"
 column = "text"
 residual_plot_label = '"Harmful" prompts'
 residual_plot_color = "darkorange"
-commit = ""
 
 # Dataset of prompts that tend to not result in refusals (used for evaluating model performance).
 [good_evaluation_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
-commit = ""
 
 # Dataset of prompts that tend to result in refusals (used for evaluating model performance).
 [bad_evaluation_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
-commit = ""

@@ -147,7 +147,7 @@ class Settings(BaseSettings):
     )
 
     response_prefix: str | None = Field(
-        default=None,
+        default="",
         description=(
             "Common prefix to assume for all responses, so that evaluation happens "
             "at the point where responses start to differ for different prompts. "

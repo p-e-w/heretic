@@ -60,7 +60,12 @@ from rich.traceback import install
 from .analyzer import Analyzer
 from .config import QuantizationMethod
 from .evaluator import Evaluator
-from .model import AbliterationParameters, Model, get_model_class
+from .model import (
+    AbliterationParameters,
+    Model,
+    get_model_class,
+    resolve_model_source,
+)
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
@@ -102,10 +107,11 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
             #
             # Suppress warnings during meta device loading (e.g., "Some weights were not initialized").
             # These are expected and harmless since we're only inspecting model structure, not running inference.
+            model_source = resolve_model_source(settings.model)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                meta_model = get_model_class(settings.model).from_pretrained(
-                    settings.model,
+                meta_model = get_model_class(model_source).from_pretrained(
+                    model_source,
                     device_map="meta",
                     torch_dtype=torch.bfloat16,
                     trust_remote_code=True,
@@ -426,6 +432,7 @@ def run():
 
     good_residuals = None
     bad_residuals = None
+    analyzer = None
 
     if needs_full_residuals:
         print("* Obtaining residuals for good prompts...")
@@ -465,7 +472,10 @@ def run():
         )
         refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
 
-    # Clear cache before starting the optimization study.
+    # We don't need the residuals after computing refusal directions.
+    del good_residuals, bad_residuals
+    if analyzer is not None:
+        del analyzer
     empty_cache()
 
     trial_index = 0

@@ -25,6 +25,7 @@ from accelerate.utils import (
 
 def empty_cache():
     """Clears the backend cache and collects garbage."""
+
     # Collecting garbage is not an idempotent operation, and to avoid OOM errors,
     # gc.collect() has to be called both before and after emptying the backend cache.
     # See https://github.com/p-e-w/heretic/pull/17 for details.
@@ -48,6 +49,7 @@ def empty_cache():
 
 def get_nvidia_driver_version() -> str | None:
     """Gets the NVIDIA driver version using nvidia-smi."""
+
     try:
         output = subprocess.check_output(
             ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
@@ -61,6 +63,7 @@ def get_nvidia_driver_version() -> str | None:
 
 def get_amdgpu_driver_version() -> str | None:
     """Gets the AMD GPU (ROCm) driver and suite version info."""
+
     # 1. Try amd-smi (modern standard for ROCm 6.0+)
     try:
         output = subprocess.check_output(
@@ -101,6 +104,7 @@ def get_amdgpu_driver_version() -> str | None:
 
 def get_xpu_driver_version() -> str | None:
     """Gets the Intel XPU driver version."""
+
     try:
         output = subprocess.check_output(
             ["xpu-smi", "discovery"],
@@ -117,6 +121,7 @@ def get_xpu_driver_version() -> str | None:
 
 def get_npu_driver_version() -> str | None:
     """Gets the Huawei NPU driver version."""
+
     try:
         output = subprocess.check_output(
             ["npu-smi", "info", "-t", "board", "-i", "0"],
@@ -133,6 +138,7 @@ def get_npu_driver_version() -> str | None:
 
 def get_mps_driver_version() -> str | None:
     """Gets the Apple Silicon (MPS) driver version via macOS version."""
+
     try:
         output = subprocess.check_output(
             ["sw_vers", "-productVersion"],
@@ -156,6 +162,7 @@ class HereticVersionInfo:
 
 def get_heretic_version_info() -> HereticVersionInfo:
     """Detects version and installation source (PyPI, Git, Local) of heretic-llm."""
+
     package_name = "heretic-llm"
     origin_metadata: dict[str, Any] = {"type": "unknown"}
     # This package must be installed for this code to run.
@@ -171,6 +178,7 @@ def get_heretic_version_info() -> HereticVersionInfo:
     if not direct_url_content:
         # Standard PyPI installation.
         origin_metadata["type"] = "pypi"
+
         return HereticVersionInfo(
             version=base_version,
             origin="PyPI",
@@ -178,51 +186,48 @@ def get_heretic_version_info() -> HereticVersionInfo:
             metadata=origin_metadata,
         )
 
-    try:
-        data = json.loads(direct_url_content)
+    data = json.loads(direct_url_content)
 
-        # Check for Git source.
-        if "vcs_info" in data and data["vcs_info"].get("vcs") == "git":
-            vcs_info = data["vcs_info"]
-            commit_hash = vcs_info.get("commit_id", "unknown")
-            repo_url = data.get("url", "unknown_repo")
-            requested_revision = vcs_info.get("requested_revision")
+    # Check for Git source.
+    if "vcs_info" in data and data["vcs_info"].get("vcs") == "git":
+        vcs_info = data["vcs_info"]
+        commit_hash = vcs_info.get("commit_id", "unknown")
+        repo_url = data.get("url", "unknown_repo")
+        requested_revision = vcs_info.get("requested_revision")
 
-            if requested_revision:
-                origin_str = (
-                    f"Git ({repo_url}@{requested_revision} - commit: {commit_hash})"
-                )
-            else:
-                origin_str = f"Git ({repo_url} @ {commit_hash})"
-
-            origin_metadata.update(
-                {
-                    "type": "git",
-                    "url": repo_url,
-                    "commit_hash": commit_hash,
-                    "requested_revision": requested_revision,
-                }
+        if requested_revision:
+            origin_str = (
+                f"Git ({repo_url}@{requested_revision} - commit: {commit_hash})"
             )
+        else:
+            origin_str = f"Git ({repo_url} @ {commit_hash})"
 
-            return HereticVersionInfo(
-                version=base_version,
-                origin=origin_str,
-                is_standard_pypi=False,
-                metadata=origin_metadata,
-            )
+        origin_metadata.update(
+            {
+                "type": "git",
+                "url": repo_url,
+                "commit_hash": commit_hash,
+                "requested_revision": requested_revision,
+            }
+        )
 
-        # Check for local file/wheel directory.
-        if "url" in data and data["url"].startswith("file://"):
-            origin_metadata["type"] = "local"
-            return HereticVersionInfo(
-                version=base_version,
-                origin="Local",
-                is_standard_pypi=False,
-                metadata=origin_metadata,
-            )
+        return HereticVersionInfo(
+            version=base_version,
+            origin=origin_str,
+            is_standard_pypi=False,
+            metadata=origin_metadata,
+        )
 
-    except json.JSONDecodeError:
-        pass
+    # Check for local file/wheel directory.
+    if "url" in data and data["url"].startswith("file://"):
+        origin_metadata["type"] = "local"
+
+        return HereticVersionInfo(
+            version=base_version,
+            origin="Local",
+            is_standard_pypi=False,
+            metadata=origin_metadata,
+        )
 
     return HereticVersionInfo(
         version=base_version,
@@ -234,6 +239,7 @@ def get_heretic_version_info() -> HereticVersionInfo:
 
 def get_accelerator_info_dict() -> dict[str, Any]:
     """Retrieves raw accelerator info (CUDA, ROCm, etc) directly into structured keys."""
+
     if torch.cuda.is_available():
         count = torch.cuda.device_count()
         is_rocm = getattr(torch.version, "hip", None) is not None
@@ -320,6 +326,7 @@ def get_accelerator_info_dict() -> dict[str, Any]:
 
 def get_accelerator_info(include_warnings: bool = True) -> str:
     """Convenience wrapper for hardware detection and console-friendly formatting."""
+
     info = get_accelerator_info_dict()
 
     if info["type"] is None:
@@ -350,6 +357,7 @@ def get_accelerator_info(include_warnings: bool = True) -> str:
 
 def get_cpu_info_dict() -> dict[str, str | int | None]:
     """Gets granular CPU identifiers using the py-cpuinfo library."""
+
     info = cpuinfo.get_cpu_info()
 
     return {
@@ -363,6 +371,7 @@ def get_cpu_info_dict() -> dict[str, str | int | None]:
 
 def get_cpu_info() -> str:
     """Gets the CPU brand name."""
+
     info = get_cpu_info_dict()
     parts = []
     parts.append(
@@ -397,12 +406,14 @@ def get_python_env_info_dict() -> dict[str, str]:
 
 def get_python_env_info() -> str:
     """Detects the type of Python environment (Conda, Venv, etc.) and build info."""
+
     info = get_python_env_info_dict()
     return f"{info['version']} ({info['implementation']}, {info['compiler']}) [{info['environment']}]"
 
 
-def get_package_version(name: str) -> str | None:
+def get_package_version(name: str) -> str:
     """Gets the installed version of a package, stripping local suffixes like +cu128."""
+
     # Normalize name: pip considers hyphens and underscores equivalent.
     normalized_name = name.lower().replace("_", "-")
     version_str = importlib.metadata.version(normalized_name)
@@ -411,8 +422,12 @@ def get_package_version(name: str) -> str | None:
 
 def get_requirements_dict() -> dict[str, str]:
     """Recursively finds all direct and transitive dependencies of heretic-llm and core libraries."""
+
     # We start with heretic-llm and the core compute libraries.
+    # PyTorch is not listed as a dependency in the heretic-llm package
+    # because installation is hardware-specific and must be done manually.
     packages_to_check = ["heretic-llm", "torch", "torchaudio", "torchvision"]
+
     visited = set()
     required_packages = set()
 
@@ -445,18 +460,19 @@ def get_requirements_dict() -> dict[str, str]:
             # If a package is listed as a dependency but not installed, we skip it.
             continue
 
+    required_packages_sorted = sorted(required_packages)
+
     # Lookup versions for all discovered packages.
     dependencies = {}
     version_info = get_heretic_version_info()
-    for name in required_packages:
+
+    for package in required_packages_sorted:
         # If heretic-llm was installed from source (Git/Local), exclude it
         # from requirements.txt to prevent pip from downloading an unrelated
         # version from PyPI during reproduction.
-        if name == "heretic-llm" and not version_info.is_standard_pypi:
+        if package == "heretic-llm" and not version_info.is_standard_pypi:
             continue
 
-        version_str = get_package_version(name)
-        if version_str:
-            dependencies[name] = version_str
+        dependencies[package] = get_package_version(package)
 
     return dependencies

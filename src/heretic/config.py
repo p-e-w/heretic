@@ -13,6 +13,12 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+# !!!IMPORTANT!!!
+#
+# Any settings added to the classes defined in this module
+# must be evaluated for privacy implications and have
+# exclude=True set in their field definitions if appropriate.
+
 
 class QuantizationMethod(str, Enum):
     NONE = "none"
@@ -29,6 +35,11 @@ class RowNormalization(str, Enum):
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
+    )
+
+    commit: str | None = Field(
+        default=None,
+        description="Hugging Face commit hash of the dataset.",
     )
 
     split: str = Field(description="Portion of the dataset to use.")
@@ -53,15 +64,13 @@ class DatasetSpecification(BaseModel):
     residual_plot_label: str | None = Field(
         default=None,
         description="Label to use for the dataset in plots of residual vectors.",
+        exclude=True,
     )
 
     residual_plot_color: str | None = Field(
         default=None,
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
-    )
-    commit: str | None = Field(
-        default=None,
-        description="Hugging Face commit hash of the dataset.",
+        exclude=True,
     )
 
 
@@ -80,12 +89,18 @@ class BenchmarkSpecification(BaseModel):
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
+    model_commit: str | None = Field(
+        default=None,
+        description="Hugging Face commit hash of the model.",
+    )
+
     evaluate_model: str | None = Field(
         default=None,
         description=(
             "If this model ID or path is set, then instead of abliterating the main model, "
             "evaluate this model relative to the main model."
         ),
+        exclude=True,
     )
 
     dtypes: list[str] = Field(
@@ -129,6 +144,8 @@ class Settings(BaseSettings):
     trust_remote_code: bool | None = Field(
         default=None,
         description="Whether to trust remote code when loading the model.",
+        # For security reasons, we don't store this setting.
+        exclude=True,
     )
 
     batch_size: int = Field(
@@ -139,6 +156,9 @@ class Settings(BaseSettings):
     max_batch_size: int = Field(
         default=128,
         description="Maximum batch size to try when automatically determining the optimal batch size.",
+        # When storing a settings object, the batch size is already fixed,
+        # either determined by the automatic mechanism or by explicit user choice.
+        exclude=True,
     )
 
     max_response_length: int = Field(
@@ -183,36 +203,45 @@ class Settings(BaseSettings):
             "the Chain-of-Thought block in responses, so that evaluation happens "
             "at the start of the actual response."
         ),
+        # When storing a settings object, the response prefix is already fixed,
+        # either determined by the automatic mechanism or by explicit user choice.
+        exclude=True,
     )
 
     print_responses: bool = Field(
         default=False,
         description="Whether to print prompt/response pairs when counting refusals.",
+        exclude=True,
     )
 
     print_residual_geometry: bool = Field(
         default=False,
         description="Whether to print detailed information about residuals and refusal directions.",
+        exclude=True,
     )
 
     plot_residuals: bool = Field(
         default=False,
         description="Whether to generate plots showing PaCMAP projections of residual vectors.",
+        exclude=True,
     )
 
     residual_plot_path: str = Field(
         default="plots",
         description="Base path to save plots of residual vectors to.",
+        exclude=True,
     )
 
     residual_plot_title: str = Field(
         default='PaCMAP Projection of Residual Vectors for "Harmless" and "Harmful" Prompts',
         description="Title placed above plots of residual vectors.",
+        exclude=True,
     )
 
     residual_plot_style: str = Field(
         default="dark_background",
         description="Matplotlib style sheet to use for plots of residual vectors.",
+        exclude=True,
     )
 
     kl_divergence_scale: float = Field(
@@ -291,6 +320,7 @@ class Settings(BaseSettings):
     study_checkpoint_dir: str = Field(
         default="checkpoints",
         description="Directory to save and load study progress to/from.",
+        exclude=True,
     )
 
     benchmarks: list[BenchmarkSpecification] = Field(
@@ -352,6 +382,12 @@ class Settings(BaseSettings):
             ),
         ],
         description="Benchmarks to offer to the user for evaluating abliterated models.",
+        exclude=True,
+    )
+
+    max_shard_size: int | str = Field(
+        default="5GB",
+        description="Maximum size for individual safetensors files generated when exporting a model.",
     )
 
     refusal_markers: list[str] = Field(

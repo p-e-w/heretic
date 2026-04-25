@@ -103,9 +103,24 @@ class Evaluator:
         ).item()
         print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
 
-        print("  * Counting model refusals...")
-        refusals = self.count_refusals()
-        print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
+        max_kl_for_refusals = self.settings.max_kl_for_refusals
+        skip_refusals = (
+            max_kl_for_refusals is not None and kl_divergence > max_kl_for_refusals
+        )
+
+        if skip_refusals:
+            # KL divergence exceeds the user-defined threshold, meaning the model has
+            # already been damaged significantly. Skip the (slow) refusal counting step
+            # and assign the worst-case refusal count so that this trial is naturally
+            # dominated in the Pareto front.
+            print(
+                f"  * [yellow]Skipping refusal counting (KL > {max_kl_for_refusals}).[/]"
+            )
+            refusals = len(self.bad_prompts)
+        else:
+            print("  * Counting model refusals...")
+            refusals = self.count_refusals()
+            print(f"  * Refusals: [bold]{refusals}[/]/{len(self.bad_prompts)}")
 
         kl_divergence_scale = self.settings.kl_divergence_scale
         kl_divergence_target = self.settings.kl_divergence_target

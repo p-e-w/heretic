@@ -62,6 +62,12 @@ kl_divergence_scale = 1.0
 # This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".
 kl_divergence_target = 0.01
 
+# If set, skip the (slow) refusal counting step for any trial whose KL divergence exceeds this value.
+# Such trials have already damaged the model significantly, so their refusal count is unlikely to make
+# them Pareto optimal. Skipped trials are recorded with the worst-case refusal count, ensuring they are
+# naturally dominated in the Pareto front. Leave unset (commented out) to always count refusals (the default behavior).
+# max_kl_for_refusals = 1.0
+
 # Whether to adjust the refusal directions so that only the component that is
 # orthogonal to the good direction is subtracted during abliteration.
 orthogonalize_direction = false

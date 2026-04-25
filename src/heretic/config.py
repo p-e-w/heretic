@@ -260,6 +260,16 @@ class Settings(BaseSettings):
         ),
     )
 
+    max_kl_for_refusals: float | None = Field(
+        default=None,
+        description=(
+            "If set, skip the (slow) refusal counting step for any trial whose KL divergence exceeds this value. "
+            "Such trials have already damaged the model significantly, so their refusal count is unlikely to make "
+            "them Pareto optimal. Skipped trials are recorded with the worst-case refusal count, ensuring they are "
+            "naturally dominated in the Pareto front. Leave unset to always count refusals (the default behavior)."
+        ),
+    )
+
     orthogonalize_direction: bool = Field(
         default=False,
         description=(

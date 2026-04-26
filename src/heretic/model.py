@@ -80,17 +80,17 @@ _SNAPSHOT_SAFETY_MARGIN_BYTES = 2 * 1024**3  # 2 GB
 class ARAWeightCache:
     """Caches original weights of ARA-touched modules between trials.
 
-    Holds the invariant: every entry stores the pristine, original weight of
-    its module. To preserve this, the caller must:
-      1. Restore from cache before any new optimization (model becomes clean).
-      2. Drop entries for modules not used on the next trial (free memory).
+    Holds the invariant: every entry stores the pristine, original weight
+    of its module. To preserve this, the caller must:
+      1. Restore from cache before any new optimization (model is clean).
+      2. Drop entries for modules not used on the next trial (free RAM).
       3. Snapshot newly-targeted modules BEFORE mutating them.
 
-    Storage tier is per source device: snapshots stay on the source GPU when
-    there is room (intra-device copy on restore, fastest), otherwise they
-    spill to system RAM. If neither tier can host the snapshot, try_snapshot
-    returns False and the caller is expected to set ``needs_reload`` so that
-    the next reset_model() falls back to a full disk reload.
+    Storage tier is per source device: snapshots stay on the source GPU
+    when there is room (intra-device copy on restore, fastest), otherwise
+    spill to system RAM. If neither tier can host the snapshot,
+    try_snapshot returns False and the caller is expected to set
+    needs_reload so the next reset_model() falls back to a disk reload.
     """
 
     def __init__(self):
@@ -114,7 +114,9 @@ class ARAWeightCache:
                 if snapshot.device == target.device:
                     target.data.copy_(snapshot)
                 else:
-                    target.data.copy_(snapshot.to(target.device, non_blocking=True))
+                    target.data.copy_(
+                        snapshot.to(target.device, non_blocking=True)
+                    )
 
     def free(self, modules: list[Module]) -> None:
         for module in modules:
@@ -123,7 +125,7 @@ class ARAWeightCache:
             self._modules.pop(mid, None)
 
     def clear(self) -> None:
-        # Required after any full reload: cached module ``id``s are stale.
+        # Required after any full reload: cached module ids are stale.
         self._snapshots.clear()
         self._modules.clear()
         self.needs_reload = False
@@ -155,8 +157,7 @@ class ARAWeightCache:
             return True
 
         # Tally size per source device so we make a single accept/reject
-        # decision per device (multiple weights on the same GPU could each
-        # individually "fit" while collectively overflowing).
+        # decision per device.
         size_per_device: dict[torch.device, int] = {}
         for module in modules:
             weight = cast(Tensor, module.weight)
@@ -175,7 +176,10 @@ class ARAWeightCache:
 
         if cpu_required_bytes > 0:
             available = virtual_memory().available
-            if available < cpu_required_bytes + _SNAPSHOT_SAFETY_MARGIN_BYTES:
+            if (
+                available
+                < cpu_required_bytes + _SNAPSHOT_SAFETY_MARGIN_BYTES
+            ):
                 return False
 
         with torch.no_grad():
@@ -206,6 +210,10 @@ class Model:
         # can restore them in O(memcpy) instead of reloading from disk.
         # Only populated when settings.use_ara is True.
         self._ara_cache = ARAWeightCache()
+        # Tracks the dtype of the currently loaded model so reset_model()
+        # can recover even if self.model has been nulled out by an
+        # interrupted previous reset (e.g. Ctrl+C during disk reload).
+        self._dtype: torch.dtype | None = None
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -286,6 +294,10 @@ class Model:
 
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
+
+        # Remember the dtype that worked, so reset_model() can recover
+        # the disk-reload path even if self.model has been nulled out.
+        self._dtype = self.model.dtype
 
         if not settings.use_ara:
             self._apply_lora()
@@ -428,14 +440,31 @@ class Model:
         Resets the model to a clean state for the next trial or evaluation.
 
         Behavior:
-        - Fast path (non-ARA): If the same model is loaded and doesn't need
-          full reload, resets LoRA adapter weights to zero (identity).
-        - Fast path (ARA): If the same model is loaded and the snapshot cache
-          is healthy, restores cached original weights via memcpy. No disk I/O.
-        - Slow path: If switching models, after merge_and_unload(), or when
-          the ARA cache reports it can't fully back the next trial, performs
-          a full model reload with quantization config.
+        - Recovery: If self.model is None (e.g. a previous reset was
+          interrupted between purging self.model and from_pretrained), do
+          a full disk reload using the last known good dtype.
+        - Fast path (non-ARA): If the same model is loaded and doesn't
+          need full reload, resets LoRA adapter weights to zero.
+        - Fast path (ARA): If the same model is loaded and the snapshot
+          cache is healthy, restores cached original weights via memcpy.
+          No disk I/O.
+        - Slow path: If switching models, after merge_and_unload(), or
+          when the ARA cache reports it can't fully back the next trial,
+          performs a full model reload with quantization config.
         """
+        # Recovery path: a previous reset_model() may have been
+        # interrupted (Ctrl+C, OOM) between ``self.model = None`` and
+        # the from_pretrained call below, leaving us with no live model.
+        # Reload using the dtype we recorded at the last successful load.
+        if self.model is None:
+            assert self._dtype is not None, (
+                "self.model is None and no dtype recorded — this should "
+                "be unreachable because __init__ always records a dtype "
+                "after a successful load."
+            )
+            self._reload_from_disk(self._dtype)
+            return
+
         current_model = getattr(self.model.config, "name_or_path", None)
         same_model = current_model == self.settings.model
 
@@ -461,16 +490,19 @@ class Model:
                 self._ara_cache.restore_all()
             return
 
-        # Slow path: full reload from disk. This is the only path that costs
-        # real time (tens of seconds to minutes for large models).
-        print("* Reloading weights from disk...")
+        # Slow path.
+        self._reload_from_disk(self.model.dtype)
 
-        dtype = self.model.dtype
+    def _reload_from_disk(self, dtype: torch.dtype) -> None:
+        """Drop self.model and re-instantiate it from disk with the given
+        dtype. Used by the slow path of reset_model() and by the recovery
+        path when self.model has been nulled out."""
+        print("* Reloading weights from disk...")
 
         # Purge existing model object from memory to make space.
         self.model = None  # ty:ignore[invalid-assignment]
-        # Module IDs captured in the ARA cache reference the model object we
-        # just dropped, so the cache must be cleared before any reload.
+        # Module IDs captured in the ARA cache reference the model object
+        # we just dropped, so the cache must be cleared before any reload.
         self._ara_cache.clear()
         empty_cache()
 
@@ -493,6 +525,7 @@ class Model:
         if not self.settings.use_ara:
             self._apply_lora()
 
+        self._dtype = self.model.dtype
         self.needs_reload = False
 
     def get_layers(self) -> ModuleList:
@@ -721,8 +754,9 @@ class Model:
     def _collect_ara_target_modules(
         self, parameters: ARAParameters
     ) -> list[Module]:
-        """Enumerate every module that ara_abliterate will mutate for these
-        parameters. Used by the snapshot cache planner."""
+        """Enumerate every module that ara_abliterate will mutate for
+        these parameters. Used by the snapshot cache planner.
+        """
         target_modules: list[Module] = []
         for layer_index in range(
             parameters.start_layer_index,
@@ -736,11 +770,11 @@ class Model:
         """Diff the snapshot cache against this trial's targets:
 
         1. Drop snapshots for modules we won't touch (free memory).
-        2. Snapshot newly-targeted modules (which currently hold originals,
-           because reset_model() either restored them from the cache or
-           freshly loaded them from disk).
+        2. Snapshot newly-targeted modules (which currently hold
+           originals, because reset_model() either restored them from
+           the cache or freshly loaded them from disk).
 
-        On insufficient memory, prints a warning and sets ``needs_reload``
+        On insufficient memory, prints a warning and sets needs_reload
         so the next reset_model() falls back to a disk reload.
         """
         cache = self._ara_cache
@@ -762,7 +796,7 @@ class Model:
         size_gb = cache.estimate_total_size(to_add) / (1024**3)
 
         if cache.try_snapshot(to_add):
-            # Only mention the cache when it does meaningful work, to avoid
+            # Only print when the cache does meaningful work, to avoid
             # noise on small models where the snapshot is essentially free.
             if size_gb >= 0.1:
                 print(
@@ -772,8 +806,8 @@ class Model:
             return
 
         # Could not fit the planned snapshot on any tier. Run the trial
-        # anyway, but flag the cache so the next reset_model() reloads from
-        # disk to recover the originals we're about to overwrite.
+        # anyway, but flag the cache so the next reset_model() reloads
+        # from disk to recover the originals we're about to overwrite.
         print(
             f"* [yellow]Not enough RAM to snapshot all targeted layers "
             f"(would need ~[bold]{size_gb:.2f} GB[/]). "
@@ -788,9 +822,12 @@ class Model:
         parameters: ARAParameters,
     ):
         # Plan/refresh the snapshot cache BEFORE any mutation, so the
-        # invariant "cache holds originals" is preserved. reset_model() must
-        # have been called just before this, leaving every module pristine.
-        self._prepare_ara_cache(self._collect_ara_target_modules(parameters))
+        # invariant 'cache holds originals' is preserved. reset_model()
+        # must have been called just before this, leaving every module
+        # pristine.
+        self._prepare_ara_cache(
+            self._collect_ara_target_modules(parameters)
+        )
 
         for layer_index in range(
             parameters.start_layer_index,

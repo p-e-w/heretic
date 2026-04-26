@@ -623,7 +623,7 @@ def run():
         for name, value in get_trial_parameters(settings, trial).items():
             print(f"  * {name} = [bold]{value}[/]")
         if settings.use_ara:
-            print("* Reloading model...")
+            print("* Resetting model...")
             model.reset_model()
             print("* Abliterating (Arbitrary-Rank Ablation)...")
             model.ara_abliterate(good_module_io, bad_module_io, ara_parameters)
@@ -811,7 +811,7 @@ def run():
             for name, value in get_trial_parameters(settings, trial).items():
                 print(f"  * {name} = [bold]{value}[/]")
             if settings.use_ara:
-                print("* Reloading model...")
+                print("* Resetting model...")
                 model.reset_model()
                 print("* Abliterating (Arbitrary-Rank Ablation)...")
                 model.ara_abliterate(

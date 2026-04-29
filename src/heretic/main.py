@@ -63,6 +63,8 @@ from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .system import empty_cache, get_accelerator_info
 from .utils import (
+    copy_auxiliary_safetensors,
+    copy_auxiliary_safetensors_to_hub,
     format_duration,
     get_readme_intro,
     get_trial_parameters,
@@ -794,6 +796,11 @@ def run():
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
+                                # Pass through any auxiliary safetensors shards
+                                # (MTP draft heads, EAGLE/Medusa heads, etc.)
+                                # that heretic doesn't load itself but downstream
+                                # tooling (vLLM/SGLang spec decoding) needs.
+                                copy_auxiliary_safetensors(settings.model, save_directory)
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -896,11 +903,26 @@ def run():
                                     max_shard_size=settings.max_shard_size,
                                     token=token,
                                 )
+                                # Snapshot the main weight keys before freeing
+                                # the merged model — needed by the auxiliary-
+                                # shard copier to detect re-shards of heretic's
+                                # output (different filenames, same content).
+                                main_keys_for_aux = set(merged_model.state_dict().keys())
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.push_to_hub(
                                     repo_id,
                                     private=private,
+                                    token=token,
+                                )
+                                # Push through any auxiliary safetensors shards
+                                # (MTP draft heads, EAGLE/Medusa heads, etc.)
+                                # that heretic doesn't load itself but downstream
+                                # tooling (vLLM/SGLang spec decoding) needs.
+                                copy_auxiliary_safetensors_to_hub(
+                                    settings.model,
+                                    repo_id,
+                                    main_keys=main_keys_for_aux,
                                     token=token,
                                 )
 

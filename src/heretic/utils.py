@@ -180,6 +180,371 @@ def is_hf_path(path: str) -> bool:
     )
 
 
+def _main_safetensors_files(dest_dir: str) -> set[str]:
+    """Set of ``*.safetensors`` filenames listed in the destination's
+    ``model.safetensors.index.json`` ``weight_map``.
+
+    These are the shards heretic itself just re-saved.  Anything else
+    ending in ``.safetensors`` in the source is auxiliary.
+    """
+    index = Path(dest_dir) / "model.safetensors.index.json"
+    if not index.exists():
+        single = Path(dest_dir) / "model.safetensors"
+        return {single.name} if single.exists() else set()
+    try:
+        data = json.loads(index.read_text())
+        return set(data.get("weight_map", {}).values())
+    except Exception:
+        return set()
+
+
+def _safetensors_keys(local_path: str) -> set[str]:
+    """Read the tensor names contained in a safetensors file."""
+    try:
+        from safetensors import safe_open
+
+        with safe_open(local_path, framework="pt") as f:
+            return set(f.keys())
+    except Exception:
+        return set()
+
+
+def _source_weight_map(source_model: str) -> dict[str, str]:
+    """Return ``{tensor_name: shard_filename}`` for the source model.
+
+    Reads ``model.safetensors.index.json`` if present (multi-shard model);
+    otherwise opens the single ``model.safetensors`` and synthesizes a map.
+    Source can be a local dir or an HF repo id.
+    """
+    src = Path(source_model)
+
+    if src.is_dir():
+        idx = src / "model.safetensors.index.json"
+        if idx.exists():
+            try:
+                return dict(json.loads(idx.read_text()).get("weight_map", {}))
+            except Exception:
+                pass
+        single = src / "model.safetensors"
+        if single.exists():
+            return {k: "model.safetensors" for k in _safetensors_keys(str(single))}
+        return {}
+
+    # HF repo id
+    try:
+        idx_local = huggingface_hub.hf_hub_download(
+            source_model, "model.safetensors.index.json",
+        )
+        return dict(json.loads(Path(idx_local).read_text()).get("weight_map", {}))
+    except Exception:
+        try:
+            single = huggingface_hub.hf_hub_download(source_model, "model.safetensors")
+            return {k: "model.safetensors" for k in _safetensors_keys(single)}
+        except Exception:
+            return {}
+
+
+def _resolve_shard_path(source_model: str, shard_name: str) -> str | None:
+    """Return a local path to ``shard_name`` from ``source_model`` (downloads
+    on demand for HF repos)."""
+    src = Path(source_model)
+    if src.is_dir():
+        p = src / shard_name
+        return str(p) if p.exists() else None
+    try:
+        return huggingface_hub.hf_hub_download(source_model, shard_name)
+    except Exception:
+        return None
+
+
+def copy_auxiliary_safetensors(source_model: str, dest_dir: str) -> None:
+    """Preserve auxiliary tensors that ``save_pretrained`` would silently drop.
+
+    ``save_pretrained`` only persists tensors registered in the loaded model
+    class's ``state_dict()``.  Models that have auxiliary weights —
+    Multi-Token Prediction (MTP) draft heads, EAGLE / Medusa drafters,
+    optional vision encoders — store them in two layouts:
+
+    1. **Separate file** (e.g. ``model-mtp-layer.safetensors`` shipped
+       alongside ``model-NNNNN-of-MMMMM.safetensors`` main shards).  The
+       loaded class doesn't know about these weights, ``save_pretrained``
+       writes only main shards, and the auxiliary file is gone on round-trip.
+
+    2. **Embedded** (e.g. Qwen3.6-27B keeps ``mtp.*`` tensors INSIDE
+       ``model-00013-of-00015.safetensors`` and
+       ``model-00015-of-00015.safetensors``, mixed with main weights).
+       The auxiliary tensor names are present in the source's
+       ``model.safetensors.index.json`` ``weight_map`` but absent from
+       the loaded class's state dict, so they're "unexpected" keys and
+       get dropped on save.
+
+    Either way, downstream tooling that expects those auxiliary heads
+    (vLLM ``--speculative-config qwen3_next_mtp``, SGLang spec decoding,
+    ``Qwen3_5MTP`` drafter classes, etc.) will fail to load the
+    heretic-saved checkpoint with ``ValueError: Following weights were
+    not initialized from checkpoint``.
+
+    The fix:
+
+    1. Read both the source's ``weight_map`` and the destination's tensor
+       set (the keys heretic just wrote).
+    2. Compute ``orphan_keys = source_keys - dest_keys`` — tensors in the
+       source that did not survive the round-trip.
+    3. Open just the source shards that hold those orphans, extract only
+       the orphan tensors, write them to a new file
+       ``model-auxiliary.safetensors`` in the destination directory.
+    4. Append the new tensor → file mappings to the destination's
+       ``model.safetensors.index.json`` so loaders that scan the index
+       (vLLM, transformers) find them.
+
+    Heretic's main-shard modifications are NEVER touched; only orphan
+    tensors are extracted and saved.  Safe no-op when the source has no
+    orphan tensors (i.e. heretic's saved set equals the source's).
+    """
+    src = Path(source_model)
+    dst = Path(dest_dir)
+
+    # Build dest tensor set from the index (or the single safetensors file).
+    main_files = _main_safetensors_files(str(dst))
+    dst_keys: set[str] = set()
+    for fname in main_files:
+        fpath = dst / fname
+        if fpath.exists():
+            dst_keys.update(_safetensors_keys(str(fpath)))
+    if not dst_keys:
+        return  # No dest weights — nothing meaningful to do.
+
+    # Build source weight_map: {tensor_name: shard_filename}.
+    source_map = _source_weight_map(source_model)
+    if not source_map:
+        return
+
+    # Orphan tensors: in source but not written by heretic.
+    orphan_keys = sorted(set(source_map.keys()) - dst_keys)
+    if not orphan_keys:
+        return
+
+    # Group orphans by which source shard holds them, so we open each
+    # source file at most once.
+    orphans_by_shard: dict[str, list[str]] = {}
+    for k in orphan_keys:
+        orphans_by_shard.setdefault(source_map[k], []).append(k)
+
+    # Extract orphan tensors.
+    try:
+        from safetensors.torch import save_file
+    except ImportError:
+        print(
+            f"  Warning: safetensors.torch unavailable; "
+            f"cannot preserve {len(orphan_keys)} auxiliary tensor(s)"
+        )
+        return
+
+    extracted: dict[str, Any] = {}
+    for shard_name, keys in orphans_by_shard.items():
+        shard_path = _resolve_shard_path(source_model, shard_name)
+        if shard_path is None:
+            print(
+                f"  Warning: cannot locate source shard {shard_name}; "
+                f"skipping {len(keys)} tensor(s)"
+            )
+            continue
+        try:
+            from safetensors import safe_open
+
+            with safe_open(shard_path, framework="pt") as f:
+                for k in keys:
+                    extracted[k] = f.get_tensor(k)
+        except Exception as e:
+            print(f"  Warning: failed reading {shard_name}: {e}")
+            continue
+
+    if not extracted:
+        return
+
+    # Write to a new file alongside the main shards.
+    out_name = "model-auxiliary.safetensors"
+    out_path = dst / out_name
+    if out_path.exists():
+        # Don't overwrite existing aux file (idempotent reruns).
+        print(f"  * {out_name} already exists in {dest_dir}; skipping")
+        return
+    try:
+        save_file(extracted, str(out_path))
+    except Exception as e:
+        print(f"  Warning: failed writing {out_name}: {e}")
+        return
+
+    # Update the destination index so loaders find the new file.
+    idx_path = dst / "model.safetensors.index.json"
+    if idx_path.exists():
+        try:
+            idx = json.loads(idx_path.read_text())
+            wm = idx.setdefault("weight_map", {})
+            for k in extracted:
+                wm[k] = out_name
+            idx_path.write_text(json.dumps(idx, indent=2))
+        except Exception as e:
+            print(f"  Warning: failed updating index: {e}")
+    else:
+        # Single-file model heretic saved — synthesize an index covering
+        # both the main file and the new auxiliary file.
+        try:
+            single = dst / "model.safetensors"
+            wm: dict[str, str] = {}
+            if single.exists():
+                for k in _safetensors_keys(str(single)):
+                    wm[k] = "model.safetensors"
+            for k in extracted:
+                wm[k] = out_name
+            idx_path.write_text(json.dumps({"metadata": {}, "weight_map": wm}, indent=2))
+        except Exception as e:
+            print(f"  Warning: failed creating index: {e}")
+
+    print(
+        f"  * Preserved {len(extracted)} auxiliary tensor(s) "
+        f"(MTP / draft / aux heads) in {out_name} and registered them in the index"
+    )
+
+
+def copy_auxiliary_safetensors_to_hub(
+    source_model: str,
+    repo_id: str,
+    main_keys: set[str] | None = None,
+    token: str | None = None,
+) -> None:
+    """Hub counterpart of :func:`copy_auxiliary_safetensors`.
+
+    Extracts auxiliary tensors from ``source_model`` (the orphan keys —
+    those present in the source ``weight_map`` but absent from
+    ``main_keys`` / the destination repo) and uploads them to ``repo_id``
+    as ``model-auxiliary.safetensors``, then patches the destination
+    repo's ``model.safetensors.index.json`` to register those keys.
+
+    Caller should pass ``main_keys = set(merged_model.state_dict().keys())``
+    captured *before* the merged model is freed; if not provided we fall
+    back to reading the destination repo's index, which only describes
+    file names rather than the in-memory state dict.
+    """
+    api = huggingface_hub.HfApi()
+
+    # Determine the destination's main tensor set.  Prefer the caller's
+    # in-memory state-dict keys (precise); fall back to scraping the
+    # destination repo's index if not provided.
+    if main_keys is None:
+        try:
+            idx_local = huggingface_hub.hf_hub_download(
+                repo_id, "model.safetensors.index.json", token=token,
+            )
+            dst_keys = set(
+                json.loads(Path(idx_local).read_text())
+                .get("weight_map", {}).keys()
+            )
+        except Exception:
+            dst_keys = set()
+    else:
+        dst_keys = set(main_keys)
+
+    # Source weight_map.
+    source_map = _source_weight_map(source_model)
+    if not source_map:
+        return
+
+    orphan_keys = sorted(set(source_map.keys()) - dst_keys)
+    if not orphan_keys:
+        return
+
+    # Group orphans by source shard.
+    orphans_by_shard: dict[str, list[str]] = {}
+    for k in orphan_keys:
+        orphans_by_shard.setdefault(source_map[k], []).append(k)
+
+    # Extract.
+    try:
+        from safetensors.torch import save_file
+    except ImportError:
+        print(
+            f"  Warning: safetensors.torch unavailable; "
+            f"cannot preserve {len(orphan_keys)} auxiliary tensor(s)"
+        )
+        return
+
+    extracted: dict[str, Any] = {}
+    for shard_name, keys in orphans_by_shard.items():
+        shard_path = _resolve_shard_path(source_model, shard_name)
+        if shard_path is None:
+            continue
+        try:
+            from safetensors import safe_open
+
+            with safe_open(shard_path, framework="pt") as f:
+                for k in keys:
+                    extracted[k] = f.get_tensor(k)
+        except Exception as e:
+            print(f"  Warning: failed reading {shard_name}: {e}")
+            continue
+
+    if not extracted:
+        return
+
+    # Save to a temp file then upload.
+    import tempfile
+
+    out_name = "model-auxiliary.safetensors"
+    with tempfile.TemporaryDirectory() as td:
+        out_path = Path(td) / out_name
+        try:
+            save_file(extracted, str(out_path))
+        except Exception as e:
+            print(f"  Warning: failed writing {out_name}: {e}")
+            return
+
+        try:
+            huggingface_hub.upload_file(
+                path_or_fileobj=str(out_path),
+                path_in_repo=out_name,
+                repo_id=repo_id,
+                token=token,
+            )
+        except Exception as e:
+            print(f"  Warning: failed uploading {out_name}: {e}")
+            return
+
+    # Patch the destination index to register the new tensor → file mappings.
+    try:
+        idx_local = huggingface_hub.hf_hub_download(
+            repo_id, "model.safetensors.index.json", token=token,
+        )
+        idx = json.loads(Path(idx_local).read_text())
+    except Exception:
+        idx = {"metadata": {}, "weight_map": {}}
+
+    wm = idx.setdefault("weight_map", {})
+    for k in extracted:
+        wm[k] = out_name
+
+    import tempfile as _t
+    with _t.NamedTemporaryFile("w", suffix=".json", delete=False) as fout:
+        fout.write(json.dumps(idx, indent=2))
+        new_idx_path = fout.name
+    try:
+        huggingface_hub.upload_file(
+            path_or_fileobj=new_idx_path,
+            path_in_repo="model.safetensors.index.json",
+            repo_id=repo_id,
+            token=token,
+        )
+    except Exception as e:
+        print(f"  Warning: failed patching destination index: {e}")
+        return
+
+    print(
+        f"  * Preserved {len(extracted)} auxiliary tensor(s) "
+        f"(MTP / draft / aux heads) in {out_name} on {repo_id} "
+        f"and registered them in the index"
+    )
+
+
 @dataclass
 class Prompt:
     system: str

@@ -154,13 +154,15 @@ class Model:
         # so we don't need to do anything manually.
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
-        print("* Abliterable components:")
+
         all_components = {}
         for layer_index in range(len(self.get_layers())):
             for component, modules in self.get_layer_modules(layer_index).items():
                 if component not in all_components:
                     all_components[component] = 0
                 all_components[component] += len(modules)
+
+        print("* Abliterable components:")
         for component, count in all_components.items():
             print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
 
@@ -368,8 +370,8 @@ class Model:
         with suppress(Exception):
             try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
 
-        # Qwen3.5 MoE hybrid layers use GatedDeltaNet (linear attention) instead
-        # of standard self-attention, so self_attn.o_proj doesn't exist on those layers.
+        # Qwen3.5 MoE hybrid layers use GatedDeltaNet (linear attention) instead of
+        # standard self-attention, so self_attn.o_proj doesn't exist on those layers.
         with suppress(Exception):
             try_add("attn.o_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
 
@@ -403,11 +405,13 @@ class Model:
         return modules
 
     def get_abliterable_components(self) -> list[str]:
+        components: set[str] = set()
+
         # Scan all layers because hybrid models (e.g. Qwen3.5 MoE) have different
         # components on different layers (some have self_attn, others linear_attn).
-        components: set[str] = set()
         for layer_index in range(len(self.get_layers())):
             components.update(self.get_layer_modules(layer_index).keys())
+
         return sorted(components)
 
     def abliterate(
@@ -744,9 +748,8 @@ class Model:
         # The returned tensor has shape (prompt, token).
         logprobs = F.log_softmax(logits, dim=-1)
 
-        del outputs
-
         if self.settings.offload_outputs_to_cpu:
+            del outputs, logits
             logprobs = logprobs.cpu()
             empty_cache()
 

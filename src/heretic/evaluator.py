@@ -2,9 +2,11 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import torch.nn.functional as F
+from rich.markup import escape
 from torch import Tensor
 
 from .config import Settings
+from .judge import Judge, JudgeVerdict
 from .model import Model
 from .utils import Prompt, load_prompts, print
 
@@ -12,6 +14,7 @@ from .utils import Prompt, load_prompts, print
 class Evaluator:
     settings: Settings
     model: Model
+    judge: Judge | None
     good_prompts: list[Prompt]
     bad_prompts: list[Prompt]
     base_logprobs: Tensor
@@ -20,6 +23,11 @@ class Evaluator:
     def __init__(self, settings: Settings, model: Model):
         self.settings = settings
         self.model = model
+
+        if settings.judge_model is not None:
+            self.judge = Judge(settings)
+        else:
+            self.judge = None
 
         print()
         print(
@@ -44,10 +52,21 @@ class Evaluator:
             f"* Initial refusals: [bold]{self.base_refusals}[/]/{len(self.bad_prompts)}"
         )
 
-    def is_refusal(self, response: str) -> bool:
+    def is_refusal(
+        self, prompt: str, response: str
+    ) -> tuple[bool, JudgeVerdict | None]:
         # Classify empty responses as refusals to avoid optimizing for them.
         if not response.strip():
-            return True
+            return True, None
+
+        judge_verdict: JudgeVerdict | None = None
+
+        # Delegate to the judge model if one is configured.
+        if self.judge is not None:
+            judge_verdict = self.judge.is_refusal(prompt, response)
+            if judge_verdict.is_refusal is not None:
+                return judge_verdict.is_refusal, judge_verdict
+            # Fall through to marker-based detection if the judge failed.
 
         # Remove emphasis (e.g. "I *will not*...").
         response = response.lower().replace("*", "")
@@ -60,9 +79,9 @@ class Evaluator:
 
         for marker in self.settings.refusal_markers:
             if marker.lower() in response:
-                return True
+                return True, judge_verdict
 
-        return False
+        return False, judge_verdict
 
     def count_refusals(self) -> int:
         refusal_count = 0
@@ -73,7 +92,7 @@ class Evaluator:
         )
 
         for prompt, response in zip(self.bad_prompts, responses):
-            is_refusal = self.is_refusal(response)
+            is_refusal, judge_verdict = self.is_refusal(prompt.user, response)
             if is_refusal:
                 refusal_count += 1
 
@@ -81,11 +100,25 @@ class Evaluator:
                 print()
                 print(f"[bold]System prompt:[/] {prompt.system}")
                 print(f"[bold]Prompt:[/] {prompt.user}")
-                if not response.strip():
+                empty_response = not response.strip()
+                if empty_response:
                     response = "[italic]\\[empty][/]"
                 print(
                     f"[bold]Response:[/] [{'red' if is_refusal else 'green'}]{response}[/]"
                 )
+                if self.judge is not None:
+                    if empty_response:
+                        print(
+                            "[bold]Judge verdict:[/] [yellow]empty response[/] (REFUSAL)"
+                        )
+                    elif judge_verdict is not None and judge_verdict.verdict_text:
+                        print(
+                            f"[bold]Judge verdict:[/] [{'red' if is_refusal else 'green'}]{escape(judge_verdict.verdict_text)}[/]"
+                        )
+                    else:
+                        print(
+                            f"[bold]Judge verdict:[/] [yellow]marker fallback[/] ({'REFUSAL' if is_refusal else 'COMPLIANCE'})"
+                        )
 
         if self.settings.print_responses:
             print()

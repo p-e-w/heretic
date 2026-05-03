@@ -28,12 +28,12 @@ dependencies = [
     "hf-transfer~=0.1",
     "huggingface-hub~=1.7",
     "immutabledict~=4.3",
-    "kernels~=0.12",
+    "kernels~=0.13",
     "langdetect~=1.0",
     "lm-eval[hf]~=0.4",
     "numpy~=2.2",
     "optuna~=4.7",
-    "peft~=0.18",
+    "peft~=0.19",
     "psutil~=7.2",
     "py-cpuinfo~=9.0",
     "pydantic-settings~=2.13",
@@ -41,7 +41,7 @@ dependencies = [
     "rich~=14.3",
     "tomli-w~=1.2",
     "tqdm~=4.67",
-    "transformers~=5.3",
+    "transformers~=5.6",
 ]
 
 [project.optional-dependencies]

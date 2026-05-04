@@ -688,8 +688,9 @@ def run():
             (
                 "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
                 "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
-                "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
-                "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"
+                "chat with it to test how well it works, or run standard benchmarks on it. "
+                "You can return to this menu later to select a different trial. "
+                "[yellow]Note that KL divergence values above 0.5 usually indicate significant damage to the original model's capabilities.[/]"
             )
         )
 

@@ -141,6 +141,16 @@ class Settings(BaseSettings):
         description='Maximum memory to allocate per device (e.g., { "0" = "20GB", "cpu" = "64GB" }).',
     )
 
+    offload_outputs_to_cpu: bool = Field(
+        default=True,
+        description=(
+            "Whether to move intermediate analysis tensors (such as residuals and logprobs) "
+            "to CPU memory as soon as possible to reduce peak VRAM usage. "
+            "This lowers peak VRAM usage during residual analysis and evaluation, "
+            "but may slightly reduce performance due to host/device transfers."
+        ),
+    )
+
     trust_remote_code: bool | None = Field(
         default=None,
         description="Whether to trust remote code when loading the model.",
@@ -261,7 +271,7 @@ class Settings(BaseSettings):
     )
 
     orthogonalize_direction: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Whether to adjust the refusal directions so that only the component that is "
             "orthogonal to the good direction is subtracted during abliteration."
@@ -269,7 +279,7 @@ class Settings(BaseSettings):
     )
 
     row_normalization: RowNormalization = Field(
-        default=RowNormalization.NONE,
+        default=RowNormalization.FULL,
         description=(
             "How to apply row normalization of the weights. Options: "
             '"none" (no normalization), '
@@ -431,14 +441,6 @@ class Settings(BaseSettings):
     system_prompt: str = Field(
         default="You are a helpful assistant.",
         description="System prompt to use when prompting the model.",
-    )
-
-    offload_outputs_to_cpu: bool = Field(
-        default=True,
-        description=(
-            "Whether to move intermediate analysis tensors (such as residuals and logprobs) "
-            "to CPU memory as soon as possible to reduce peak VRAM usage."
-        ),
     )
 
     good_prompts: DatasetSpecification = Field(

@@ -9,6 +9,7 @@ import random
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -283,8 +284,6 @@ def get_readme_intro(
         # Hide the path, which may contain private information.
         model_link = "a model"
 
-    version_info = get_heretic_version_info()
-
     if contains_reproducibility_information:
         reproducibility_instructions = """
 > [!TIP]
@@ -297,7 +296,7 @@ def get_readme_intro(
 
     return f"""# This is a decensored version of {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version_info.version}
+    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}
 {reproducibility_instructions}
 ## Abliteration parameters
 

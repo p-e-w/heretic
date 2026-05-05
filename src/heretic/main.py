@@ -742,17 +742,21 @@ def run():
             print("* Parameters:")
             for name, value in get_trial_parameters(trial).items():
                 print(f"  * {name} = [bold]{value}[/]")
-            print("* Resetting model...")
-            model.reset_model()
-            print("* Abliterating...")
-            model.abliterate(
-                refusal_directions,
-                trial.user_attrs["direction_index"],
-                {
-                    k: AbliterationParameters(**v)
-                    for k, v in trial.user_attrs["parameters"].items()
-                },
-            )
+
+            def reset_trial_model() -> None:
+                print("* Resetting model...")
+                model.reset_model()
+                print("* Abliterating...")
+                model.abliterate(
+                    refusal_directions,
+                    trial.user_attrs["direction_index"],
+                    {
+                        k: AbliterationParameters(**v)
+                        for k, v in trial.user_attrs["parameters"].items()
+                    },
+                )
+
+            reset_trial_model()
 
             while True:
                 print()
@@ -800,6 +804,7 @@ def run():
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
+                                reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -909,6 +914,7 @@ def run():
                                     private=private,
                                     token=token,
                                 )
+                                reset_trial_model()
 
                             if is_hf_path(settings.model):
                                 card = ModelCard.load(settings.model)

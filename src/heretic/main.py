@@ -131,31 +131,26 @@ def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
             )
         print()
 
-        strategy = prompt_select(
-            "How do you want to proceed?",
-            choices=[
-                Choice(
-                    title="Merge LoRA into full model"
-                    + (
-                        ""
-                        if settings.quantization == QuantizationMethod.NONE
-                        else " (requires sufficient RAM)"
-                    ),
-                    value="merge",
+    strategy = prompt_select(
+        "How do you want to proceed?",
+        choices=[
+            Choice(
+                title="Merge LoRA into full model"
+                + (
+                    ""
+                    if settings.quantization == QuantizationMethod.NONE
+                    else " (requires sufficient RAM)"
                 ),
-                Choice(
-                    title="Cancel",
-                    value="cancel",
-                ),
-            ],
-        )
+                value="merge",
+            ),
+            Choice(
+                title="Save LoRA adapter only (can be merged later)",
+                value="adapter",
+            ),
+        ],
+    )
 
-        if strategy == "cancel":
-            return None
-
-        return strategy
-    else:
-        return "merge"
+    return strategy
 
 
 def run():

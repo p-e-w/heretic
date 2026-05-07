@@ -103,6 +103,16 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
+    collect_reproducibles: str | None = Field(
+        default=None,
+        description=(
+            "If this directory path is set, then instead of abliterating a model, "
+            "download all reproduce.json files from public Heretic model repositories "
+            "on Hugging Face, and store them in that directory for archival purposes."
+        ),
+        exclude=True,
+    )
+
     dtypes: list[str] = Field(
         default=[
             # In practice, "auto" almost always means bfloat16.

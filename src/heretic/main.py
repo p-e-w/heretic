@@ -738,6 +738,8 @@ def run():
             for name, value in get_trial_parameters(trial).items():
                 print(f"  * {name} = [bold]{value}[/]")
 
+            # Per https://github.com/huggingface/peft/issues/868#issuecomment-1820642893 once a LoRA is merged it's
+            # expected to be empty. Provide a utility function to restore the previous LoRA-ified state.
             def reset_trial_model() -> None:
                 print("* Resetting model...")
                 model.reset_model()

@@ -65,6 +65,7 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .reproduce import collect_reproducibles
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
@@ -177,6 +178,8 @@ def run():
     if (
         # There is at least one argument (argv[0] is the program name).
         len(sys.argv) > 1
+        # Heretic is being invoked in standard (model processing) mode.
+        and "--collect-reproducibles" not in sys.argv
         # No model has been explicitly provided.
         and "--model" not in sys.argv
         # The last argument is a parameter value rather than a flag (such as "--help").
@@ -184,6 +187,11 @@ def run():
     ):
         # Assume the last argument is the model.
         sys.argv.insert(-1, "--model")
+
+    # Work around the "model" argument being required
+    # when Heretic is invoked in a non-processing mode.
+    if "--collect-reproducibles" in sys.argv and "--model" not in sys.argv:
+        sys.argv.extend(["--model", ""])
 
     try:
         # The required argument "model" must be provided by the user,
@@ -199,6 +207,10 @@ def run():
         print(
             "Run [bold]heretic --help[/] or see [bold]config.default.toml[/] for details about configuration parameters."
         )
+        return
+
+    if settings.collect_reproducibles is not None:
+        collect_reproducibles(settings.collect_reproducibles)
         return
 
     if settings.seed is None:

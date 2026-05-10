@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import huggingface_hub
+from huggingface_hub.utils import HFValidationError, validate_repo_id
 import numpy as np
 import questionary
 import tomli_w
@@ -172,13 +173,15 @@ def format_duration(seconds: float) -> str:
 def is_hf_path(path: str) -> bool:
     """Checks whether a path likely refers to a Hugging Face repository."""
 
-    return (
-        not path.startswith("/")
-        and not path.endswith("/")
-        and path.count("/") == 1
-        and "\\" not in path
-        and not Path(path).exists()
-    )
+    if Path(path).exists():
+        return False
+
+    try:
+        validate_repo_id(path)
+    except HFValidationError:
+        return False
+
+    return True
 
 
 @dataclass

@@ -29,7 +29,7 @@ from transformers.generation import (
     GenerateDecoderOnlyOutput,  # ty:ignore[possibly-missing-import]
 )
 
-from .config import QuantizationMethod, RowNormalization, Settings
+from .config import ModelComponent, QuantizationMethod, RowNormalization, Settings
 from .system import empty_cache
 from .utils import Prompt, batchify, print
 
@@ -155,7 +155,7 @@ class Model:
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
 
-        all_components = {}
+        all_components: dict[ModelComponent, int] = {}
         for layer_index in range(len(self.get_layers())):
             for component, modules in self.get_layer_modules(layer_index).items():
                 if component not in all_components:
@@ -164,7 +164,7 @@ class Model:
 
         print("* Abliterable components:")
         for component, count in all_components.items():
-            print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
+            print(f"  * [bold]{component.value}[/]: [bold]{count}[/] modules total")
 
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.
@@ -349,12 +349,12 @@ class Model:
         # Text-only models.
         return model.model.layers
 
-    def get_layer_modules(self, layer_index: int) -> dict[str, list[Module]]:
+    def get_layer_modules(self, layer_index: int) -> dict[ModelComponent, list[Module]]:
         layer = self.get_layers()[layer_index]
 
-        modules = {}
+        modules: dict[ModelComponent, list[Module]] = {}
 
-        def try_add(component: str, module: Any):
+        def try_add(component: ModelComponent, module: Any):
             # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
             if isinstance(module, Module):
                 if component not in modules:
@@ -363,40 +363,40 @@ class Model:
             else:
                 # Assert for unexpected types (catches architecture changes)
                 assert not isinstance(module, Tensor), (
-                    f"Unexpected Tensor in {component} - expected nn.Module"
+                    f"Unexpected Tensor in {component.value} - expected nn.Module"
                 )
 
         # Standard self-attention out-projection (most models).
         with suppress(Exception):
-            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
+            try_add(ModelComponent.ATTN_O_PROJ, layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Qwen3.5 MoE hybrid layers use GatedDeltaNet (linear attention) instead of
         # standard self-attention, so self_attn.o_proj doesn't exist on those layers.
         with suppress(Exception):
-            try_add("attn.o_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
+            try_add(ModelComponent.ATTN_O_PROJ, layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Most dense models.
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.mlp.down_proj)  # ty:ignore[possibly-missing-attribute]
+            try_add(ModelComponent.MLP_DOWN_PROJ, layer.mlp.down_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Some MoE models (e.g. Qwen3).
         with suppress(Exception):
             for expert in layer.mlp.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
-                try_add("mlp.down_proj", expert.down_proj)  # ty:ignore[possibly-missing-attribute]
+                try_add(ModelComponent.MLP_DOWN_PROJ, expert.down_proj)  # ty:ignore[possibly-missing-attribute]
 
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
             for expert in layer.block_sparse_moe.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
-                try_add("mlp.down_proj", expert.w2)  # ty:ignore[possibly-missing-attribute]
+                try_add(ModelComponent.MLP_DOWN_PROJ, expert.w2)  # ty:ignore[possibly-missing-attribute]
 
         # Granite MoE Hybrid - attention layers with shared_mlp.
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.shared_mlp.output_linear)  # ty:ignore[possibly-missing-attribute]
+            try_add(ModelComponent.MLP_DOWN_PROJ, layer.shared_mlp.output_linear)  # ty:ignore[possibly-missing-attribute]
 
         # Granite MoE Hybrid - MoE layers with experts.
         with suppress(Exception):
             for expert in layer.moe.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
-                try_add("mlp.down_proj", expert.output_linear)  # ty:ignore[possibly-missing-attribute]
+                try_add(ModelComponent.MLP_DOWN_PROJ, expert.output_linear)  # ty:ignore[possibly-missing-attribute]
 
         # We need at least one module across all components for abliteration to work.
         total_modules = sum(len(mods) for mods in modules.values())
@@ -404,8 +404,8 @@ class Model:
 
         return modules
 
-    def get_abliterable_components(self) -> list[str]:
-        components: set[str] = set()
+    def get_abliterable_components(self) -> list[ModelComponent]:
+        components: set[ModelComponent] = set()
 
         # Scan all layers because hybrid models (e.g. Qwen3.5 MoE) have different
         # components on different layers (some have self_attn, others linear_attn).

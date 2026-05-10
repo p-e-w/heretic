@@ -20,6 +20,11 @@ from pydantic_settings import (
 # exclude=True set in their field definitions if appropriate.
 
 
+class ModelComponent(str, Enum):
+    ATTN_O_PROJ = "attn.o_proj"
+    MLP_DOWN_PROJ = "mlp.down_proj"
+
+
 class QuantizationMethod(str, Enum):
     NONE = "none"
     BNB_4BIT = "bnb_4bit"

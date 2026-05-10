@@ -516,19 +516,19 @@ def run():
         if direction_scope == "per layer":
             direction_index = None
 
-        parameters = {}
+        parameters: dict[str, AbliterationParameters] = {}
 
         for component in model.get_abliterable_components():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.
             max_weight = trial.suggest_float(
-                f"{component}.max_weight",
+                f"{component.value}.max_weight",
                 0.8,
                 1.5,
             )
             max_weight_position = trial.suggest_float(
-                f"{component}.max_weight_position",
+                f"{component.value}.max_weight_position",
                 0.6 * last_layer_index,
                 1.0 * last_layer_index,
             )
@@ -536,17 +536,17 @@ def run():
             # again because multivariate TPE doesn't support variable-range parameters.
             # The value is transformed into the actual min_weight value below.
             min_weight = trial.suggest_float(
-                f"{component}.min_weight",
+                f"{component.value}.min_weight",
                 0.0,
                 1.0,
             )
             min_weight_distance = trial.suggest_float(
-                f"{component}.min_weight_distance",
+                f"{component.value}.min_weight_distance",
                 1.0,
                 0.6 * last_layer_index,
             )
 
-            parameters[component] = AbliterationParameters(
+            parameters[component.value] = AbliterationParameters(
                 max_weight=max_weight,
                 max_weight_position=max_weight_position,
                 min_weight=(min_weight * max_weight),

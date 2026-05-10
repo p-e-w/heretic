@@ -70,7 +70,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import ExportStrategy, QuantizationMethod
+from .config import ExportStrategy, ModelComponent, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .reproduce import (
@@ -604,7 +604,7 @@ def run():
         if direction_scope == "per layer":
             direction_index = None
 
-        parameters = {}
+        parameters: dict[ModelComponent, AbliterationParameters] = {}
 
         for component in model.get_abliterable_components():
             # The parameter ranges are based on experiments with various models

@@ -1,8 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import sys
 from enum import Enum
-from typing import Dict
+from typing import TYPE_CHECKING, Dict
+
+if TYPE_CHECKING or sys.version_info < (3, 11):
+    from backports.strenum import StrEnum
+else:
+    from enum import StrEnum
 
 from pydantic import (
     BaseModel,
@@ -23,6 +29,11 @@ from pydantic_settings import (
 # Any settings added to the classes defined in this module
 # must be evaluated for privacy implications and have
 # exclude=True set in their field definitions if appropriate.
+
+
+class ModelComponent(StrEnum):
+    ATTN_O_PROJ = "attn.o_proj"
+    MLP_DOWN_PROJ = "mlp.down_proj"
 
 
 class QuantizationMethod(str, Enum):

@@ -487,7 +487,10 @@ def run():
 
     def objective(trial: Trial) -> tuple[float, float]:
         nonlocal trial_index
-        trial_index += 1
+        trial_index = (
+            sum(1 for t in trial.study.trials if t.state == TrialState.COMPLETE)
+            + 1
+        )
         trial.set_user_attr("index", trial_index)
 
         direction_scope = trial.suggest_categorical(

@@ -65,7 +65,7 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
-from .reproduce import collect_reproducibles
+from .reproduce import collect_reproducibles, load_reproduction_information
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
@@ -175,6 +175,7 @@ def run():
         len(sys.argv) > 1
         # Heretic is being invoked in standard (model processing) mode.
         and "--collect-reproducibles" not in sys.argv
+        and "--reproduce" not in sys.argv
         # No model has been explicitly provided.
         and "--model" not in sys.argv
         # The last argument is a parameter value rather than a flag (such as "--help").
@@ -185,7 +186,9 @@ def run():
 
     # Work around the "model" argument being required
     # when Heretic is invoked in a non-processing mode.
-    if "--collect-reproducibles" in sys.argv and "--model" not in sys.argv:
+    if (
+        "--collect-reproducibles" in sys.argv or "--reproduce" in sys.argv
+    ) and "--model" not in sys.argv:
         sys.argv.extend(["--model", ""])
 
     try:
@@ -206,6 +209,12 @@ def run():
 
     if settings.collect_reproducibles is not None:
         collect_reproducibles(settings.collect_reproducibles)
+        return
+
+    if settings.reproduce is not None:
+        print(f"Loading reproduction information from [bold]{settings.reproduce}[/]...")
+        reproduction_information = load_reproduction_information(settings.reproduce)
+        print(reproduction_information)
         return
 
     if settings.seed is None:

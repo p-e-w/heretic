@@ -113,6 +113,15 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
+    reproduce: str | None = Field(
+        default=None,
+        description=(
+            "If this path or URL to a reproduce.json file is set, load reproduction information "
+            "from that file, and attempt to reproduce the abliterated model it originated from."
+        ),
+        exclude=True,
+    )
+
     dtypes: list[str] = Field(
         default=[
             # In practice, "auto" almost always means bfloat16.

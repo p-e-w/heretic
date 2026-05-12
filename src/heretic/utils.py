@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import huggingface_hub
-from huggingface_hub.utils import HFValidationError, validate_repo_id
+from huggingface_hub.utils import validate_repo_id
 import numpy as np
 import questionary
 import tomli_w
@@ -176,11 +176,7 @@ def is_hf_path(path: str) -> bool:
     if Path(path).exists():
         return False
 
-    try:
-        validate_repo_id(path)
-    except HFValidationError:
-        return False
-
+    validate_repo_id(path)
     return True
 
 

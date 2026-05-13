@@ -27,6 +27,12 @@ device_map = "auto"
 # Maximum memory to allocate per device.
 # max_memory = { "0" = "20GB", "cpu" = "64GB" }
 
+# Whether to move intermediate analysis tensors (such as residuals and logprobs)
+# to CPU memory as soon as possible to reduce peak VRAM usage.
+# This lowers peak VRAM usage during residual analysis and evaluation,
+# but may slightly reduce performance due to host/device transfers.
+offload_outputs_to_cpu = true
+
 # Number of input sequences to process in parallel (0 = auto).
 batch_size = 0  # auto
 
@@ -35,6 +41,32 @@ max_batch_size = 128
 
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
+
+# List of pairs of the form [cot_initializer, closed_cot_block] used to skip
+# the Chain-of-Thought block in responses, so that evaluation happens
+# at the start of the actual response.
+chain_of_thought_skips = [
+    # Most thinking models.
+    [
+        "<think>",
+        "<think></think>",
+    ],
+    # gpt-oss.
+    [
+        "<|channel|>analysis<|message|>",
+        "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>",
+    ],
+    # Unknown, suggested by user.
+    [
+        "<thought>",
+        "<thought></thought>",
+    ],
+    # Unknown, suggested by user.
+    [
+        "[THINK]",
+        "[THINK][/THINK]",
+    ],
+]
 
 # Whether to print detailed information about residuals and refusal directions.
 print_residual_geometry = false
@@ -62,13 +94,13 @@ scorers = [
 
 # Whether to adjust the refusal directions so that only the component that is
 # orthogonal to the good direction is subtracted during abliteration.
-orthogonalize_direction = false
+orthogonalize_direction = true
 
 # How to apply row normalization of the weights. Options:
 # "none" (no normalization),
 # "pre" (compute LoRA adapter relative to row-normalized weights),
 # "full" (like "pre", but renormalizes to preserve original row magnitudes).
-row_normalization = "none"
+row_normalization = "full"
 
 # The rank of the LoRA adapter to use when "full" row normalization is used.
 # Row magnitude preservation is approximate due to non-linear effects,
@@ -96,6 +128,9 @@ n_startup_trials = 60
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"
 
+# Maximum size for individual safetensors files generated when exporting a model.
+max_shard_size = "5GB"
+
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 
@@ -106,7 +141,6 @@ split = "train[:400]"
 column = "text"
 residual_plot_label = '"Harmless" prompts'
 residual_plot_color = "royalblue"
-commit = ""
 
 # Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
 [bad_prompts]
@@ -115,7 +149,6 @@ split = "train[:400]"
 column = "text"
 residual_plot_label = '"Harmful" prompts'
 residual_plot_color = "darkorange"
-commit = ""
 
 # Plugin-specific settings live in a top-level TOML table.
 # For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>_<instance_name>]` for instance-related config).

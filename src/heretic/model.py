@@ -62,12 +62,17 @@ class Model:
         self.settings = settings
         self.needs_reload = False
 
+        self.revision_kwargs = {}
+        if settings.model_commit is not None:
+            self.revision_kwargs["revision"] = settings.model_commit
+
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             settings.model,
             trust_remote_code=settings.trust_remote_code,
+            **self.revision_kwargs,
         )
 
         # Fallback for tokenizers that don't declare a special pad token.
@@ -108,6 +113,7 @@ class Model:
                     device_map=settings.device_map,
                     max_memory=self.max_memory,
                     trust_remote_code=self.trusted_models.get(settings.model),
+                    **self.revision_kwargs,
                     **extra_kwargs,
                 )
 
@@ -148,13 +154,15 @@ class Model:
         # so we don't need to do anything manually.
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
-        print("* Abliterable components:")
+
         all_components = {}
         for layer_index in range(len(self.get_layers())):
             for component, modules in self.get_layer_modules(layer_index).items():
                 if component not in all_components:
                     all_components[component] = 0
                 all_components[component] += len(modules)
+
+        print("* Abliterable components:")
         for component, count in all_components.items():
             print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
 
@@ -257,6 +265,7 @@ class Model:
                 torch_dtype=self.model.dtype,
                 device_map="cpu",
                 trust_remote_code=self.trusted_models.get(self.settings.model),
+                **self.revision_kwargs,
             )
 
             # Apply LoRA adapters to the CPU model
@@ -318,6 +327,7 @@ class Model:
             device_map=self.settings.device_map,
             max_memory=self.max_memory,
             trust_remote_code=self.trusted_models.get(self.settings.model),
+            **self.revision_kwargs,
             **extra_kwargs,
         )
 
@@ -360,8 +370,8 @@ class Model:
         with suppress(Exception):
             try_add("attn.o_proj", layer.self_attn.o_proj)  # ty:ignore[possibly-missing-attribute]
 
-        # Qwen3.5 MoE hybrid layers use GatedDeltaNet (linear attention) instead
-        # of standard self-attention, so self_attn.o_proj doesn't exist on those layers.
+        # Qwen3.5 MoE hybrid layers use GatedDeltaNet (linear attention) instead of
+        # standard self-attention, so self_attn.o_proj doesn't exist on those layers.
         with suppress(Exception):
             try_add("attn.o_proj", layer.linear_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
 
@@ -395,11 +405,13 @@ class Model:
         return modules
 
     def get_abliterable_components(self) -> list[str]:
+        components: set[str] = set()
+
         # Scan all layers because hybrid models (e.g. Qwen3.5 MoE) have different
         # components on different layers (some have self_attn, others linear_attn).
-        components: set[str] = set()
         for layer_index in range(len(self.get_layers())):
             components.update(self.get_layer_modules(layer_index).keys())
+
         return sorted(components)
 
     def abliterate(
@@ -635,6 +647,9 @@ class Model:
             max_new_tokens=1,
             output_hidden_states=True,
             return_dict_in_generate=True,
+            # KV cache is unnecessary here because we only need the hidden states
+            # for the first generated token.
+            use_cache=False,
         )
 
         # This cast is valid because GenerateDecoderOnlyOutput is the return type
@@ -668,7 +683,11 @@ class Model:
                 dim=2,
                 keepdim=True,
             )
-            return torch.clamp(residuals, -thresholds, thresholds)
+            residuals = torch.clamp(residuals, -thresholds, thresholds)
+
+        if self.settings.offload_outputs_to_cpu:
+            residuals = residuals.cpu()
+            empty_cache()
 
         return residuals
 
@@ -680,6 +699,30 @@ class Model:
 
         return torch.cat(residuals, dim=0)
 
+    def get_residuals_mean(self, prompts: list[Prompt]) -> Tensor:
+        if not prompts:
+            raise ValueError("prompts must not be empty")
+
+        running_sum = None
+        total_count = 0
+
+        for batch in batchify(prompts, self.settings.batch_size):
+            batch_residuals = self.get_residuals(batch)
+
+            # Accumulate in high precision on CPU to reduce peak VRAM usage.
+            batch_sum = batch_residuals.sum(dim=0, dtype=torch.float64).cpu()
+
+            if running_sum is None:
+                running_sum = batch_sum
+            else:
+                running_sum += batch_sum
+
+            total_count += batch_residuals.shape[0]
+
+        assert running_sum is not None
+
+        return (running_sum / total_count).to(torch.float32)
+
     def get_logits(self, prompts: list[Prompt]) -> Tensor:
         # We only generate one token, and we return the raw logits over the vocabulary
         # at that token position, for each prompt.
@@ -688,6 +731,7 @@ class Model:
             max_new_tokens=1,
             output_scores=True,
             return_dict_in_generate=True,
+            use_cache=False,
         )
 
         # This cast is valid because GenerateDecoderOnlyOutput is the return type
@@ -699,6 +743,11 @@ class Model:
         logits = cast(tuple[FloatTensor], outputs.scores)[0]
 
         # The returned tensor has shape (prompt, token).
+        if self.settings.offload_outputs_to_cpu:
+            del outputs
+            logits = logits.cpu()
+            empty_cache()
+
         return logits
 
     def get_logits_batched(self, prompts: list[Prompt]) -> Tensor:

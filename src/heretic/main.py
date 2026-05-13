@@ -17,11 +17,15 @@ def _is_help_invocation() -> bool:
 if _is_help_invocation():
     Settings()  # ty:ignore[missing-argument]
 
+# FIXME: Rich progress bars are currently disabled because of rendering issues
+#        when used from multiple threads in parallel (e.g. by huggingface_hub).
+"""
 from .progress import patch_tqdm
 
 # This patches tqdm class definitions, which must happen
 # before any other module imports tqdm.
 patch_tqdm()
+"""
 
 import logging
 import math
@@ -60,15 +64,16 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .reproduce import collect_reproducibles
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
     get_readme_intro,
     get_trial_parameters,
+    is_hf_path,
     load_prompts,
     print,
     print_memory_usage,
-    prompt_confirm,
     prompt_password,
     prompt_path,
     prompt_select,
@@ -78,7 +83,7 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings) -> str | None:
+def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
     """
     Prompts the user for how to proceed with saving the model.
     Provides info to the user if the model is quantized on memory use.
@@ -107,7 +112,8 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
                     settings.model,
                     device_map="meta",
                     torch_dtype=torch.bfloat16,
-                    trust_remote_code=True,
+                    trust_remote_code=model.trusted_models.get(settings.model),
+                    **model.revision_kwargs,
                 )
                 footprint_bytes = meta_model.get_memory_footprint()
                 footprint_gb = footprint_bytes / (1024**3)
@@ -125,31 +131,26 @@ def obtain_merge_strategy(settings: Settings) -> str | None:
             )
         print()
 
-        strategy = prompt_select(
-            "How do you want to proceed?",
-            choices=[
-                Choice(
-                    title="Merge LoRA into full model"
-                    + (
-                        ""
-                        if settings.quantization == QuantizationMethod.NONE
-                        else " (requires sufficient RAM)"
-                    ),
-                    value="merge",
+    strategy = prompt_select(
+        "How do you want to proceed?",
+        choices=[
+            Choice(
+                title="Merge LoRA into full model"
+                + (
+                    ""
+                    if settings.quantization == QuantizationMethod.NONE
+                    else " (requires sufficient RAM)"
                 ),
-                Choice(
-                    title="Cancel",
-                    value="cancel",
-                ),
-            ],
-        )
+                value="merge",
+            ),
+            Choice(
+                title="Save LoRA adapter only (can be merged later)",
+                value="adapter",
+            ),
+        ],
+    )
 
-        if strategy == "cancel":
-            return None
-
-        return strategy
-    else:
-        return "merge"
+    return strategy
 
 
 def run():
@@ -171,6 +172,8 @@ def run():
     if (
         # There is at least one argument (argv[0] is the program name).
         len(sys.argv) > 1
+        # Heretic is being invoked in standard (model processing) mode.
+        and "--collect-reproducibles" not in sys.argv
         # No model has been explicitly provided.
         and "--model" not in sys.argv
         # The last argument is a parameter value rather than a flag (such as "--help").
@@ -178,6 +181,11 @@ def run():
     ):
         # Assume the last argument is the model.
         sys.argv.insert(-1, "--model")
+
+    # Work around the "model" argument being required
+    # when Heretic is invoked in a non-processing mode.
+    if "--collect-reproducibles" in sys.argv and "--model" not in sys.argv:
+        sys.argv.extend(["--model", ""])
 
     try:
         # The required argument "model" must be provided by the user,
@@ -193,6 +201,10 @@ def run():
         print(
             "Run [bold]heretic --help[/] or see [bold]config.default.toml[/] for details about configuration parameters."
         )
+        return
+
+    if settings.collect_reproducibles is not None:
+        collect_reproducibles(settings.collect_reproducibles)
         return
 
     if settings.seed is None:
@@ -423,13 +435,33 @@ def run():
 
     print()
     print("Calculating per-layer refusal directions...")
-    print("* Obtaining residuals for good prompts...")
-    good_residuals = model.get_residuals_batched(good_prompts)
-    print("* Obtaining residuals for bad prompts...")
-    bad_residuals = model.get_residuals_batched(bad_prompts)
 
-    good_means = good_residuals.mean(dim=0)
-    bad_means = bad_residuals.mean(dim=0)
+    needs_full_residuals = settings.print_residual_geometry or settings.plot_residuals
+
+    if needs_full_residuals:
+        print("* Obtaining residuals for good prompts...")
+        good_residuals = model.get_residuals_batched(good_prompts)
+        print("* Obtaining residuals for bad prompts...")
+        bad_residuals = model.get_residuals_batched(bad_prompts)
+
+        good_means = good_residuals.mean(dim=0)
+        bad_means = bad_residuals.mean(dim=0)
+
+        analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
+
+        if settings.print_residual_geometry:
+            analyzer.print_residual_geometry()
+
+        if settings.plot_residuals:
+            analyzer.plot_residuals()
+
+        # We don't need the full residuals after computing their means and analyzing geometry.
+        del good_residuals, bad_residuals, analyzer
+    else:
+        print("* Obtaining residual mean for good prompts...")
+        good_means = model.get_residuals_mean(good_prompts)
+        print("* Obtaining residual mean for bad prompts...")
+        bad_means = model.get_residuals_mean(bad_prompts)
 
     refusal_directions = F.normalize(bad_means - good_means, p=2, dim=1)
 
@@ -443,16 +475,12 @@ def run():
             refusal_directions - projection_vector.unsqueeze(1) * good_directions
         )
         refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
+        del good_directions, projection_vector
 
-    analyzer = Analyzer(settings, model, good_residuals, bad_residuals)
+    del good_means, bad_means
 
-    if settings.print_residual_geometry:
-        analyzer.print_residual_geometry()
-
-    if settings.plot_residuals:
-        analyzer.plot_residuals()
-
-    del good_residuals, bad_residuals, analyzer
+    # Clear cache before starting the optimization study.
+    # This should free up memory from the objects released with the del statements above.
     empty_cache()
 
     trial_index = 0
@@ -682,8 +710,9 @@ def run():
             (
                 "The following trials resulted in Pareto optimal combinations of the optimization objectives. "
                 "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
-                "or chat with it to test how well it works. You can return to this menu later to select a different trial. "
-                "[yellow]Note that KL divergence values above 1 usually indicate significant damage to the original model's capabilities.[/]"
+                "chat with it to test how well it works, or run standard benchmarks on it. "
+                "You can return to this menu later to select a different trial. "
+                "[yellow]Note that KL divergence values above 0.5 usually indicate significant damage to the original model's capabilities.[/]"
             )
         )
 
@@ -735,17 +764,23 @@ def run():
             print("* Parameters:")
             for name, value in get_trial_parameters(trial).items():
                 print(f"  * {name} = [bold]{value}[/]")
-            print("* Resetting model...")
-            model.reset_model()
-            print("* Abliterating...")
-            model.abliterate(
-                refusal_directions,
-                trial.user_attrs["direction_index"],
-                {
-                    k: AbliterationParameters(**v)
-                    for k, v in trial.user_attrs["parameters"].items()
-                },
-            )
+
+            # Per https://github.com/huggingface/peft/issues/868#issuecomment-1820642893 once a LoRA is merged it's
+            # expected to be empty. Provide a utility function to restore the previous LoRA-ified state.
+            def reset_trial_model() -> None:
+                print("* Resetting model...")
+                model.reset_model()
+                print("* Abliterating...")
+                model.abliterate(
+                    refusal_directions,
+                    trial.user_attrs["direction_index"],
+                    {
+                        k: AbliterationParameters(**v)
+                        for k, v in trial.user_attrs["parameters"].items()
+                    },
+                )
+
+            reset_trial_model()
 
             while True:
                 print()
@@ -773,20 +808,27 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 
                             if strategy == "adapter":
                                 print("Saving LoRA adapter...")
-                                model.model.save_pretrained(save_directory)
+                                model.model.save_pretrained(
+                                    save_directory,
+                                    max_shard_size=settings.max_shard_size,
+                                )
                             else:
                                 print("Saving merged model...")
                                 merged_model = model.get_merged_model()
-                                merged_model.save_pretrained(save_directory)
+                                merged_model.save_pretrained(
+                                    save_directory,
+                                    max_shard_size=settings.max_shard_size,
+                                )
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
+                                reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -824,7 +866,7 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings)
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -836,27 +878,48 @@ def run():
                                 settings.good_evaluation_prompts.dataset,
                                 settings.bad_evaluation_prompts.dataset,
                             ]
-                            can_reproduce = not Path(settings.model).exists() and all(
-                                not Path(d).exists() for d in datasets
+                            is_reproducible = is_hf_path(settings.model) and all(
+                                is_hf_path(dataset) for dataset in datasets
                             )
 
-                            if can_reproduce:
-                                # Pin the number of trials to the number of actual completed trials
-                                # for the reproduction configuration.
-                                settings.n_trials = count_completed_trials()
-
-                                include_reproduce = prompt_confirm(
-                                    """Include 'reproduce' folder?
-This saves your exact configuration and system information, along with the study checkpoint, to help others verify your results."""
+                            if is_reproducible:
+                                print(
+                                    (
+                                        "Heretic can add information to the repository that allows others to reproduce the model. "
+                                        "This is optional, but valuable to the community as both a learning tool and to preserve computational work already done. "
+                                        "Guaranteeing reproducibility requires basic system information (Python and OS version, CPU and GPU/accelerator info) "
+                                        "as tensor operations can give different results in different system environments. "
+                                        "[bold]The information does not include any file system paths or other private data.[/]"
+                                    )
                                 )
+                                reproducibility_information = prompt_select(
+                                    "Which reproducibility information do you want to add?",
+                                    [
+                                        Choice(
+                                            title="Full: Settings, package versions, and system information",
+                                            value="full",
+                                        ),
+                                        Choice(
+                                            title="Basic: Settings and package versions",
+                                            value="basic",
+                                        ),
+                                        Choice(
+                                            title="Don't add any reproducibility information",
+                                            value="none",
+                                        ),
+                                    ],
+                                )
+                                if reproducibility_information is None:
+                                    continue
                             else:
-                                include_reproduce = False
+                                reproducibility_information = "none"
 
                             if strategy == "adapter":
                                 print("Uploading LoRA adapter...")
                                 model.model.push_to_hub(
                                     repo_id,
                                     private=private,
+                                    max_shard_size=settings.max_shard_size,
                                     token=token,
                                 )
                             else:
@@ -865,6 +928,7 @@ This saves your exact configuration and system information, along with the study
                                 merged_model.push_to_hub(
                                     repo_id,
                                     private=private,
+                                    max_shard_size=settings.max_shard_size,
                                     token=token,
                                 )
                                 del merged_model
@@ -874,23 +938,20 @@ This saves your exact configuration and system information, along with the study
                                     private=private,
                                     token=token,
                                 )
+                                reset_trial_model()
 
-                            # If the model path exists locally and includes the
-                            # card, use it directly. If the model path doesn't
-                            # exist locally, it can be assumed to be a model
-                            # hosted on the Hugging Face Hub, in which case
-                            # we can retrieve the model card.
-                            model_path = Path(settings.model)
-                            if model_path.exists():
+                            if is_hf_path(settings.model):
+                                card = ModelCard.load(settings.model)
+                            else:
                                 card_path = (
-                                    model_path / huggingface_hub.constants.REPOCARD_NAME
+                                    Path(settings.model)
+                                    / huggingface_hub.constants.REPOCARD_NAME
                                 )
                                 if card_path.exists():
                                     card = ModelCard.load(card_path)
                                 else:
                                     card = None
-                            else:
-                                card = ModelCard.load(settings.model)
+
                             if card is not None:
                                 if card.data is None:
                                     card.data = ModelCardData()
@@ -900,6 +961,8 @@ This saves your exact configuration and system information, along with the study
                                 card.data.tags.append("uncensored")
                                 card.data.tags.append("decensored")
                                 card.data.tags.append("abliterated")
+                                if reproducibility_information != "none":
+                                    card.data.tags.append("reproducible")
                                 baseline_score_displays = {
                                     name: score.md_display
                                     for name, score in evaluator.baseline_scores
@@ -909,24 +972,29 @@ This saves your exact configuration and system information, along with the study
                                         settings,
                                         trial,
                                         baseline_score_displays,
+                                        reproducibility_information != "none",
                                     )
                                     + card.text
                                 )
                                 card.push_to_hub(repo_id, token=token)
 
-                            if include_reproduce:
+                            if reproducibility_information != "none":
+                                # Set the number of trials to the number of actual completed trials
+                                # for the reproduction configuration.
+                                settings.n_trials = count_completed_trials()
+
                                 upload_reproduce_folder(
                                     repo_id,
                                     settings,
                                     token,
                                     checkpoint_path=study_checkpoint_file,
                                     trial=trial,
+                                    include_system_information=(
+                                        reproducibility_information == "full"
+                                    ),
                                 )
-                                print(
-                                    f"Model and reproducibility files uploaded to [bold]{repo_id}[/]."
-                                )
-                            else:
-                                print(f"Model uploaded to [bold]{repo_id}[/].")
+
+                            print(f"Model uploaded to [bold]{repo_id}[/].")
 
                         case "Chat with the model":
                             print()

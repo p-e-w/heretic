@@ -872,11 +872,10 @@ def run():
 
                             # Reproducibility requires that the model and all datasets
                             # are available on the Hugging Face Hub (not local paths).
+                            # Plugin-specific datasets are the plugin author's responsibility.
                             datasets = [
                                 settings.good_prompts.dataset,
                                 settings.bad_prompts.dataset,
-                                settings.good_evaluation_prompts.dataset,
-                                settings.bad_evaluation_prompts.dataset,
                             ]
                             is_reproducible = is_hf_path(settings.model) and all(
                                 is_hf_path(dataset) for dataset in datasets
@@ -989,6 +988,7 @@ def run():
                                     token,
                                     checkpoint_path=study_checkpoint_file,
                                     trial=trial,
+                                    baseline_scores=evaluator.baseline_scores,
                                     include_system_information=(
                                         reproducibility_information == "full"
                                     ),

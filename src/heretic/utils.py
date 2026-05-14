@@ -10,7 +10,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import huggingface_hub
 import numpy as np
@@ -28,6 +28,10 @@ from questionary import Choice, Style
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
+
+if TYPE_CHECKING:
+    from .scorer import Score
+
 from .system import (
     get_accelerator_info_dict,
     get_cpu_info_dict,
@@ -409,6 +413,7 @@ def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
     trial: Trial,
+    baseline_scores: "list[tuple[str, Score]]",
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a README.md for the reproduce/ folder."""
@@ -523,6 +528,17 @@ def generate_reproduce_readme(
                 f" --index-url https://download.pytorch.org/whl/{suffix}"
             )
 
+    trial_scores = trial.user_attrs["scores"]
+    baseline_by_name = {name: score for name, score in baseline_scores}
+    score_rows = "\n".join(
+        f"| **{score['name']}** | {score['md_display']} | "
+        f"{baseline_by_name[score['name']].md_display if score['name'] in baseline_by_name else '-'} |"
+        for score in trial_scores
+    )
+    trial_scores_table = f"""| Metric | This trial | Baseline |
+| :----- | :--------: | :------: |
+{score_rows}"""
+
     return f"""# Reproduction guide
 
 This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}
@@ -535,14 +551,12 @@ This directory contains the necessary information and assets to reproduce the re
 
 - **Good prompts:** {format_hf_link(settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
 - **Bad prompts:** {format_hf_link(settings.bad_prompts.dataset, settings.bad_prompts.commit, is_dataset=True)}
-- **Good evaluation prompts:** {format_hf_link(settings.good_evaluation_prompts.dataset, settings.good_evaluation_prompts.commit, is_dataset=True)}
-- **Bad evaluation prompts:** {format_hf_link(settings.bad_evaluation_prompts.dataset, settings.bad_evaluation_prompts.commit, is_dataset=True)}
 
 ## Selected trial
 
 - **Trial number:** {trial.user_attrs["index"]}
-- **KL divergence:** {trial.user_attrs["kl_divergence"]:.6f}
-- **Refusals:** {trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]}
+
+{trial_scores_table}
 
 {system_report}## Environment
 
@@ -580,6 +594,7 @@ def generate_reproduce_json(
     trial: Trial,
     timestamp: str,
     uploaded_model_hashes: dict[str, str],
+    baseline_scores: "list[tuple[str, Score]]",
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a reproduce.json file for the reproduce/ folder."""
@@ -587,7 +602,7 @@ def generate_reproduce_json(
     version_info = get_heretic_version_info()
 
     data = {
-        "version": "1",  # Version number of the reproduce.json file format, to allow for future changes.
+        "version": "2",  # Version number of the reproduce.json file format, to allow for future changes.
         "timestamp": timestamp,
         "system": None,  # Defined here to preserve insertion order.
         "environment": {
@@ -604,12 +619,10 @@ def generate_reproduce_json(
             "direction_index": trial.user_attrs["direction_index"],
             "abliteration_parameters": trial.user_attrs["parameters"],
         },
-        "metrics": {
-            "kl_divergence": trial.user_attrs["kl_divergence"],
-            "refusals": trial.user_attrs["refusals"],
-            "base_refusals": trial.user_attrs["base_refusals"],
-            "n_bad_prompts": trial.user_attrs["n_bad_prompts"],
-        },
+        "scores": trial.user_attrs["scores"],
+        "baseline_scores": [
+            {"name": name, **score.__dict__} for name, score in baseline_scores
+        ],
         "hashes": uploaded_model_hashes,
     }
 
@@ -647,6 +660,7 @@ def create_reproduce_folder(
     checkpoint_path: str | Path,
     trial: Trial,
     uploaded_model_hashes: dict[str, str],
+    baseline_scores: "list[tuple[str, Score]]",
     include_system_information: bool,
 ):
     reproduce_dir = path / "reproduce"
@@ -658,11 +672,12 @@ def create_reproduce_folder(
     settings.model_commit = huggingface_hub.model_info(settings.model).sha
 
     # Fetch commit hashes for all HF datasets to ensure reproducibility.
+    # Plugin-specific dataset commits are the plugin author's responsibility:
+    # plugins that want reproducibility should pin their own datasets via their
+    # settings schema.
     for spec in [
         settings.good_prompts,
         settings.bad_prompts,
-        settings.good_evaluation_prompts,
-        settings.bad_evaluation_prompts,
     ]:
         spec.commit = huggingface_hub.dataset_info(spec.dataset).sha
 
@@ -693,6 +708,7 @@ def create_reproduce_folder(
             trial,
             timestamp=timestamp,
             uploaded_model_hashes=uploaded_model_hashes,
+            baseline_scores=baseline_scores,
             include_system_information=include_system_information,
         ),
         encoding="utf-8",
@@ -703,6 +719,7 @@ def create_reproduce_folder(
             settings,
             checkpoint_filename,
             trial,
+            baseline_scores=baseline_scores,
             include_system_information=include_system_information,
         ),
         encoding="utf-8",
@@ -720,6 +737,7 @@ def upload_reproduce_folder(
     token: str,
     checkpoint_path: str | Path,
     trial: Trial,
+    baseline_scores: "list[tuple[str, Score]]",
     include_system_information: bool,
 ):
     api = huggingface_hub.HfApi()
@@ -748,6 +766,7 @@ def upload_reproduce_folder(
             checkpoint_path=checkpoint_path,
             trial=trial,
             uploaded_model_hashes=uploaded_model_hashes,
+            baseline_scores=baseline_scores,
             include_system_information=include_system_information,
         )
 

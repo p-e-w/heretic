@@ -13,6 +13,8 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+from .parameters import ParameterSpecification
+
 # !!!IMPORTANT!!!
 #
 # Any settings added to the classes defined in this module
@@ -491,6 +493,11 @@ class Settings(BaseSettings):
             column="text",
         ),
         description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
+    )
+
+    parameters: ParameterSpecification = Field(
+        default=ParameterSpecification(),
+        description="The parameter specifications, per parameter or per component within each parameter.",
     )
 
     @classmethod

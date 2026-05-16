@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import json
 import shutil
 from pathlib import Path
+from typing import Any
+from urllib.request import urlopen
 
 from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.utils import disable_progress_bars, enable_progress_bars
@@ -81,3 +84,19 @@ def collect_reproducibles(path: str):
     print(f"Found: [bold]{found}[/] files")
     print(f"Downloaded: [bold]{downloaded}[/] files")
     print(f"Already stored: [bold]{found - downloaded}[/] files")
+
+
+def load_reproduction_information(path: str) -> dict[str, Any]:
+    if path.lower().startswith(("http://", "https://")):
+        # The path is a URL on the web.
+
+        # Obtain raw download URL.
+        path = path.replace("/blob/", "/raw/")  # Hugging Face, GitHub
+        path = path.replace("/src/branch/", "/raw/branch/")  # Codeberg
+
+        json_str = urlopen(path).read().decode("utf-8")
+    else:
+        # The path is (assumed to be) a local file system path.
+        json_str = Path(path).read_text(encoding="utf-8")
+
+    return json.loads(json_str)

@@ -22,6 +22,7 @@ from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
+from huggingface_hub.utils import validate_repo_id
 from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
@@ -172,13 +173,13 @@ def format_duration(seconds: float) -> str:
 def is_hf_path(path: str) -> bool:
     """Checks whether a path likely refers to a Hugging Face repository."""
 
-    return (
-        not path.startswith("/")
-        and not path.endswith("/")
-        and path.count("/") == 1
-        and "\\" not in path
-        and not Path(path).exists()
-    )
+    # Match Transformers: existing local paths take precedence over Hub lookup,
+    # even if the path string is also a valid repository ID.
+    if Path(path).exists():
+        return False
+
+    validate_repo_id(path)
+    return True
 
 
 @dataclass

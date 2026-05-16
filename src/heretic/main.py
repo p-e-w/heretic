@@ -54,8 +54,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
-from optuna.study import StudyDirection
-from optuna.trial import TrialState
+from optuna.trial import FrozenTrial, TrialState
 from pydantic import ValidationError
 from questionary import Choice, Style
 from rich.table import Table
@@ -428,7 +427,10 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        evaluator.get_score()
+        print()
+        print("[bold]Metrics:[/]")
+        for score_name, score in evaluator.get_scores():
+            print(f"  * {score_name}: [bold]{score.cli_display}[/]")
         return
 
     print()
@@ -485,7 +487,7 @@ def run():
     start_index = 0
     start_time = time.perf_counter()
 
-    def objective(trial: Trial) -> tuple[float, float]:
+    def objective(trial: Trial) -> tuple[float, ...]:
         nonlocal trial_index
         trial_index += 1
         trial.set_user_attr("index", trial_index)
@@ -568,7 +570,12 @@ def run():
         print("* Abliterating...")
         model.abliterate(refusal_directions, direction_index, parameters)
         print("* Evaluating...")
-        score, kl_divergence, refusals = evaluator.get_score()
+        scores = evaluator.get_scores()
+        objective_values = evaluator.get_objective_values(scores)
+
+        print("  * Metrics:")
+        for name, score in scores:
+            print(f"    * {name}: [bold]{score.cli_display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / (trial_index - start_index)) * (
@@ -580,22 +587,25 @@ def run():
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
+        trial.set_user_attr(
+            "scores",
+            [{"name": name, **score.__dict__} for name, score in scores],
+        )
         print_memory_usage()
 
-        trial.set_user_attr("kl_divergence", kl_divergence)
-        trial.set_user_attr("refusals", refusals)
-        trial.set_user_attr("base_refusals", evaluator.base_refusals)
-        trial.set_user_attr("n_bad_prompts", len(evaluator.bad_prompts))
+        return objective_values
 
-        return score
-
-    def objective_wrapper(trial: Trial) -> tuple[float, float]:
+    def objective_wrapper(trial: Trial) -> tuple[float, ...]:
         try:
             return objective(trial)
         except KeyboardInterrupt:
             # Stop the study gracefully on Ctrl+C.
             trial.study.stop()
             raise TrialPruned()
+
+    # Derive objective info from baseline scores
+    objective_names = evaluator.get_objective_names()
+    directions = evaluator.get_objective_directions()
 
     study = optuna.create_study(
         sampler=TPESampler(
@@ -604,8 +614,8 @@ def run():
             multivariate=True,
             seed=settings.seed,
         ),
-        directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
         storage=storage,
+        directions=directions,
         study_name="heretic",
         load_if_exists=True,
     )
@@ -644,34 +654,39 @@ def run():
         if not completed_trials:
             raise KeyboardInterrupt
 
-        # Get the Pareto front of trials. We can't use study.best_trials directly
-        # as get_score() doesn't return the pure KL divergence and refusal count.
-        # Note: Unlike study.best_trials, this does not handle objective constraints.
+        # Best trials isn't sorted, so sort by all the scores in non-decreasing order.
         sorted_trials = sorted(
-            completed_trials,
+            study.best_trials,
             key=lambda trial: (
-                trial.user_attrs["refusals"],
-                trial.user_attrs["kl_divergence"],
+                tuple(
+                    next(
+                        (
+                            score["value"]
+                            for score in trial.user_attrs["scores"]
+                            if score["name"] == name
+                        ),
+                        None,
+                    )
+                    for name in objective_names
+                )
             ),
         )
-        min_divergence = math.inf
-        best_trials = []
-        for trial in sorted_trials:
-            kl_divergence = trial.user_attrs["kl_divergence"]
-            if kl_divergence < min_divergence:
-                min_divergence = kl_divergence
-                best_trials.append(trial)
+
+        def format_trial_title(trial: FrozenTrial) -> str:
+            parts: list[str] = [f"[Trial {trial.user_attrs['index']:>3}]"]
+
+            # We don't directly use the trial.values here since we need to show the
+            # CLI-formatted versions, which are stored in the trial's user attributes.
+            for score in trial.user_attrs["scores"]:
+                name = score["name"]
+                value = score["cli_display"]
+                parts.append(f"{name}: {value}")
+
+            return ", ".join(parts)
 
         choices = [
-            Choice(
-                title=(
-                    f"[Trial {trial.user_attrs['index']:>3}] "
-                    f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                    f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
-                ),
-                value=trial,
-            )
-            for trial in best_trials
+            Choice(title=format_trial_title(trial), value=trial)
+            for trial in sorted_trials
         ]
 
         choices.append(
@@ -693,7 +708,7 @@ def run():
         print()
         print(
             (
-                "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
+                "The following trials resulted in Pareto optimal combinations of the optimization objectives. "
                 "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
                 "chat with it to test how well it works, or run standard benchmarks on it. "
                 "You can return to this menu later to select a different trial. "
@@ -857,11 +872,10 @@ def run():
 
                             # Reproducibility requires that the model and all datasets
                             # are available on the Hugging Face Hub (not local paths).
+                            # Plugin-specific datasets are the plugin author's responsibility.
                             datasets = [
                                 settings.good_prompts.dataset,
                                 settings.bad_prompts.dataset,
-                                settings.good_evaluation_prompts.dataset,
-                                settings.bad_evaluation_prompts.dataset,
                             ]
                             is_reproducible = is_hf_path(settings.model) and all(
                                 is_hf_path(dataset) for dataset in datasets
@@ -948,10 +962,15 @@ def run():
                                 card.data.tags.append("abliterated")
                                 if reproducibility_information != "none":
                                     card.data.tags.append("reproducible")
+                                baseline_score_displays = {
+                                    name: score.md_display
+                                    for name, score in evaluator.baseline_scores
+                                }
                                 card.text = (
                                     get_readme_intro(
                                         settings,
                                         trial,
+                                        baseline_score_displays,
                                         reproducibility_information != "none",
                                     )
                                     + card.text
@@ -969,6 +988,7 @@ def run():
                                     token,
                                     checkpoint_path=study_checkpoint_file,
                                     trial=trial,
+                                    baseline_scores=evaluator.baseline_scores,
                                     include_system_information=(
                                         reproducibility_information == "full"
                                     ),

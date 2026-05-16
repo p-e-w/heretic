@@ -487,7 +487,7 @@ def run():
 
     def objective(trial: Trial) -> tuple[float, float]:
         nonlocal trial_index
-        trial_index += 1
+        trial_index = len(trial.study.trials)
         trial.set_user_attr("index", trial_index)
 
         direction_scope = trial.suggest_categorical(
@@ -615,7 +615,7 @@ def run():
 
     def count_completed_trials() -> int:
         # Count number of complete trials to compute trials to run.
-        return sum([(1 if t.state == TrialState.COMPLETE else 0) for t in study.trials])
+        return len([t for t in study.trials if t.state == TrialState.COMPLETE])
 
     start_index = trial_index = count_completed_trials()
     if start_index > 0:

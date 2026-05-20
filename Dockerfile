@@ -25,4 +25,4 @@ WORKDIR /workspace
 # Web UI port (used by heretic-webui)
 EXPOSE 7860
 
-ENTRYPOINT ["heretic"]
+ENTRYPOINT ["heretic-webui"]

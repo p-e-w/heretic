@@ -517,18 +517,21 @@ def _get_local_models() -> list[str]:
             pass
 
     # ── Local sub-directories ──────────────────────────────────────────────
-    # Scan `cwd` itself and, if present, `cwd/models/`.  For each root we
-    # look two levels deep so that layouts like `models/org/model-name/` are
-    # discovered alongside flat `models/model-name/` structures.
+    # Keep the top-level CWD scan shallow (one level deep), and separately
+    # scan `cwd/models/` up to two levels deep so that layouts like
+    # `models/org/model-name/` are discovered.
     cwd = Path.cwd()
-    scan_roots: list[Path] = [cwd]
+    try:
+        for entry in sorted(cwd.iterdir()):
+            if entry.is_dir() and (entry / "config.json").exists():
+                found.append(str(entry))
+    except OSError:
+        pass
+
     models_subdir = cwd / "models"
     if models_subdir.is_dir():
-        scan_roots.append(models_subdir)
-
-    for base in scan_roots:
         try:
-            for entry in sorted(base.iterdir()):
+            for entry in sorted(models_subdir.iterdir()):
                 if not entry.is_dir():
                     continue
                 if (entry / "config.json").exists():

@@ -14,13 +14,14 @@ import re
 import sys
 import threading
 import time
+import traceback
 import warnings
+from collections import deque
 from dataclasses import asdict
 from importlib.metadata import version
 from os.path import commonprefix
 from typing import Any, Generator
 
-import gradio as gr
 import optuna
 import torch
 import torch.nn.functional as F
@@ -126,7 +127,6 @@ def _run_optimization(
 ) -> None:
     """Full Heretic optimization pipeline – runs in a daemon thread."""
     try:
-        _optimization_running.set()
         _install_capturing_print()
 
         # ── Environment setup ──────────────────────────────────────────────
@@ -415,8 +415,8 @@ def _run_optimization(
             _session["best_trials"] = []
             _log("\nNo trials completed.")
 
-    except Exception as exc:
-        _log(f"\nError: {exc}")
+    except Exception:
+        _log(f"\nError:\n{traceback.format_exc()}")
     finally:
         _optimization_running.clear()
         _log_queue.put(None)  # sentinel – signals the generator to stop
@@ -449,13 +449,18 @@ def _restore_trial_model(model: Model) -> None:
 # ─── Gradio app ───────────────────────────────────────────────────────────────
 
 
-def create_app() -> gr.Blocks:
+def create_app() -> Any:
     """Return the Gradio :class:`~gradio.Blocks` application."""
+    try:
+        import gradio as gr
+    except ImportError as exc:
+        raise RuntimeError(
+            "Gradio is required for the web UI. Install it with `pip install heretic-llm[webui]`."
+        ) from exc
 
     _ver = version("heretic-llm")
 
     with gr.Blocks(title=f"Heretic {_ver}") as app:
-
         gr.Markdown(
             f"# 🔥 Heretic {_ver}\n"
             "> Fully automatic censorship removal for language models\n\n"
@@ -463,7 +468,6 @@ def create_app() -> gr.Blocks:
         )
 
         with gr.Tabs():
-
             # ── Tab 1: Configure & Run ─────────────────────────────────────
             with gr.Tab("⚙️ Configure & Run"):
                 with gr.Row():
@@ -630,6 +634,7 @@ def create_app() -> gr.Blocks:
                 except queue.Empty:
                     break
 
+            _optimization_running.set()
             thread = threading.Thread(
                 target=_run_optimization,
                 args=(
@@ -644,25 +649,42 @@ def create_app() -> gr.Blocks:
                 ),
                 daemon=True,
             )
-            thread.start()
+            try:
+                thread.start()
+            except Exception:
+                _optimization_running.clear()
+                raise
 
-            log_text = ""
+            max_log_chars = 100_000
+            log_lines: deque[str] = deque()
+            log_char_count = 0
+            truncated = False
+
+            def render_log() -> str:
+                prefix = "… (older log lines omitted)\n" if truncated else ""
+                return prefix + "".join(log_lines)
+
             while True:
                 try:
                     msg = _log_queue.get(timeout=0.3)
                 except queue.Empty:
                     # Keep the generator alive while the thread is still running.
-                    yield log_text
+                    yield render_log()
                     continue
 
                 if msg is None:
                     # Sentinel: optimization thread has finished.
                     break
 
-                log_text += msg + "\n"
-                yield log_text
+                line = msg + "\n"
+                log_lines.append(line)
+                log_char_count += len(line)
+                while log_char_count > max_log_chars and log_lines:
+                    log_char_count -= len(log_lines.popleft())
+                    truncated = True
+                yield render_log()
 
-            yield log_text
+            yield render_log()
 
         start_btn.click(
             fn=run_optimization_generator,
@@ -732,9 +754,7 @@ def create_app() -> gr.Blocks:
             except (ValueError, IndexError):
                 return "⚠ Could not parse the trial index."
 
-            trial = next(
-                (t for t in best if t.user_attrs["index"] == trial_idx), None
-            )
+            trial = next((t for t in best if t.user_attrs["index"] == trial_idx), None)
             if trial is None:
                 return "⚠ Trial not found."
 
@@ -787,9 +807,7 @@ def create_app() -> gr.Blocks:
                     return f"✅ LoRA adapter saved to `{path}`"
                 else:
                     merged = model.get_merged_model()
-                    merged.save_pretrained(
-                        path, max_shard_size=settings.max_shard_size
-                    )
+                    merged.save_pretrained(path, max_shard_size=settings.max_shard_size)
                     del merged
                     empty_cache()
                     model.tokenizer.save_pretrained(path)
@@ -822,7 +840,7 @@ def create_app() -> gr.Blocks:
                 import huggingface_hub
 
                 user = huggingface_hub.whoami(token)
-                _log(f"Logged in as {user.get('name', 'unknown')}")
+                user_name = user.get("name") or "unknown"
 
                 if adapter_only:
                     model.model.push_to_hub(
@@ -841,12 +859,10 @@ def create_app() -> gr.Blocks:
                     )
                     del merged
                     empty_cache()
-                    model.tokenizer.push_to_hub(
-                        repo_id, private=private, token=token
-                    )
+                    model.tokenizer.push_to_hub(repo_id, private=private, token=token)
                     _restore_trial_model(model)
 
-                return f"✅ Model uploaded to `{repo_id}`"
+                return f"✅ Logged in as `{user_name}`. Model uploaded to `{repo_id}`"
             except Exception as exc:
                 return f"❌ Error: {exc}"
 
@@ -883,7 +899,9 @@ def create_app() -> gr.Blocks:
             chat = [
                 {
                     "role": "system",
-                    "content": settings.system_prompt if settings else "You are a helpful assistant.",
+                    "content": settings.system_prompt
+                    if settings
+                    else "You are a helpful assistant.",
                 }
             ]
             for msg in history:
@@ -940,6 +958,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    app = create_app()
+    try:
+        app = create_app()
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        raise SystemExit(1) from exc
     app.queue()
     app.launch(server_name=args.host, server_port=args.port, share=args.share)

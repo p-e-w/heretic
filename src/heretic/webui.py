@@ -765,20 +765,26 @@ def create_app() -> Any:
             kl_scale: float,
             kl_target: float,
             checkpoint_dir: str,
-        ) -> Generator[str, None, None]:
+        ) -> Generator[tuple, None, None]:
+            btn_idle = gr.update(value="▶ Start Optimization", interactive=True)
+            btn_running = gr.update(value="⏳ Optimization running…", interactive=False)
+
             effective_model_id = (
                 model_id if model_source == MODEL_SOURCE_HF else (local_model or "")
             )
             if not effective_model_id.strip():
                 yield (
-                    "⚠ Please enter a model ID."
-                    if model_source == MODEL_SOURCE_HF
-                    else "⚠ Please select a local model."
+                    (
+                        "⚠ Please enter a model ID."
+                        if model_source == MODEL_SOURCE_HF
+                        else "⚠ Please select a local model."
+                    ),
+                    btn_idle,
                 )
                 return
 
             if _optimization_running.is_set():
-                yield "⚠ An optimization is already running. Wait for it to finish."
+                yield "⚠ An optimization is already running. Wait for it to finish.", btn_idle
                 return
 
             # Clear old session data and drain the queue.
@@ -824,7 +830,7 @@ def create_app() -> Any:
                     msg = _log_queue.get(timeout=0.3)
                 except queue.Empty:
                     # Keep the generator alive while the thread is still running.
-                    yield render_log(truncated, log_lines)
+                    yield render_log(truncated, log_lines), btn_running
                     continue
 
                 if msg is None:
@@ -837,9 +843,9 @@ def create_app() -> Any:
                 while log_char_count > max_log_chars and log_lines:
                     log_char_count -= len(log_lines.popleft())
                     truncated = True
-                yield render_log(truncated, log_lines)
+                yield render_log(truncated, log_lines), btn_running
 
-            yield render_log(truncated, log_lines)
+            yield render_log(truncated, log_lines), btn_idle
 
         start_btn.click(
             fn=run_optimization_generator,
@@ -855,7 +861,7 @@ def create_app() -> Any:
                 kl_target_in,
                 checkpoint_dir_in,
             ],
-            outputs=[log_out],
+            outputs=[log_out, start_btn],
         )
 
         # ── Results tab ────────────────────────────────────────────────────

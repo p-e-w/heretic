@@ -4,7 +4,7 @@ FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 # Speed up Hugging Face model downloads
-ENV HF_HUB_ENABLE_HF_TRANSFER=1
+ENV HF_XET_HIGH_PERFORMANCE=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \

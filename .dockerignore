@@ -1,0 +1,11 @@
+.git
+.github
+.gitattributes
+.gitignore
+.python-version
+.gemini
+dist
+checkpoints
+plots
+*.pyc
+__pycache__

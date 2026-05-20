@@ -607,6 +607,7 @@ def create_app() -> Any:
                                 scale=5,
                             )
                             refresh_local_btn = gr.Button("🔄", scale=0, min_width=48)
+                        local_models_status = gr.Markdown("")
                         quantization_in = gr.Dropdown(
                             choices=["none", "bnb_4bit"],
                             value="none",
@@ -749,9 +750,24 @@ def create_app() -> Any:
             outputs=[model_id_in, local_model_row],
         )
 
+        def _refresh_local() -> tuple[Any, str]:
+            models = _get_local_models()
+            if models:
+                status = "**Local models found:**\n" + "\n".join(
+                    f"- `{m}`" for m in models
+                )
+            else:
+                status = "*No local models found.*"
+            return gr.update(choices=models), status
+
         refresh_local_btn.click(
-            fn=lambda: gr.update(choices=_get_local_models()),
-            outputs=[local_model_in],
+            fn=_refresh_local,
+            outputs=[local_model_in, local_models_status],
+        )
+
+        app.load(
+            fn=_refresh_local,
+            outputs=[local_model_in, local_models_status],
         )
 
         def run_optimization_generator(

@@ -16,9 +16,9 @@ RUN pip install --no-cache-dir --break-system-packages \
     torch \
     --index-url https://download.pytorch.org/whl/cu124
 
-# Install Heretic
+# Install Heretic with web UI dependencies
 ARG HERETIC_VERSION=1.3.0
-RUN pip install --no-cache-dir --break-system-packages heretic-llm==${HERETIC_VERSION}
+RUN pip install --no-cache-dir --break-system-packages heretic-llm[webui]==${HERETIC_VERSION}
 
 WORKDIR /workspace
 
@@ -26,3 +26,4 @@ WORKDIR /workspace
 EXPOSE 7860
 
 ENTRYPOINT ["heretic-webui"]
+CMD ["--host", "0.0.0.0", "--port", "7860"]

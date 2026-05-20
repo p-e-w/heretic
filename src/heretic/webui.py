@@ -910,20 +910,26 @@ def create_app() -> Any:
             kl_scale: float,
             kl_target: float,
             checkpoint_dir: str,
-        ) -> Generator[str, None, None]:
+        ) -> Generator[tuple, None, None]:
+            btn_idle = gr.update(value="▶ Start Optimization", interactive=True)
+            btn_running = gr.update(value="⏳ Optimization running…", interactive=False)
+
             effective_model_id = (
                 model_id if model_source == MODEL_SOURCE_HF else (local_model or "")
             )
             if not effective_model_id.strip():
                 yield (
-                    "⚠ Please enter a model ID."
-                    if model_source == MODEL_SOURCE_HF
-                    else "⚠ Please select a local model."
+                    (
+                        "⚠ Please enter a model ID."
+                        if model_source == MODEL_SOURCE_HF
+                        else "⚠ Please select a local model."
+                    ),
+                    btn_idle,
                 )
                 return
 
             if _optimization_running.is_set():
-                yield "⚠ An optimization is already running. Wait for it to finish."
+                yield "⚠ An optimization is already running. Wait for it to finish.", btn_running
                 return
 
             # Clear old session data and drain the queue.
@@ -965,12 +971,13 @@ def create_app() -> Any:
                 prefix = "… (older log lines omitted)\n" if truncated_flag else ""
                 return prefix + "".join(lines)
 
+            yield render_log(truncated, log_lines), btn_running
             while True:
                 try:
                     msg = _log_queue.get(timeout=0.3)
                 except queue.Empty:
                     # Keep the generator alive while the thread is still running.
-                    yield render_log(truncated, log_lines)
+                    yield render_log(truncated, log_lines), btn_running
                     continue
 
                 if msg is None:
@@ -983,9 +990,9 @@ def create_app() -> Any:
                 while log_char_count > max_log_chars and log_lines:
                     log_char_count -= len(log_lines.popleft())
                     truncated = True
-                yield render_log(truncated, log_lines)
+                yield render_log(truncated, log_lines), btn_running
 
-            yield render_log(truncated, log_lines)
+            yield render_log(truncated, log_lines), btn_idle
 
         start_btn.click(
             fn=lambda: (gr.update(interactive=False), gr.update(active=False)),
@@ -1004,10 +1011,7 @@ def create_app() -> Any:
                 kl_target_in,
                 checkpoint_dir_in,
             ],
-            outputs=[log_out],
-        ).then(
-            fn=lambda: (gr.update(interactive=True), gr.update(active=False)),
-            outputs=[start_btn, opt_timer],
+            outputs=[log_out, start_btn],
         )
 
         # ── Results tab ────────────────────────────────────────────────────
@@ -1301,7 +1305,7 @@ def create_app() -> Any:
             outputs=[
                 model_source_radio,
                 model_id_in,
-                local_model_row,
+                local_model_section,
                 local_model_in,
                 quantization_in,
                 n_trials_in,

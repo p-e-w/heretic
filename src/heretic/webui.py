@@ -45,6 +45,9 @@ from .utils import format_duration, get_trial_parameters, load_prompts, set_seed
 
 _log_queue: queue.Queue[str | None] = queue.Queue()
 
+# Server-side store so the accumulated log survives page reloads.
+_log_lines_store: deque[str] = deque(maxlen=10000)
+
 # Capture the real stdout before any monkey-patching so log lines can always
 # be forwarded to it (visible in ``docker logs`` and plain terminal runs).
 _real_stdout = sys.stdout
@@ -59,6 +62,7 @@ def _strip_ansi(text: str) -> str:
 def _emit(line: str) -> None:
     """Enqueue *line* for the web UI log and echo it to the real stdout."""
     _log_queue.put(line)
+    _log_lines_store.append(line + "\n")
     try:
         _real_stdout.write(line + "\n")
         _real_stdout.flush()
@@ -582,6 +586,24 @@ def create_app() -> Any:
             "⚠️ *This is a single-user tool intended for local use only.*"
         )
 
+        # ── Persisted state ────────────────────────────────────────────────
+        settings_state = gr.BrowserState(
+            {
+                "model_source": MODEL_SOURCE_HF,
+                "model_id": "",
+                "local_model": None,
+                "quantization": "none",
+                "n_trials": 200,
+                "n_startup": 60,
+                "system_prompt": "You are a helpful assistant.",
+                "kl_scale": 1.0,
+                "kl_target": 0.01,
+                "checkpoint_dir": "checkpoints",
+            }
+        )
+        # Timer used to poll optimization state after a page reload.
+        opt_timer = gr.Timer(value=2.0, active=False)
+
         with gr.Tabs():
             # ── Tab 1: Configure & Run ─────────────────────────────────────
             with gr.Tab("⚙️ Configure & Run"):
@@ -783,6 +805,7 @@ def create_app() -> Any:
 
             # Clear old session data and drain the queue.
             _session.clear()
+            _log_lines_store.clear()
             while not _log_queue.empty():
                 try:
                     _log_queue.get_nowait()
@@ -842,6 +865,9 @@ def create_app() -> Any:
             yield render_log(truncated, log_lines)
 
         start_btn.click(
+            fn=lambda: (gr.update(interactive=False), gr.update(active=True)),
+            outputs=[start_btn, opt_timer],
+        ).then(
             fn=run_optimization_generator,
             inputs=[
                 model_source_radio,
@@ -856,6 +882,9 @@ def create_app() -> Any:
                 checkpoint_dir_in,
             ],
             outputs=[log_out],
+        ).then(
+            fn=lambda: (gr.update(interactive=True), gr.update(active=False)),
+            outputs=[start_btn, opt_timer],
         )
 
         # ── Results tab ────────────────────────────────────────────────────
@@ -1082,6 +1111,115 @@ def create_app() -> Any:
             outputs=[chat_in, chatbot],
         )
         chat_clear.click(fn=lambda: ([], ""), outputs=[chatbot, chat_in])
+
+        # ── Settings persistence ───────────────────────────────────────────
+
+        def _save_settings(
+            model_source: str,
+            model_id: str,
+            local_model: str | None,
+            quantization: str,
+            n_trials: int,
+            n_startup: int,
+            system_prompt: str,
+            kl_scale: float,
+            kl_target: float,
+            checkpoint_dir: str,
+        ) -> dict:
+            return {
+                "model_source": model_source,
+                "model_id": model_id,
+                "local_model": local_model,
+                "quantization": quantization,
+                "n_trials": n_trials,
+                "n_startup": n_startup,
+                "system_prompt": system_prompt,
+                "kl_scale": kl_scale,
+                "kl_target": kl_target,
+                "checkpoint_dir": checkpoint_dir,
+            }
+
+        _settings_comps = [
+            model_source_radio,
+            model_id_in,
+            local_model_in,
+            quantization_in,
+            n_trials_in,
+            n_startup_in,
+            system_prompt_in,
+            kl_scale_in,
+            kl_target_in,
+            checkpoint_dir_in,
+        ]
+        for _comp in _settings_comps:
+            _comp.change(
+                fn=_save_settings,
+                inputs=_settings_comps,
+                outputs=[settings_state],
+            )
+
+        # ── Page load: restore log, settings, and button/timer state ──────
+
+        def _on_page_load(state: dict) -> tuple:
+            source = state.get("model_source", MODEL_SOURCE_HF)
+            is_hf = source == MODEL_SOURCE_HF
+            is_running = _optimization_running.is_set()
+            log_content = "".join(_log_lines_store)
+            return (
+                gr.update(value=source),
+                gr.update(value=state.get("model_id", ""), visible=is_hf),
+                gr.update(visible=not is_hf),
+                gr.update(value=state.get("local_model")),
+                gr.update(value=state.get("quantization", "none")),
+                gr.update(value=state.get("n_trials", 200)),
+                gr.update(
+                    value=state.get("system_prompt", "You are a helpful assistant.")
+                ),
+                gr.update(value=state.get("n_startup", 60)),
+                gr.update(value=state.get("kl_scale", 1.0)),
+                gr.update(value=state.get("kl_target", 0.01)),
+                gr.update(value=state.get("checkpoint_dir", "checkpoints")),
+                gr.update(value=log_content),
+                gr.update(interactive=not is_running),
+                gr.update(active=is_running),
+            )
+
+        app.load(
+            fn=_on_page_load,
+            inputs=[settings_state],
+            outputs=[
+                model_source_radio,
+                model_id_in,
+                local_model_row,
+                local_model_in,
+                quantization_in,
+                n_trials_in,
+                system_prompt_in,
+                n_startup_in,
+                kl_scale_in,
+                kl_target_in,
+                checkpoint_dir_in,
+                log_out,
+                start_btn,
+                opt_timer,
+            ],
+        )
+
+        # ── Timer: keep log and button state updated while opt. is running ─
+
+        def _poll_optimization() -> tuple:
+            is_running = _optimization_running.is_set()
+            log_content = "".join(_log_lines_store)
+            return (
+                gr.update(value=log_content),
+                gr.update(interactive=not is_running),
+                gr.update(active=is_running),
+            )
+
+        opt_timer.tick(
+            fn=_poll_optimization,
+            outputs=[log_out, start_btn, opt_timer],
+        )
 
     return app
 

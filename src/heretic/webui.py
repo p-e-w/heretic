@@ -517,6 +517,9 @@ def _get_local_models() -> list[str]:
             pass
 
     # ── Local sub-directories ──────────────────────────────────────────────
+    # Keep the top-level CWD scan shallow (one level deep), and separately
+    # scan `cwd/models/` up to two levels deep so that layouts like
+    # `models/org/model-name/` are discovered.
     cwd = Path.cwd()
     try:
         for entry in sorted(cwd.iterdir()):
@@ -524,6 +527,28 @@ def _get_local_models() -> list[str]:
                 found.append(str(entry))
     except OSError:
         pass
+
+    models_subdir = cwd / "models"
+    if models_subdir.is_dir():
+        try:
+            for entry in sorted(models_subdir.iterdir()):
+                if not entry.is_dir():
+                    continue
+                if (entry / "config.json").exists():
+                    found.append(str(entry))
+                else:
+                    # One level deeper: e.g. models/org/model-name/
+                    try:
+                        for subentry in sorted(entry.iterdir()):
+                            if (
+                                subentry.is_dir()
+                                and (subentry / "config.json").exists()
+                            ):
+                                found.append(str(subentry))
+                    except OSError:
+                        continue
+        except OSError:
+            pass
 
     # Deduplicate while preserving order
     seen: set[str] = set()
@@ -579,7 +604,6 @@ def create_app() -> Any:
                                 label="Local / cached model",
                                 choices=_get_local_models(),
                                 value=None,
-                                allow_custom_value=True,
                                 scale=5,
                             )
                             refresh_local_btn = gr.Button("🔄", scale=0, min_width=48)

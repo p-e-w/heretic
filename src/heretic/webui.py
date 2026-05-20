@@ -660,16 +660,16 @@ def create_app() -> Any:
             log_char_count = 0
             truncated = False
 
-            def render_log() -> str:
-                prefix = "… (older log lines omitted)\n" if truncated else ""
-                return prefix + "".join(log_lines)
+            def render_log(truncated_flag: bool, lines: deque[str]) -> str:
+                prefix = "… (older log lines omitted)\n" if truncated_flag else ""
+                return prefix + "".join(lines)
 
             while True:
                 try:
                     msg = _log_queue.get(timeout=0.3)
                 except queue.Empty:
                     # Keep the generator alive while the thread is still running.
-                    yield render_log()
+                    yield render_log(truncated, log_lines)
                     continue
 
                 if msg is None:
@@ -682,9 +682,9 @@ def create_app() -> Any:
                 while log_char_count > max_log_chars and log_lines:
                     log_char_count -= len(log_lines.popleft())
                     truncated = True
-                yield render_log()
+                yield render_log(truncated, log_lines)
 
-            yield render_log()
+            yield render_log(truncated, log_lines)
 
         start_btn.click(
             fn=run_optimization_generator,
@@ -934,34 +934,6 @@ def create_app() -> Any:
 
 def main() -> None:
     """CLI entry point for ``heretic-webui``."""
-    import argparse
+    from .webui_cli import main as cli_main
 
-    parser = argparse.ArgumentParser(
-        prog="heretic-webui",
-        description="Launch the Heretic web UI",
-    )
-    parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Server host (default: 127.0.0.1)",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=7860,
-        help="Server port (default: 7860)",
-    )
-    parser.add_argument(
-        "--share",
-        action="store_true",
-        help="Create a temporary public share link via Gradio's tunnel",
-    )
-    args = parser.parse_args()
-
-    try:
-        app = create_app()
-    except RuntimeError as exc:
-        print(exc, file=sys.stderr)
-        raise SystemExit(1) from exc
-    app.queue()
-    app.launch(server_name=args.host, server_port=args.port, share=args.share)
+    cli_main()

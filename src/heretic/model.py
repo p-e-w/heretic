@@ -6,7 +6,6 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Type, cast
 
-import bitsandbytes as bnb
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
@@ -492,6 +491,8 @@ class Model:
                         W = base_weight.to(torch.float32)
                     else:
                         # 4-bit quantization.
+                        import bitsandbytes as bnb  # noqa: PLC0415
+
                         # This cast is always valid. Type inference fails here because the
                         # bnb.functional module is not found by ty for some reason.
                         W = cast(

@@ -46,7 +46,8 @@ from .utils import format_duration, get_trial_parameters, load_prompts, set_seed
 _log_queue: queue.Queue[str | None] = queue.Queue()
 
 # Server-side store so the accumulated log survives page reloads.
-_log_lines_store: deque[str] = deque(maxlen=10000)
+_MAX_LOG_LINES = 10_000
+_log_lines_store: deque[str] = deque(maxlen=_MAX_LOG_LINES)
 
 # Capture the real stdout before any monkey-patching so log lines can always
 # be forwarded to it (visible in ``docker logs`` and plain terminal runs).
@@ -602,7 +603,8 @@ def create_app() -> Any:
             }
         )
         # Timer used to poll optimization state after a page reload.
-        opt_timer = gr.Timer(value=2.0, active=False)
+        _POLL_INTERVAL_SECONDS = 2.0
+        opt_timer = gr.Timer(value=_POLL_INTERVAL_SECONDS, active=False)
 
         with gr.Tabs():
             # ── Tab 1: Configure & Run ─────────────────────────────────────
@@ -1114,31 +1116,18 @@ def create_app() -> Any:
 
         # ── Settings persistence ───────────────────────────────────────────
 
-        def _save_settings(
-            model_source: str,
-            model_id: str,
-            local_model: str | None,
-            quantization: str,
-            n_trials: int,
-            n_startup: int,
-            system_prompt: str,
-            kl_scale: float,
-            kl_target: float,
-            checkpoint_dir: str,
-        ) -> dict:
-            return {
-                "model_source": model_source,
-                "model_id": model_id,
-                "local_model": local_model,
-                "quantization": quantization,
-                "n_trials": n_trials,
-                "n_startup": n_startup,
-                "system_prompt": system_prompt,
-                "kl_scale": kl_scale,
-                "kl_target": kl_target,
-                "checkpoint_dir": checkpoint_dir,
-            }
-
+        _settings_keys = [
+            "model_source",
+            "model_id",
+            "local_model",
+            "quantization",
+            "n_trials",
+            "n_startup",
+            "system_prompt",
+            "kl_scale",
+            "kl_target",
+            "checkpoint_dir",
+        ]
         _settings_comps = [
             model_source_radio,
             model_id_in,
@@ -1153,7 +1142,7 @@ def create_app() -> Any:
         ]
         for _comp in _settings_comps:
             _comp.change(
-                fn=_save_settings,
+                fn=lambda *vals: dict(zip(_settings_keys, vals)),
                 inputs=_settings_comps,
                 outputs=[settings_state],
             )

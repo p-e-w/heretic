@@ -52,6 +52,9 @@ research = [
     "pacmap~=0.8",
     "scikit-learn~=1.7",
 ]
+webui = [
+    "gradio>=6.7",
+]
 
 [dependency-groups]
 dev = [
@@ -68,6 +71,7 @@ Changelog = "https://github.com/p-e-w/heretic/releases"
 
 [project.scripts]
 heretic = "heretic.main:main"
+heretic-webui = "heretic.webui_cli:main"
 
 [build-system]
 requires = ["uv_build>=0.8.11,<0.9.0"]

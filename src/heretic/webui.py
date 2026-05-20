@@ -525,7 +525,6 @@ def create_app() -> Any:
                     max_lines=50,
                     autoscroll=True,
                     interactive=False,
-                    show_copy_button=True,
                 )
 
             # ── Tab 2: Results ─────────────────────────────────────────────
@@ -593,7 +592,6 @@ def create_app() -> Any:
                 )
                 chatbot = gr.Chatbot(
                     label="Chat",
-                    type="messages",
                     height=500,
                 )
                 with gr.Row():

@@ -1,4 +1,4 @@
-# CUDA 12.6 + cuDNN on Ubuntu 24.04 (ships with Python 3.12)
+# CUDA 12.6 + cuDNN on Ubuntu 24.04
 FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -17,7 +17,8 @@ RUN pip install --no-cache-dir --break-system-packages \
     --index-url https://download.pytorch.org/whl/cu124
 
 # Install Heretic
-RUN pip install --no-cache-dir --break-system-packages heretic-llm
+ARG HERETIC_VERSION=1.3.0
+RUN pip install --no-cache-dir --break-system-packages heretic-llm==${HERETIC_VERSION}
 
 WORKDIR /workspace
 

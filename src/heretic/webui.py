@@ -20,6 +20,7 @@ from collections import deque
 from dataclasses import asdict
 from importlib.metadata import version
 from os.path import commonprefix
+from types import SimpleNamespace
 from typing import Any, Generator
 
 import optuna
@@ -44,6 +45,7 @@ from .utils import format_duration, get_trial_parameters, load_prompts, set_seed
 # ─── Log capture infrastructure ──────────────────────────────────────────────
 
 _MAX_LOG_QUEUE_ITEMS = 10_000
+_LOG_QUEUE_PUT_RETRIES = 3
 _log_queue: queue.Queue[str | None] = queue.Queue(maxsize=_MAX_LOG_QUEUE_ITEMS)
 
 # Server-side store so the accumulated log survives page reloads.
@@ -76,7 +78,7 @@ def _emit(line: str) -> None:
 
 def _enqueue_log_queue(item: str | None) -> None:
     """Enqueue *item* without allowing unbounded queue growth."""
-    while True:
+    for _ in range(_LOG_QUEUE_PUT_RETRIES):
         try:
             _log_queue.put_nowait(item)
             return
@@ -84,7 +86,7 @@ def _enqueue_log_queue(item: str | None) -> None:
             try:
                 _log_queue.get_nowait()
             except queue.Empty:
-                return
+                continue
 
 
 def _append_log_line(line: str) -> None:
@@ -93,6 +95,14 @@ def _append_log_line(line: str) -> None:
     with _log_lines_lock:
         _log_lines_store.append(line + "\n")
         _log_lines_version += 1
+
+
+def _reset_log_store() -> None:
+    """Clear the server-side log store."""
+    global _log_lines_version
+    with _log_lines_lock:
+        _log_lines_store.clear()
+        _log_lines_version = 0
 
 
 def _get_log_snapshot() -> tuple[int, str]:
@@ -837,10 +847,7 @@ def create_app() -> Any:
 
             # Clear old session data and drain the queue.
             _session.clear()
-            global _log_lines_version
-            with _log_lines_lock:
-                _log_lines_store.clear()
-                _log_lines_version = 0
+            _reset_log_store()
             while not _log_queue.empty():
                 try:
                     _log_queue.get_nowait()
@@ -1161,6 +1168,7 @@ def create_app() -> Any:
             "kl_target",
             "checkpoint_dir",
         ]
+        _settings_keys_tuple = tuple(_settings_keys)
         _settings_comps = [
             model_source_radio,
             model_id_in,
@@ -1175,7 +1183,7 @@ def create_app() -> Any:
         ]
         for _comp in _settings_comps:
             _comp.change(
-                fn=lambda *vals: dict(zip(_settings_keys, vals)),
+                fn=lambda *vals, _keys=_settings_keys_tuple: dict(zip(_keys, vals)),
                 inputs=_settings_comps,
                 outputs=[settings_state],
             )
@@ -1228,18 +1236,19 @@ def create_app() -> Any:
         )
 
         # ── Timer: keep log and button state updated while opt. is running ─
-        last_polled_log_version = -1
+        poll_state = SimpleNamespace(last_polled_log_version=-1)
+        last_polled_log_version_lock = threading.Lock()
 
         def _poll_optimization() -> tuple:
-            nonlocal last_polled_log_version
             is_running = _optimization_running.is_set()
             log_version, log_content = _get_log_snapshot()
-            log_update = (
-                gr.update(value=log_content)
-                if log_version != last_polled_log_version
-                else gr.update()
-            )
-            last_polled_log_version = log_version
+            with last_polled_log_version_lock:
+                log_update = (
+                    gr.update(value=log_content)
+                    if log_version != poll_state.last_polled_log_version
+                    else gr.update()
+                )
+                poll_state.last_polled_log_version = log_version
             return (
                 log_update,
                 gr.update(interactive=not is_running),

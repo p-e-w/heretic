@@ -103,6 +103,15 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
+    output_dir: str | None = Field(
+        default=None,
+        description=(
+            "Directory to automatically save the processed model to after abliteration. "
+            "If set, the best trial is merged and saved to this path without interactive prompting."
+        ),
+        exclude=True,
+    )
+
     collect_reproducibles: str | None = Field(
         default=None,
         description=(

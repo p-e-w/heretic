@@ -1305,7 +1305,7 @@ def create_app() -> Any:
             outputs=[
                 model_source_radio,
                 model_id_in,
-                local_model_row,
+                local_model_section,
                 local_model_in,
                 quantization_in,
                 n_trials_in,

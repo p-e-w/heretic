@@ -45,11 +45,22 @@ from .utils import format_duration, get_trial_parameters, load_prompts, set_seed
 
 _log_queue: queue.Queue[str | None] = queue.Queue()
 
+# Capture the real stdout before any monkey-patching so log lines can always
+# be forwarded to it (visible in ``docker logs`` and plain terminal runs).
+_real_stdout = sys.stdout
+
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 
 def _strip_ansi(text: str) -> str:
     return _ANSI_ESCAPE.sub("", text).strip()
+
+
+def _emit(line: str) -> None:
+    """Enqueue *line* for the web UI log and echo it to the real stdout."""
+    _log_queue.put(line)
+    _real_stdout.write(line + "\n")
+    _real_stdout.flush()
 
 
 class _QueueFile:
@@ -65,14 +76,14 @@ class _QueueFile:
             line, self._buf = self._buf.split("\n", 1)
             clean = _strip_ansi(line)
             if clean:
-                self._q.put(clean)
+                _emit(clean)
         return len(text)
 
     def flush(self) -> None:
         if self._buf:
             clean = _strip_ansi(self._buf)
             if clean:
-                self._q.put(clean)
+                _emit(clean)
             self._buf = ""
 
     def isatty(self) -> bool:
@@ -85,11 +96,11 @@ _capturing_console = Console(file=_queue_file, highlight=False, no_color=True)
 
 
 def _log(message: str) -> None:
-    """Enqueue a plain-text log line directly."""
+    """Enqueue a plain-text log line directly and echo it to stdout."""
     for line in message.splitlines():
         stripped = _strip_ansi(line).strip()
         if stripped:
-            _log_queue.put(stripped)
+            _emit(stripped)
 
 
 def _install_capturing_print() -> None:

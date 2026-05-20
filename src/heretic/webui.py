@@ -784,7 +784,7 @@ def create_app() -> Any:
                 return
 
             if _optimization_running.is_set():
-                yield "⚠ An optimization is already running. Wait for it to finish.", btn_idle
+                yield "⚠ An optimization is already running. Wait for it to finish.", btn_running
                 return
 
             # Clear old session data and drain the queue.
@@ -825,6 +825,7 @@ def create_app() -> Any:
                 prefix = "… (older log lines omitted)\n" if truncated_flag else ""
                 return prefix + "".join(lines)
 
+            yield render_log(truncated, log_lines), btn_running
             while True:
                 try:
                     msg = _log_queue.get(timeout=0.3)

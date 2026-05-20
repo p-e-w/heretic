@@ -517,13 +517,35 @@ def _get_local_models() -> list[str]:
             pass
 
     # ── Local sub-directories ──────────────────────────────────────────────
+    # Scan `cwd` itself and, if present, `cwd/models/`.  For each root we
+    # look two levels deep so that layouts like `models/org/model-name/` are
+    # discovered alongside flat `models/model-name/` structures.
     cwd = Path.cwd()
-    try:
-        for entry in sorted(cwd.iterdir()):
-            if entry.is_dir() and (entry / "config.json").exists():
-                found.append(str(entry))
-    except OSError:
-        pass
+    scan_roots: list[Path] = [cwd]
+    models_subdir = cwd / "models"
+    if models_subdir.is_dir():
+        scan_roots.append(models_subdir)
+
+    for base in scan_roots:
+        try:
+            for entry in sorted(base.iterdir()):
+                if not entry.is_dir():
+                    continue
+                if (entry / "config.json").exists():
+                    found.append(str(entry))
+                else:
+                    # One level deeper: e.g. models/org/model-name/
+                    try:
+                        for subentry in sorted(entry.iterdir()):
+                            if (
+                                subentry.is_dir()
+                                and (subentry / "config.json").exists()
+                            ):
+                                found.append(str(subentry))
+                    except OSError:
+                        continue
+        except OSError:
+            pass
 
     # Deduplicate while preserving order
     seen: set[str] = set()
@@ -579,7 +601,6 @@ def create_app() -> Any:
                                 label="Local / cached model",
                                 choices=_get_local_models(),
                                 value=None,
-                                allow_custom_value=True,
                                 scale=5,
                             )
                             refresh_local_btn = gr.Button("🔄", scale=0, min_width=48)

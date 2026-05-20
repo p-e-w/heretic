@@ -112,36 +112,39 @@ class _ProgressFile:
     def __init__(self) -> None:
         self._buf = ""
         self._last_emit = 0.0
+        self._lock = threading.Lock()
 
     def write(self, text: str) -> int:
-        self._buf += text
-        while "\r" in self._buf or "\n" in self._buf:
-            cr_pos = self._buf.find("\r")
-            nl_pos = self._buf.find("\n")
-            if nl_pos != -1 and (cr_pos == -1 or nl_pos <= cr_pos):
-                # Newline-terminated line: always emit.
-                line, self._buf = self._buf.split("\n", 1)
-                clean = _strip_ansi(line).strip()
-                if clean:
-                    _emit(clean)
-            else:
-                # Carriage-return update: throttle to 1 Hz to reduce noise.
-                line = self._buf[:cr_pos]
-                self._buf = self._buf[cr_pos + 1 :]
-                clean = _strip_ansi(line).strip()
-                if clean:
-                    now = time.monotonic()
-                    if now - self._last_emit >= 1.0:
-                        self._last_emit = now
+        with self._lock:
+            self._buf += text
+            while "\r" in self._buf or "\n" in self._buf:
+                cr_pos = self._buf.find("\r")
+                nl_pos = self._buf.find("\n")
+                if nl_pos != -1 and (cr_pos == -1 or nl_pos <= cr_pos):
+                    # Newline-terminated line: always emit.
+                    line, self._buf = self._buf.split("\n", 1)
+                    clean = _strip_ansi(line).strip()
+                    if clean:
                         _emit(clean)
+                else:
+                    # Carriage-return update: throttle to 1 Hz to reduce noise.
+                    line = self._buf[:cr_pos]
+                    self._buf = self._buf[cr_pos + 1 :]
+                    clean = _strip_ansi(line).strip()
+                    if clean:
+                        now = time.monotonic()
+                        if now - self._last_emit >= 1.0:
+                            self._last_emit = now
+                            _emit(clean)
         return len(text)
 
     def flush(self) -> None:
-        if self._buf:
-            clean = _strip_ansi(self._buf).strip()
-            if clean:
-                _emit(clean)
-            self._buf = ""
+        with self._lock:
+            if self._buf:
+                clean = _strip_ansi(self._buf).strip()
+                if clean:
+                    _emit(clean)
+                self._buf = ""
 
     def isatty(self) -> bool:
         # Return True so that tqdm does not auto-disable its progress bars
@@ -192,7 +195,8 @@ def _run_optimization(
 ) -> None:
     """Full Heretic optimization pipeline – runs in a daemon thread."""
     _old_stderr = sys.stderr
-    sys.stderr = _ProgressFile()
+    progress_stderr = _ProgressFile()
+    sys.stderr = progress_stderr
     try:
         _install_capturing_print()
 
@@ -485,8 +489,10 @@ def _run_optimization(
     except Exception:
         _log(f"\nError:\n{traceback.format_exc()}")
     finally:
-        sys.stderr.flush()
-        sys.stderr = _old_stderr
+        try:
+            progress_stderr.flush()
+        finally:
+            sys.stderr = _old_stderr
         _optimization_running.clear()
         _log_queue.put(None)  # sentinel – signals the generator to stop
 

@@ -43,11 +43,14 @@ from .utils import format_duration, get_trial_parameters, load_prompts, set_seed
 
 # ─── Log capture infrastructure ──────────────────────────────────────────────
 
-_log_queue: queue.Queue[str | None] = queue.Queue()
+_MAX_LOG_QUEUE_ITEMS = 10_000
+_log_queue: queue.Queue[str | None] = queue.Queue(maxsize=_MAX_LOG_QUEUE_ITEMS)
 
 # Server-side store so the accumulated log survives page reloads.
 _MAX_LOG_LINES = 10_000
 _log_lines_store: deque[str] = deque(maxlen=_MAX_LOG_LINES)
+_log_lines_lock = threading.Lock()
+_log_lines_version = 0
 
 # Capture the real stdout before any monkey-patching so log lines can always
 # be forwarded to it (visible in ``docker logs`` and plain terminal runs).
@@ -62,13 +65,40 @@ def _strip_ansi(text: str) -> str:
 
 def _emit(line: str) -> None:
     """Enqueue *line* for the web UI log and echo it to the real stdout."""
-    _log_queue.put(line)
-    _log_lines_store.append(line + "\n")
+    _enqueue_log_queue(line)
+    _append_log_line(line)
     try:
         _real_stdout.write(line + "\n")
         _real_stdout.flush()
     except (OSError, ValueError):
         pass
+
+
+def _enqueue_log_queue(item: str | None) -> None:
+    """Enqueue *item* without allowing unbounded queue growth."""
+    while True:
+        try:
+            _log_queue.put_nowait(item)
+            return
+        except queue.Full:
+            try:
+                _log_queue.get_nowait()
+            except queue.Empty:
+                return
+
+
+def _append_log_line(line: str) -> None:
+    """Append a log line to the server-side store."""
+    global _log_lines_version
+    with _log_lines_lock:
+        _log_lines_store.append(line + "\n")
+        _log_lines_version += 1
+
+
+def _get_log_snapshot() -> tuple[int, str]:
+    """Return the current log version and full rendered content."""
+    with _log_lines_lock:
+        return _log_lines_version, "".join(_log_lines_store)
 
 
 class _QueueFile:
@@ -437,7 +467,7 @@ def _run_optimization(
         _log(f"\nError:\n{traceback.format_exc()}")
     finally:
         _optimization_running.clear()
-        _log_queue.put(None)  # sentinel – signals the generator to stop
+        _enqueue_log_queue(None)  # sentinel – signals the generator to stop
 
 
 # ─── Helper: re-apply abliteration after a model merge ───────────────────────
@@ -807,7 +837,10 @@ def create_app() -> Any:
 
             # Clear old session data and drain the queue.
             _session.clear()
-            _log_lines_store.clear()
+            global _log_lines_version
+            with _log_lines_lock:
+                _log_lines_store.clear()
+                _log_lines_version = 0
             while not _log_queue.empty():
                 try:
                     _log_queue.get_nowait()
@@ -867,7 +900,7 @@ def create_app() -> Any:
             yield render_log(truncated, log_lines)
 
         start_btn.click(
-            fn=lambda: (gr.update(interactive=False), gr.update(active=True)),
+            fn=lambda: (gr.update(interactive=False), gr.update(active=False)),
             outputs=[start_btn, opt_timer],
         ).then(
             fn=run_optimization_generator,
@@ -1153,7 +1186,7 @@ def create_app() -> Any:
             source = state.get("model_source", MODEL_SOURCE_HF)
             is_hf = source == MODEL_SOURCE_HF
             is_running = _optimization_running.is_set()
-            log_content = "".join(_log_lines_store)
+            _, log_content = _get_log_snapshot()
             return (
                 gr.update(value=source),
                 gr.update(value=state.get("model_id", ""), visible=is_hf),
@@ -1195,12 +1228,20 @@ def create_app() -> Any:
         )
 
         # ── Timer: keep log and button state updated while opt. is running ─
+        last_polled_log_version = -1
 
         def _poll_optimization() -> tuple:
+            nonlocal last_polled_log_version
             is_running = _optimization_running.is_set()
-            log_content = "".join(_log_lines_store)
+            log_version, log_content = _get_log_snapshot()
+            log_update = (
+                gr.update(value=log_content)
+                if log_version != last_polled_log_version
+                else gr.update()
+            )
+            last_polled_log_version = log_version
             return (
-                gr.update(value=log_content),
+                log_update,
                 gr.update(interactive=not is_running),
                 gr.update(active=is_running),
             )

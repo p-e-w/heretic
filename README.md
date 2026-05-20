@@ -147,12 +147,13 @@ docker run --gpus all \
   gabriel20xx/heretic Qwen/Qwen3-4B-Instruct-2507 --output-dir /workspace/output
 ```
 
-The container has two important mount points:
+The container has three important mount points:
 
-| Mount point | Purpose |
-| :--- | :--- |
-| `/root/.cache/huggingface` | Hugging Face model cache. Mount a host directory here to avoid redownloading models between container runs. |
-| `/workspace` | Working directory. Mount a host directory here to persist decensored models saved to disk. |
+| Mount point | Purpose | Host path example |
+| :--- | :--- | :--- |
+| `/root/.cache/huggingface` | **Downloaded models** — Hugging Face model cache. Mount a host directory here to avoid re-downloading models between container runs. | `-v /path/to/hf-cache:/root/.cache/huggingface` |
+| `/models` | **Local input models** — Mount a host directory containing models you already have on disk. Pass the container-side path (e.g. `/models/my-model`) as the model argument instead of a Hugging Face repo ID. | `-v /path/to/models:/models` |
+| `/workspace` | **Output models** — Working directory where decensored models are saved. Mount a host directory here to persist results between container runs. | `-v /path/to/output:/workspace` |
 
 The container also exposes **port 7860** for the web UI (`heretic-webui`). To launch
 the web UI from Docker, override the entrypoint and bind the port:

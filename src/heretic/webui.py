@@ -459,6 +459,83 @@ def _restore_trial_model(model: Model) -> None:
         )
 
 
+# ─── Local model discovery ────────────────────────────────────────────────────
+
+MODEL_SOURCE_HF = "Hugging Face Hub"
+MODEL_SOURCE_LOCAL = "Local / Cached"
+
+
+def _get_local_models() -> list[str]:
+    """Return paths/IDs for models available locally.
+
+    Two sources are scanned:
+
+    1. The Hugging Face cache directory (``~/.cache/huggingface/hub/`` by default,
+       or ``$HF_HOME/hub``).  Only snapshots that contain a ``config.json`` are
+       included, and they are returned as ``org/name`` model IDs (which
+       ``transformers`` will resolve from cache without network access).
+
+    2. Sub-directories of the current working directory that contain a
+       ``config.json`` (i.e. locally stored model folders).
+    """
+    import os
+    from pathlib import Path
+
+    found: list[str] = []
+
+    # ── Hugging Face cache ─────────────────────────────────────────────────
+    hf_home_env = os.environ.get("HF_HOME")
+    hf_home = (
+        Path(hf_home_env).expanduser()
+        if hf_home_env
+        else Path.home() / ".cache" / "huggingface"
+    )
+    hf_hub_cache = hf_home / "hub"
+    if hf_hub_cache.exists():
+        try:
+            for entry in sorted(hf_hub_cache.iterdir()):
+                try:
+                    if not entry.is_dir() or not entry.name.startswith("models--"):
+                        continue
+                    # "models--org--name" → "org/name"
+                    parts = entry.name[len("models--") :].split("--")
+                    if len(parts) < 2:
+                        continue
+                    model_id = "/".join(parts)
+                    snapshots_dir = entry / "snapshots"
+                    if snapshots_dir.exists():
+                        for snapshot in snapshots_dir.iterdir():
+                            if (
+                                snapshot.is_dir()
+                                and (snapshot / "config.json").exists()
+                            ):
+                                found.append(model_id)
+                                break
+                except OSError:
+                    continue
+        except OSError:
+            pass
+
+    # ── Local sub-directories ──────────────────────────────────────────────
+    cwd = Path.cwd()
+    try:
+        for entry in sorted(cwd.iterdir()):
+            if entry.is_dir() and (entry / "config.json").exists():
+                found.append(str(entry))
+    except OSError:
+        pass
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in found:
+        if item not in seen:
+            seen.add(item)
+            unique.append(item)
+
+    return unique
+
+
 # ─── Gradio app ───────────────────────────────────────────────────────────────
 
 
@@ -485,10 +562,27 @@ def create_app() -> Any:
             with gr.Tab("⚙️ Configure & Run"):
                 with gr.Row():
                     with gr.Column():
-                        model_id_in = gr.Textbox(
-                            label="Model ID or local path",
-                            placeholder="e.g., Qwen/Qwen3-4B-Instruct-2507",
+                        model_source_radio = gr.Radio(
+                            choices=[MODEL_SOURCE_HF, MODEL_SOURCE_LOCAL],
+                            value=MODEL_SOURCE_HF,
+                            label="Model source",
                         )
+                        # Shown when "Hugging Face Hub" is selected
+                        model_id_in = gr.Textbox(
+                            label="Model ID",
+                            placeholder="e.g., Qwen/Qwen3-4B-Instruct-2507",
+                            visible=True,
+                        )
+                        # Shown when "Local / Cached" is selected
+                        with gr.Row(visible=False) as local_model_row:
+                            local_model_in = gr.Dropdown(
+                                label="Local / cached model",
+                                choices=_get_local_models(),
+                                value=None,
+                                allow_custom_value=True,
+                                scale=5,
+                            )
+                            refresh_local_btn = gr.Button("🔄", scale=0, min_width=48)
                         quantization_in = gr.Dropdown(
                             choices=["none", "bnb_4bit"],
                             value="none",
@@ -619,8 +713,27 @@ def create_app() -> Any:
 
         # ── Event handlers ─────────────────────────────────────────────────
 
+        def _toggle_model_source(
+            source: str,
+        ) -> tuple[Any, Any]:
+            is_hf = source == MODEL_SOURCE_HF
+            return gr.update(visible=is_hf), gr.update(visible=not is_hf)
+
+        model_source_radio.change(
+            fn=_toggle_model_source,
+            inputs=[model_source_radio],
+            outputs=[model_id_in, local_model_row],
+        )
+
+        refresh_local_btn.click(
+            fn=lambda: gr.update(choices=_get_local_models()),
+            outputs=[local_model_in],
+        )
+
         def run_optimization_generator(
+            model_source: str,
             model_id: str,
+            local_model: str | None,
             quantization: str,
             n_trials: int,
             n_startup: int,
@@ -629,8 +742,15 @@ def create_app() -> Any:
             kl_target: float,
             checkpoint_dir: str,
         ) -> Generator[str, None, None]:
-            if not model_id.strip():
-                yield "⚠ Please enter a model ID."
+            effective_model_id = (
+                model_id if model_source == MODEL_SOURCE_HF else (local_model or "")
+            )
+            if not effective_model_id.strip():
+                yield (
+                    "⚠ Please enter a model ID."
+                    if model_source == MODEL_SOURCE_HF
+                    else "⚠ Please select a local model."
+                )
                 return
 
             if _optimization_running.is_set():
@@ -649,7 +769,7 @@ def create_app() -> Any:
             thread = threading.Thread(
                 target=_run_optimization,
                 args=(
-                    model_id,
+                    effective_model_id,
                     quantization,
                     n_trials,
                     n_startup,
@@ -700,7 +820,9 @@ def create_app() -> Any:
         start_btn.click(
             fn=run_optimization_generator,
             inputs=[
+                model_source_radio,
                 model_id_in,
+                local_model_in,
                 quantization_in,
                 n_trials_in,
                 n_startup_in,

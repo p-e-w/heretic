@@ -155,16 +155,15 @@ The container has three important mount points:
 | `/models` | **Local input models** — Mount a host directory containing models you already have on disk. Pass the container-side path (e.g. `/models/my-model`) as the model argument instead of a Hugging Face repo ID. | `-v /path/to/models:/models` |
 | `/workspace` | **Output models** — Working directory where decensored models are saved. Mount a host directory here to persist results between container runs. | `-v /path/to/output:/workspace` |
 
-The container also exposes **port 7860** for the web UI (`heretic-webui`). To launch
-the web UI from Docker, override the entrypoint and bind the port:
+The container starts the web UI (`heretic-webui`) by default and exposes **port 7860**.
+To launch the web UI from Docker, bind the port:
 
 ```
 docker run --gpus all \
   -p 7860:7860 \
   -v /path/to/hf-cache:/root/.cache/huggingface \
   -v /path/to/output:/workspace \
-  --entrypoint heretic-webui \
-  gabriel20xx/heretic --host 0.0.0.0
+  gabriel20xx/heretic
 ```
 
 Then open `http://localhost:7860` in your browser.

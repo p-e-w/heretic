@@ -599,15 +599,18 @@ def create_app() -> Any:
                             visible=True,
                         )
                         # Shown when "Local / Cached" is selected
-                        with gr.Row(visible=False) as local_model_row:
-                            local_model_in = gr.Dropdown(
-                                label="Local / cached model",
-                                choices=_get_local_models(),
-                                value=None,
-                                scale=5,
-                            )
-                            refresh_local_btn = gr.Button("🔄", scale=0, min_width=48)
-                        local_models_status = gr.Markdown("")
+                        with gr.Column(visible=False) as local_model_section:
+                            with gr.Row():
+                                local_model_in = gr.Dropdown(
+                                    label="Local / cached model",
+                                    choices=_get_local_models(),
+                                    value=None,
+                                    scale=5,
+                                )
+                                refresh_local_btn = gr.Button(
+                                    "🔄", scale=0, min_width=48
+                                )
+                            local_models_status = gr.Markdown("")
                         quantization_in = gr.Dropdown(
                             choices=["none", "bnb_4bit"],
                             value="none",
@@ -747,7 +750,7 @@ def create_app() -> Any:
         model_source_radio.change(
             fn=_toggle_model_source,
             inputs=[model_source_radio],
-            outputs=[model_id_in, local_model_row],
+            outputs=[model_id_in, local_model_section],
         )
 
         def _refresh_local() -> tuple[Any, str]:

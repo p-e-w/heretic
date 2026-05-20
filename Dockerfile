@@ -22,4 +22,7 @@ RUN pip install --no-cache-dir --break-system-packages heretic-llm==${HERETIC_VE
 
 WORKDIR /workspace
 
+# Web UI port (used by heretic-webui)
+EXPOSE 7860
+
 ENTRYPOINT ["heretic"]

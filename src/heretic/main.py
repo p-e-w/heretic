@@ -767,6 +767,33 @@ def run():
 
             reset_trial_model()
 
+            if settings.output_dir is not None:
+                save_directory = settings.output_dir
+                print()
+                print(f"Saving model to [bold]{save_directory}[/] (output_dir)...")
+                try:
+                    if os.path.exists(save_directory) and os.listdir(save_directory):
+                        print(
+                            f"[yellow]WARNING: Output directory [bold]{save_directory}[/] already exists and is not empty. Files may be overwritten.[/]"
+                        )
+                    os.makedirs(save_directory, exist_ok=True)
+                    print("Saving merged model...")
+                    merged_model = model.get_merged_model()
+                    merged_model.save_pretrained(
+                        save_directory,
+                        max_shard_size=settings.max_shard_size,
+                    )
+                    del merged_model
+                    empty_cache()
+                    model.tokenizer.save_pretrained(save_directory)
+                    reset_trial_model()
+                    print(f"Model saved to [bold]{save_directory}[/].")
+                except Exception as error:
+                    print(
+                        f"[red]Error saving model to [bold]{save_directory}[/]: {error}[/]\n"
+                        "[red]Check that the path is valid, you have write permissions, and sufficient disk space.[/]"
+                    )
+
             while True:
                 print()
                 action = prompt_select(

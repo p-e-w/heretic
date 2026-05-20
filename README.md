@@ -92,6 +92,8 @@ heretic Qwen/Qwen3-4B-Instruct-2507
 ```
 
 Replace `Qwen/Qwen3-4B-Instruct-2507` with whatever model you want to decensor.
+You can also pass a local filesystem path to a model directory instead of a
+Hugging Face model ID.
 
 > [!IMPORTANT]
 >
@@ -124,6 +126,57 @@ models. Set the `quantization` option to `bnb_4bit` to enable quantization.
 After Heretic has finished decensoring a model, you are given the option to
 save the model, upload it to Hugging Face, chat with it to test how well it works,
 run standard benchmarks on it, or any combination of those actions.
+
+To save the decensored model automatically without interactive prompting,
+pass `--output-dir` with the path to the output directory. Heretic will
+merge and save the best trial's result to that directory as soon as
+optimization finishes:
+
+```
+heretic Qwen/Qwen3-4B-Instruct-2507 --output-dir /path/to/output
+```
+
+### Docker
+
+A Docker image with CUDA support is published on Docker Hub:
+
+```
+docker run --gpus all \
+  -v /path/to/hf-cache:/root/.cache/huggingface \
+  -v /path/to/output:/workspace \
+  gabriel20xx/heretic Qwen/Qwen3-4B-Instruct-2507 --output-dir /workspace/output
+```
+
+The container has two important mount points:
+
+| Mount point | Purpose |
+| :--- | :--- |
+| `/root/.cache/huggingface` | Hugging Face model cache. Mount a host directory here to avoid redownloading models between container runs. |
+| `/workspace` | Working directory. Mount a host directory here to persist decensored models saved to disk. |
+
+The container also exposes **port 7860** for the web UI (`heretic-webui`). To launch
+the web UI from Docker, override the entrypoint and bind the port:
+
+```
+docker run --gpus all \
+  -p 7860:7860 \
+  -v /path/to/hf-cache:/root/.cache/huggingface \
+  -v /path/to/output:/workspace \
+  --entrypoint heretic-webui \
+  gabriel20xx/heretic --host 0.0.0.0
+```
+
+Then open `http://localhost:7860` in your browser.
+
+To use a model already on the host filesystem, mount its directory into
+the container and pass the container-side path as the model argument:
+
+```
+docker run --gpus all \
+  -v /path/to/models:/models \
+  -v /path/to/output:/workspace \
+  gabriel20xx/heretic /models/my-model --output-dir /workspace/my-model-heretic
+```
 
 
 ## Research features

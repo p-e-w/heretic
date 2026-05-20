@@ -127,6 +127,10 @@ n_startup_trials = 60
 # Applies to Python's random module, NumPy, PyTorch, and Optuna.
 # seed = 75
 
+# Directory to automatically save the processed model to after abliteration.
+# If set, the best trial is merged and saved to this path without interactive prompting.
+# output_dir = "/path/to/output"
+
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"
 

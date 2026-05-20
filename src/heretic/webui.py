@@ -20,6 +20,7 @@ from collections import deque
 from dataclasses import asdict
 from importlib.metadata import version
 from os.path import commonprefix
+from types import SimpleNamespace
 from typing import Any, Generator
 
 import optuna
@@ -43,7 +44,15 @@ from .utils import format_duration, get_trial_parameters, load_prompts, set_seed
 
 # ─── Log capture infrastructure ──────────────────────────────────────────────
 
-_log_queue: queue.Queue[str | None] = queue.Queue()
+_MAX_LOG_QUEUE_ITEMS = 10_000
+_LOG_QUEUE_PUT_RETRIES = 3
+_log_queue: queue.Queue[str | None] = queue.Queue(maxsize=_MAX_LOG_QUEUE_ITEMS)
+
+# Server-side store so the accumulated log survives page reloads.
+_MAX_LOG_LINES = 10_000
+_log_lines_store: deque[str] = deque(maxlen=_MAX_LOG_LINES)
+_log_lines_lock = threading.Lock()
+_log_lines_version = 0
 
 # Capture the real stdout before any monkey-patching so log lines can always
 # be forwarded to it (visible in ``docker logs`` and plain terminal runs).
@@ -58,12 +67,48 @@ def _strip_ansi(text: str) -> str:
 
 def _emit(line: str) -> None:
     """Enqueue *line* for the web UI log and echo it to the real stdout."""
-    _log_queue.put(line)
+    _enqueue_log_queue(line)
+    _append_log_line(line)
     try:
         _real_stdout.write(line + "\n")
         _real_stdout.flush()
     except (OSError, ValueError):
         pass
+
+
+def _enqueue_log_queue(item: str | None) -> None:
+    """Enqueue *item* without allowing unbounded queue growth."""
+    for _ in range(_LOG_QUEUE_PUT_RETRIES):
+        try:
+            _log_queue.put_nowait(item)
+            return
+        except queue.Full:
+            try:
+                _log_queue.get_nowait()
+            except queue.Empty:
+                continue
+
+
+def _append_log_line(line: str) -> None:
+    """Append a log line to the server-side store."""
+    global _log_lines_version
+    with _log_lines_lock:
+        _log_lines_store.append(line + "\n")
+        _log_lines_version += 1
+
+
+def _reset_log_store() -> None:
+    """Clear the server-side log store."""
+    global _log_lines_version
+    with _log_lines_lock:
+        _log_lines_store.clear()
+        _log_lines_version = 0
+
+
+def _get_log_snapshot() -> tuple[int, str]:
+    """Return the current log version and full rendered content."""
+    with _log_lines_lock:
+        return _log_lines_version, "".join(_log_lines_store)
 
 
 class _QueueFile:
@@ -95,6 +140,61 @@ class _QueueFile:
 _queue_file = _QueueFile()
 # no_color=True prevents Rich from embedding ANSI codes in the output.
 _capturing_console = Console(file=_queue_file, highlight=False, no_color=True)
+
+
+class _ProgressFile:
+    """File-like object for stderr that forwards tqdm progress bars to the web UI log.
+
+    tqdm overwrites the current terminal line by writing ``\\r`` (carriage
+    return) before each update.  A plain line-oriented queue would never see
+    those updates because they never end with ``\\n``.  This class handles
+    ``\\r``-terminated segments explicitly and throttles them to at most one
+    log entry per second so that large downloads do not flood the console.
+    ``\\n``-terminated lines (including the final "100% done" line) are always
+    forwarded immediately.
+    """
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._last_emit = 0.0
+        self._lock = threading.Lock()
+
+    def write(self, text: str) -> int:
+        with self._lock:
+            self._buf += text
+            while "\r" in self._buf or "\n" in self._buf:
+                cr_pos = self._buf.find("\r")
+                nl_pos = self._buf.find("\n")
+                if nl_pos != -1 and (cr_pos == -1 or nl_pos <= cr_pos):
+                    # Newline-terminated line: always emit.
+                    line, self._buf = self._buf.split("\n", 1)
+                    clean = _strip_ansi(line).strip()
+                    if clean:
+                        _emit(clean)
+                else:
+                    # Carriage-return update: throttle to 1 Hz to reduce noise.
+                    line = self._buf[:cr_pos]
+                    self._buf = self._buf[cr_pos + 1 :]
+                    clean = _strip_ansi(line).strip()
+                    if clean:
+                        now = time.monotonic()
+                        if now - self._last_emit >= 1.0:
+                            self._last_emit = now
+                            _emit(clean)
+        return len(text)
+
+    def flush(self) -> None:
+        with self._lock:
+            if self._buf:
+                clean = _strip_ansi(self._buf).strip()
+                if clean:
+                    _emit(clean)
+                self._buf = ""
+
+    def isatty(self) -> bool:
+        # Return True so that tqdm does not auto-disable its progress bars
+        # when the file is not a real terminal.
+        return True
 
 
 def _log(message: str) -> None:
@@ -139,6 +239,9 @@ def _run_optimization(
     study_checkpoint_dir: str,
 ) -> None:
     """Full Heretic optimization pipeline – runs in a daemon thread."""
+    _old_stderr = sys.stderr
+    progress_stderr = _ProgressFile()
+    sys.stderr = progress_stderr
     try:
         _install_capturing_print()
 
@@ -431,8 +534,12 @@ def _run_optimization(
     except Exception:
         _log(f"\nError:\n{traceback.format_exc()}")
     finally:
+        try:
+            progress_stderr.flush()
+        finally:
+            sys.stderr = _old_stderr
         _optimization_running.clear()
-        _log_queue.put(None)  # sentinel – signals the generator to stop
+        _enqueue_log_queue(None)  # sentinel – signals the generator to stop
 
 
 # ─── Helper: re-apply abliteration after a model merge ───────────────────────
@@ -582,6 +689,25 @@ def create_app() -> Any:
             "⚠️ *This is a single-user tool intended for local use only.*"
         )
 
+        # ── Persisted state ────────────────────────────────────────────────
+        settings_state = gr.BrowserState(
+            {
+                "model_source": MODEL_SOURCE_HF,
+                "model_id": "",
+                "local_model": None,
+                "quantization": "none",
+                "n_trials": 200,
+                "n_startup": 60,
+                "system_prompt": "You are a helpful assistant.",
+                "kl_scale": 1.0,
+                "kl_target": 0.01,
+                "checkpoint_dir": "checkpoints",
+            }
+        )
+        # Timer used to poll optimization state after a page reload.
+        _POLL_INTERVAL_SECONDS = 2.0
+        opt_timer = gr.Timer(value=_POLL_INTERVAL_SECONDS, active=False)
+
         with gr.Tabs():
             # ── Tab 1: Configure & Run ─────────────────────────────────────
             with gr.Tab("⚙️ Configure & Run"):
@@ -599,14 +725,18 @@ def create_app() -> Any:
                             visible=True,
                         )
                         # Shown when "Local / Cached" is selected
-                        with gr.Row(visible=False) as local_model_row:
-                            local_model_in = gr.Dropdown(
-                                label="Local / cached model",
-                                choices=_get_local_models(),
-                                value=None,
-                                scale=5,
-                            )
-                            refresh_local_btn = gr.Button("🔄", scale=0, min_width=48)
+                        with gr.Column(visible=False) as local_model_section:
+                            with gr.Row():
+                                local_model_in = gr.Dropdown(
+                                    label="Local / cached model",
+                                    choices=_get_local_models(),
+                                    value=None,
+                                    scale=5,
+                                )
+                                refresh_local_btn = gr.Button(
+                                    "🔄", scale=0, min_width=48
+                                )
+                            local_models_status = gr.Markdown("")
                         quantization_in = gr.Dropdown(
                             choices=["none", "bnb_4bit"],
                             value="none",
@@ -654,7 +784,7 @@ def create_app() -> Any:
                     label="Progress log",
                     lines=20,
                     max_lines=50,
-                    autoscroll=True,
+                    autoscroll=False,
                     interactive=False,
                 )
 
@@ -746,12 +876,27 @@ def create_app() -> Any:
         model_source_radio.change(
             fn=_toggle_model_source,
             inputs=[model_source_radio],
-            outputs=[model_id_in, local_model_row],
+            outputs=[model_id_in, local_model_section],
         )
 
+        def _refresh_local() -> tuple[Any, str]:
+            models = _get_local_models()
+            if models:
+                status = "**Local models found:**\n" + "\n".join(
+                    f"- `{m}`" for m in models
+                )
+            else:
+                status = "*No local models found.*"
+            return gr.update(choices=models), status
+
         refresh_local_btn.click(
-            fn=lambda: gr.update(choices=_get_local_models()),
-            outputs=[local_model_in],
+            fn=_refresh_local,
+            outputs=[local_model_in, local_models_status],
+        )
+
+        app.load(
+            fn=_refresh_local,
+            outputs=[local_model_in, local_models_status],
         )
 
         def run_optimization_generator(
@@ -789,6 +934,7 @@ def create_app() -> Any:
 
             # Clear old session data and drain the queue.
             _session.clear()
+            _reset_log_store()
             while not _log_queue.empty():
                 try:
                     _log_queue.get_nowait()
@@ -849,6 +995,9 @@ def create_app() -> Any:
             yield render_log(truncated, log_lines), btn_idle
 
         start_btn.click(
+            fn=lambda: (gr.update(interactive=False), gr.update(active=False)),
+            outputs=[start_btn, opt_timer],
+        ).then(
             fn=run_optimization_generator,
             inputs=[
                 model_source_radio,
@@ -1089,6 +1238,112 @@ def create_app() -> Any:
             outputs=[chat_in, chatbot],
         )
         chat_clear.click(fn=lambda: ([], ""), outputs=[chatbot, chat_in])
+
+        # ── Settings persistence ───────────────────────────────────────────
+
+        _settings_keys = [
+            "model_source",
+            "model_id",
+            "local_model",
+            "quantization",
+            "n_trials",
+            "n_startup",
+            "system_prompt",
+            "kl_scale",
+            "kl_target",
+            "checkpoint_dir",
+        ]
+        _settings_keys_tuple = tuple(_settings_keys)
+        _settings_comps = [
+            model_source_radio,
+            model_id_in,
+            local_model_in,
+            quantization_in,
+            n_trials_in,
+            n_startup_in,
+            system_prompt_in,
+            kl_scale_in,
+            kl_target_in,
+            checkpoint_dir_in,
+        ]
+        for _comp in _settings_comps:
+            _comp.change(
+                fn=lambda *vals, _keys=_settings_keys_tuple: dict(zip(_keys, vals)),
+                inputs=_settings_comps,
+                outputs=[settings_state],
+            )
+
+        # ── Page load: restore log, settings, and button/timer state ──────
+
+        def _on_page_load(state: dict) -> tuple:
+            source = state.get("model_source", MODEL_SOURCE_HF)
+            is_hf = source == MODEL_SOURCE_HF
+            is_running = _optimization_running.is_set()
+            _, log_content = _get_log_snapshot()
+            return (
+                gr.update(value=source),
+                gr.update(value=state.get("model_id", ""), visible=is_hf),
+                gr.update(visible=not is_hf),
+                gr.update(value=state.get("local_model")),
+                gr.update(value=state.get("quantization", "none")),
+                gr.update(value=state.get("n_trials", 200)),
+                gr.update(
+                    value=state.get("system_prompt", "You are a helpful assistant.")
+                ),
+                gr.update(value=state.get("n_startup", 60)),
+                gr.update(value=state.get("kl_scale", 1.0)),
+                gr.update(value=state.get("kl_target", 0.01)),
+                gr.update(value=state.get("checkpoint_dir", "checkpoints")),
+                gr.update(value=log_content),
+                gr.update(interactive=not is_running),
+                gr.update(active=is_running),
+            )
+
+        app.load(
+            fn=_on_page_load,
+            inputs=[settings_state],
+            outputs=[
+                model_source_radio,
+                model_id_in,
+                local_model_row,
+                local_model_in,
+                quantization_in,
+                n_trials_in,
+                system_prompt_in,
+                n_startup_in,
+                kl_scale_in,
+                kl_target_in,
+                checkpoint_dir_in,
+                log_out,
+                start_btn,
+                opt_timer,
+            ],
+        )
+
+        # ── Timer: keep log and button state updated while opt. is running ─
+        poll_state = SimpleNamespace(last_polled_log_version=-1)
+        last_polled_log_version_lock = threading.Lock()
+
+        def _poll_optimization() -> tuple:
+            is_running = _optimization_running.is_set()
+            log_version, log_content = _get_log_snapshot()
+            with last_polled_log_version_lock:
+                log_update = (
+                    gr.update(value=log_content)
+                    if log_version != poll_state.last_polled_log_version
+                    else gr.update()
+                )
+                poll_state.last_polled_log_version = log_version
+            return (
+                log_update,
+                gr.update(interactive=not is_running),
+                gr.update(active=is_running),
+            )
+
+        opt_timer.tick(
+            fn=_poll_optimization,
+            outputs=[log_out, start_btn, opt_timer],
+        )
 
     return app
 

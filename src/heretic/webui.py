@@ -654,7 +654,7 @@ def create_app() -> Any:
                     label="Progress log",
                     lines=20,
                     max_lines=50,
-                    autoscroll=True,
+                    autoscroll=False,
                     interactive=False,
                 )
 

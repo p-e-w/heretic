@@ -16,9 +16,12 @@ RUN pip install --no-cache-dir --break-system-packages \
     torch \
     --index-url https://download.pytorch.org/whl/cu124
 
-# Install Heretic with web UI dependencies
-ARG HERETIC_VERSION=1.3.0
-RUN pip install --no-cache-dir --break-system-packages heretic-llm[webui]==${HERETIC_VERSION}
+# Install Heretic with web UI dependencies from local source.
+# Installing from local source (rather than PyPI) ensures that the
+# heretic-webui entry point defined in this repository is included.
+COPY pyproject.toml README.md LICENSE ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir --break-system-packages ".[webui]"
 
 WORKDIR /workspace
 

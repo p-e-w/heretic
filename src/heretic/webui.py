@@ -59,15 +59,17 @@ def _strip_ansi(text: str) -> str:
 def _emit(line: str) -> None:
     """Enqueue *line* for the web UI log and echo it to the real stdout."""
     _log_queue.put(line)
-    _real_stdout.write(line + "\n")
-    _real_stdout.flush()
+    try:
+        _real_stdout.write(line + "\n")
+        _real_stdout.flush()
+    except (OSError, ValueError):
+        pass
 
 
 class _QueueFile:
     """File-like object that pushes each line into *_log_queue*."""
 
-    def __init__(self, q: "queue.Queue[str | None]") -> None:
-        self._q = q
+    def __init__(self) -> None:
         self._buf = ""
 
     def write(self, text: str) -> int:
@@ -90,7 +92,7 @@ class _QueueFile:
         return False
 
 
-_queue_file = _QueueFile(_log_queue)
+_queue_file = _QueueFile()
 # no_color=True prevents Rich from embedding ANSI codes in the output.
 _capturing_console = Console(file=_queue_file, highlight=False, no_color=True)
 

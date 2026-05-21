@@ -65,7 +65,11 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
-from .reproduce import collect_reproducibles, load_reproduction_information
+from .reproduce import (
+    check_environment,
+    collect_reproducibles,
+    load_reproduction_information,
+)
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
@@ -213,8 +217,21 @@ def run():
 
     if settings.reproduce is not None:
         print(f"Loading reproduction information from [bold]{settings.reproduce}[/]...")
+        # FIXME: "Reproduction"/"reproducibility" name inconsistency!
         reproduction_information = load_reproduction_information(settings.reproduce)
-        print(reproduction_information)
+
+        if reproduction_information["version"] not in ["1"]:
+            print(
+                (
+                    f"[red]Unsupported file format version: [bold]{reproduction_information['version']}[/].[/] "
+                    "Try loading the file with a newer version of Heretic."
+                )
+            )
+            return
+
+        if not check_environment(reproduction_information):
+            return
+
         return
 
     if settings.seed is None:

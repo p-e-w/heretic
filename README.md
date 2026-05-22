@@ -116,8 +116,9 @@ a configuration file.
 
 At the start of a program run, Heretic benchmarks the system to determine
 the optimal batch size to make the most of the available hardware.
-On an RTX 3090, with the default configuration, decensoring Llama-3.1-8B-Instruct
-takes about 45 minutes. Note that Heretic supports model quantization with
+On an RTX 3090, with the default configuration, decensoring
+[Qwen3-4B-Instruct-2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)
+takes about 20-30 minutes. Note that Heretic supports model quantization with
 bitsandbytes, which can drastically reduce the amount of VRAM required to process
 models. Set the `quantization` option to `bnb_4bit` to enable quantization.
 

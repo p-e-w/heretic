@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import NoReturn
 
 from pydantic import BaseModel
 
@@ -51,22 +50,13 @@ class Scorer(Plugin, ABC):
     ):
         super().__init__(heretic_settings=heretic_settings, settings=settings)
 
-    @property
-    def model(self) -> NoReturn:  # type: ignore[override]
-        raise AttributeError(
-            "Direct access to the underlying Model is intentionally not exposed to scorers. "
-            "Use the passed Context (e.g. `ctx.get_responses(...)`) inside `get_score(...)` / `init(ctx)`."
-        )
-
+    @abstractmethod
     def get_score(self, ctx: Context) -> Score:
         """
         Return a `Score` given the evaluation context.
         The `value` of the `Score` must be of the order of magnitude 1
         to ensure that all scores are comparable during co-optimization.
         """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement get_score()"
-        )
 
     def get_baseline_score(self, ctx: Context) -> Score:
         """

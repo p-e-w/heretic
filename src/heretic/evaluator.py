@@ -49,23 +49,23 @@ class Evaluator:
         Load and instantiate all configured scorer plugins,
         then runs their initialization hooks.
         """
-        scorer_configs = list(self.settings.scorers)
+        scorer_configs = self.settings.scorers
         if not scorer_configs:
             raise ValueError("No scorers configured. Set 'scorers' in config.toml")
 
-        scorer_names: set[str] = set()
+        scorer_keys: set[str] = set()
 
         # Resolve plugin classes from names and validate.
-        for cfg in scorer_configs:
-            scorer_cls = load_plugin(name=cfg.plugin, base_class=Scorer)
+        for scorer_config in scorer_configs:
+            scorer_cls = load_plugin(name=scorer_config.plugin, base_class=Scorer)
             scorer_cls.validate_contract()
 
             print(
-                f"* Loaded: [bold]{scorer_cls.__name__} {'- ' + cfg.instance_name if cfg.instance_name else ''}[/bold]"
+                f"* Loaded: [bold]{scorer_cls.__name__} {'- ' + scorer_config.instance_name if scorer_config.instance_name else ''}[/bold]"
             )
 
             # Instantiate scorers.
-            instance_name = cfg.instance_name or None
+            instance_name = scorer_config.instance_name or None
 
             raw_settings = self._get_scorer_settings_raw(
                 scorer_cls=scorer_cls, instance_name=instance_name
@@ -79,18 +79,19 @@ class Evaluator:
                 settings=scorer_settings,
             )
 
-            # External labeling key: ensures multiple instances can coexist/
+            # External labeling key: ensures multiple instances can coexist.
+            # Uses underscore to match the TOML namespace format (`scorer.<Class>_<instance>`).
             scorer_key = (
                 scorer_cls.__name__
                 if not instance_name
-                else f"{scorer_cls.__name__}.{instance_name}"
+                else f"{scorer_cls.__name__}_{instance_name}"
             )
-            if scorer_key in scorer_names:
+            if scorer_key in scorer_keys:
                 raise ValueError(
                     f"Duplicate scorer instance name: {scorer_key}. "
                     "Give each instance a unique `instance_name`."
                 )
-            scorer_names.add(scorer_key)
+            scorer_keys.add(scorer_key)
 
             scorer_instance_name = (
                 f"{scorer.score_name} - {instance_name}"
@@ -98,7 +99,9 @@ class Evaluator:
                 else scorer.score_name
             )
             self._scorer_entries.append(
-                ScorerEntry(scorer=scorer, config=cfg, name=scorer_instance_name)
+                ScorerEntry(
+                    scorer=scorer, config=scorer_config, name=scorer_instance_name
+                )
             )
 
         # Run scorer init hooks.

@@ -17,7 +17,7 @@ class Settings(BaseModel):
             split="test[:100]",
             column="text",
         ),
-        description="Prompt set used to measure drift from baseline.",
+        description="Prompt dataset used to measure KL divergence from original model.",
     )
 
 

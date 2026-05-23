@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+from __future__ import annotations
+
 import getpass
 import json
 import os
@@ -9,6 +11,7 @@ import random
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -330,8 +333,6 @@ def get_readme_intro(
         ]
     )
 
-    version_info = get_heretic_version_info()
-
     if contains_reproducibility_information:
         reproducibility_instructions = """
 > [!TIP]
@@ -344,7 +345,7 @@ def get_readme_intro(
 
     return f"""# This is a decensored version of {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version_info.version}
+    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}
 {reproducibility_instructions}
 ## Abliteration parameters
 
@@ -413,7 +414,7 @@ def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
     trial: Trial,
-    baseline_scores: "list[tuple[str, Score]]",
+    baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a README.md for the reproduce/ folder."""
@@ -594,7 +595,7 @@ def generate_reproduce_json(
     trial: Trial,
     timestamp: str,
     uploaded_model_hashes: dict[str, str],
-    baseline_scores: "list[tuple[str, Score]]",
+    baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a reproduce.json file for the reproduce/ folder."""
@@ -660,7 +661,7 @@ def create_reproduce_folder(
     checkpoint_path: str | Path,
     trial: Trial,
     uploaded_model_hashes: dict[str, str],
-    baseline_scores: "list[tuple[str, Score]]",
+    baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ):
     reproduce_dir = path / "reproduce"
@@ -737,7 +738,7 @@ def upload_reproduce_folder(
     token: str,
     checkpoint_path: str | Path,
     trial: Trial,
-    baseline_scores: "list[tuple[str, Score]]",
+    baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ):
     api = huggingface_hub.HfApi()

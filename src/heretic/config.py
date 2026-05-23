@@ -83,9 +83,29 @@ class ScorerConfig(BaseModel):
     - { plugin = "<plugin>", direction = "<direction>", instance_name = "<optional>" }
     """
 
-    plugin: str
-    direction: Literal["minimize", "maximize", "not_set"]
-    instance_name: str | None = None
+    plugin: str = Field(
+        description=(
+            "Plugin to load. Either a file path with class name "
+            "(`path/to/plugin.py:ClassName`) or a fully-qualified import path "
+            "(`module.submodule.ClassName`)."
+        ),
+    )
+
+    direction: Literal["minimize", "maximize", "not_set"] = Field(
+        description=(
+            "Optimization direction for this scorer. "
+            '"minimize" / "maximize" to include the scorer as an objective, '
+            '"not_set" to compute the score without optimizing for it.'
+        ),
+    )
+
+    instance_name: str | None = Field(
+        default=None,
+        description=(
+            "Optional name to distinguish multiple instances of the same plugin class. "
+            "Instance-specific settings live under `[scorer.<ClassName>_<instance_name>]`."
+        ),
+    )
 
 
 class BenchmarkSpecification(BaseModel):

@@ -17,7 +17,7 @@ import time
 import traceback
 import warnings
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from functools import partial
 from importlib.metadata import version
 from os.path import commonprefix
@@ -538,7 +538,7 @@ def _run_optimization(
             _log(
                 f"\nOptimization complete! "
                 f"{len(best)} Pareto-optimal trial(s) found. "
-                "Open the Results tab to select and export a model."
+                "Open the Review tab to select a trial, then use Publish or Chat."
             )
         else:
             _session["best_trials"] = []
@@ -721,6 +721,439 @@ def _get_local_models() -> list[str]:
 # ─── Gradio app ───────────────────────────────────────────────────────────────
 
 
+_DEFAULT_UI_SETTINGS = {
+    "model_source": MODEL_SOURCE_HF,
+    "model_id": "",
+    "local_model": None,
+    "quantization": "none",
+    "n_trials": 200,
+    "n_startup": 60,
+    "system_prompt": "You are a helpful assistant.",
+    "kl_scale": 1.0,
+    "kl_target": 0.01,
+}
+_POLL_INTERVAL_SECONDS = 2.0
+_WEBUI_CSS = """
+.gradio-container {
+    background:
+        radial-gradient(circle at top left, rgba(249, 115, 22, 0.14), transparent 28%),
+        linear-gradient(180deg, #0b1220 0%, #111827 24%, #f8fafc 24%, #f8fafc 100%);
+}
+.app-shell {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding-bottom: 2rem;
+}
+.hero-card,
+.panel-card,
+.section-card,
+.chat-card {
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 22px;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+}
+.hero-card {
+    padding: 2rem;
+    margin-bottom: 1rem;
+    color: #f8fafc;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.88));
+}
+.hero-card h1,
+.hero-card p,
+.hero-card li,
+.hero-card strong {
+    color: inherit;
+}
+.hero-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.9rem;
+    margin-top: 1.25rem;
+}
+.hero-metric {
+    padding: 1rem 1.1rem;
+    border-radius: 18px;
+    background: rgba(15, 23, 42, 0.36);
+    border: 1px solid rgba(251, 146, 60, 0.25);
+}
+.hero-metric span {
+    display: block;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(226, 232, 240, 0.78);
+}
+.hero-metric strong {
+    display: block;
+    margin-top: 0.3rem;
+    font-size: 1rem;
+}
+.tab-copy {
+    margin-bottom: 0.9rem;
+}
+.panel-card,
+.section-card,
+.chat-card {
+    background: rgba(255, 255, 255, 0.95);
+    margin-bottom: 1rem;
+}
+.panel-card,
+.chat-card {
+    padding: 1.15rem 1.2rem 1.25rem;
+}
+.section-card {
+    padding: 0.75rem 0.9rem 0.2rem;
+}
+.section-card h3,
+.panel-card h3,
+.chat-card h3 {
+    margin-top: 0;
+}
+.subtle-note {
+    color: #475569;
+    font-size: 0.95rem;
+}
+"""
+
+
+@dataclass
+class ConfigureTabComponents:
+    tab: Any
+    model_source_radio: Any
+    model_id_in: Any
+    local_model_section: Any
+    local_model_in: Any
+    refresh_local_btn: Any
+    local_models_status: Any
+    quantization_in: Any
+    n_trials_in: Any
+    n_startup_in: Any
+    system_prompt_in: Any
+    kl_scale_in: Any
+    kl_target_in: Any
+    start_btn: Any
+    log_out: Any
+
+
+@dataclass
+class ReviewTabComponents:
+    tab: Any
+    results_status: Any
+    refresh_btn: Any
+    trials_table: Any
+    trial_selector: Any
+    apply_trial_btn: Any
+    trial_apply_status: Any
+
+
+@dataclass
+class PublishTabComponents:
+    tab: Any
+    save_path_in: Any
+    save_adapter_in: Any
+    save_btn: Any
+    save_status: Any
+    hf_token_in: Any
+    hf_repo_in: Any
+    hf_private_in: Any
+    upload_adapter_in: Any
+    upload_btn: Any
+    upload_status: Any
+
+
+@dataclass
+class ChatTabComponents:
+    tab: Any
+    chatbot: Any
+    chat_in: Any
+    chat_send: Any
+    chat_clear: Any
+
+
+@dataclass
+class WebUIComponents:
+    configure: ConfigureTabComponents
+    review: ReviewTabComponents
+    publish: PublishTabComponents
+    chat: ChatTabComponents
+
+
+def _render_header(app_version: str) -> str:
+    return f"""
+<div class="app-shell">
+  <div class="hero-card">
+    <h1>🔥 Heretic {app_version}</h1>
+    <p>Fully automatic censorship removal for language models.</p>
+    <p><strong>Local-first, single-user workflow:</strong> configure a model, launch optimization, compare Pareto-optimal trials, then export or chat with the selected result.</p>
+    <div class="hero-metrics">
+      <div class="hero-metric">
+        <span>Step 1</span>
+        <strong>Configure model source, quantization, and trial budget</strong>
+      </div>
+      <div class="hero-metric">
+        <span>Step 2</span>
+        <strong>Watch the live optimization log without leaving the page</strong>
+      </div>
+      <div class="hero-metric">
+        <span>Step 3</span>
+        <strong>Apply the best trial, then save, upload, or chat</strong>
+      </div>
+    </div>
+  </div>
+</div>
+"""
+
+
+def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
+    with gr.Tab("🚀 Launch") as configure_tab:
+        gr.Markdown(
+            "Set up the optimization run, then keep this tab open to monitor progress.",
+            elem_classes=["tab-copy"],
+        )
+        with gr.Row(equal_height=True):
+            with gr.Column(scale=7):
+                with gr.Group(elem_classes=["panel-card"]):
+                    gr.Markdown("### Model & run setup")
+                    model_source_radio = gr.Radio(
+                        choices=[MODEL_SOURCE_HF, MODEL_SOURCE_LOCAL],
+                        value=_DEFAULT_UI_SETTINGS["model_source"],
+                        label="Model source",
+                    )
+                    model_id_in = gr.Textbox(
+                        label="Model ID",
+                        placeholder="e.g., Qwen/Qwen3-4B-Instruct-2507",
+                        value=_DEFAULT_UI_SETTINGS["model_id"],
+                        visible=True,
+                    )
+                    with gr.Column(visible=False) as local_model_section:
+                        with gr.Row():
+                            local_model_in = gr.Dropdown(
+                                label="Local / cached model",
+                                choices=_get_local_models(),
+                                value=_DEFAULT_UI_SETTINGS["local_model"],
+                                scale=5,
+                            )
+                            refresh_local_btn = gr.Button("Refresh", scale=1, min_width=96)
+                        local_models_status = gr.Markdown(
+                            "*Refresh to scan the Hugging Face cache, Ollama, and local model folders.*",
+                            elem_classes=["subtle-note"],
+                        )
+                    quantization_in = gr.Dropdown(
+                        choices=["none", "bnb_4bit"],
+                        value=_DEFAULT_UI_SETTINGS["quantization"],
+                        label="Quantization",
+                        info="Use bnb_4bit to reduce VRAM usage.",
+                    )
+                    with gr.Row():
+                        n_trials_in = gr.Slider(
+                            minimum=10,
+                            maximum=500,
+                            value=_DEFAULT_UI_SETTINGS["n_trials"],
+                            step=10,
+                            label="Optimization trials",
+                        )
+                        n_startup_in = gr.Slider(
+                            minimum=5,
+                            maximum=200,
+                            value=_DEFAULT_UI_SETTINGS["n_startup"],
+                            step=5,
+                            label="Startup trials",
+                        )
+                    system_prompt_in = gr.Textbox(
+                        label="System prompt",
+                        value=_DEFAULT_UI_SETTINGS["system_prompt"],
+                        lines=3,
+                    )
+            with gr.Column(scale=5):
+                with gr.Group(elem_classes=["panel-card"]):
+                    gr.Markdown("### Optimization targets")
+                    gr.Markdown(
+                        "- Lower refusals are better.\n"
+                        "- Lower KL divergence is better.\n"
+                        "- Startup trials seed Optuna with random exploration.",
+                        elem_classes=["subtle-note"],
+                    )
+                    kl_scale_in = gr.Number(
+                        value=_DEFAULT_UI_SETTINGS["kl_scale"],
+                        label="KL divergence scale",
+                        info="Typical KL divergence for abliterated models.",
+                    )
+                    kl_target_in = gr.Number(
+                        value=_DEFAULT_UI_SETTINGS["kl_target"],
+                        label="KL divergence target",
+                    )
+                with gr.Group(elem_classes=["panel-card"]):
+                    gr.Markdown("### Session notes")
+                    gr.Markdown(
+                        "- Optimization uses the current working directory for checkpoints.\n"
+                        "- The web UI is designed for local, single-user sessions.\n"
+                        "- Reloading the page preserves the saved form values and server-side log.",
+                        elem_classes=["subtle-note"],
+                    )
+        with gr.Group(elem_classes=["panel-card"]):
+            with gr.Row(equal_height=True):
+                with gr.Column(scale=3):
+                    start_btn = gr.Button(
+                        "Start optimization",
+                        variant="primary",
+                    )
+                with gr.Column(scale=9):
+                    gr.Markdown(
+                        "Launches the full Heretic pipeline in a background thread and streams the captured log below.",
+                        elem_classes=["subtle-note"],
+                    )
+            log_out = gr.Textbox(
+                label="Live run log",
+                lines=22,
+                max_lines=60,
+                autoscroll=False,
+                interactive=False,
+            )
+    return ConfigureTabComponents(
+        tab=configure_tab,
+        model_source_radio=model_source_radio,
+        model_id_in=model_id_in,
+        local_model_section=local_model_section,
+        local_model_in=local_model_in,
+        refresh_local_btn=refresh_local_btn,
+        local_models_status=local_models_status,
+        quantization_in=quantization_in,
+        n_trials_in=n_trials_in,
+        n_startup_in=n_startup_in,
+        system_prompt_in=system_prompt_in,
+        kl_scale_in=kl_scale_in,
+        kl_target_in=kl_target_in,
+        start_btn=start_btn,
+        log_out=log_out,
+    )
+
+
+def _build_review_tab(gr: Any) -> ReviewTabComponents:
+    with gr.Tab("📊 Review") as results_tab:
+        gr.Markdown(
+            "Refresh the Pareto front after optimization, inspect the best trials, and apply one before exporting or chatting.",
+            elem_classes=["tab-copy"],
+        )
+        with gr.Group(elem_classes=["panel-card"]):
+            results_status = gr.Markdown(
+                "No optimization results loaded yet. Run a session, then refresh this tab."
+            )
+            refresh_btn = gr.Button("Refresh results", variant="secondary")
+        with gr.Group(elem_classes=["panel-card"]):
+            trials_table = gr.Dataframe(
+                headers=["Trial #", "Refusals", "KL Divergence"],
+                interactive=False,
+                visible=False,
+                label="Pareto-optimal trials",
+            )
+            trial_selector = gr.Radio(
+                label="Trial to apply",
+                visible=False,
+            )
+            apply_trial_btn = gr.Button(
+                "Apply selected trial",
+                variant="primary",
+                visible=False,
+            )
+            trial_apply_status = gr.Markdown("")
+    return ReviewTabComponents(
+        tab=results_tab,
+        results_status=results_status,
+        refresh_btn=refresh_btn,
+        trials_table=trials_table,
+        trial_selector=trial_selector,
+        apply_trial_btn=apply_trial_btn,
+        trial_apply_status=trial_apply_status,
+    )
+
+
+def _build_publish_tab(gr: Any) -> PublishTabComponents:
+    with gr.Tab("💾 Publish") as export_tab:
+        gr.Markdown(
+            "After applying a trial, either save the model locally or push it to Hugging Face Hub.",
+            elem_classes=["tab-copy"],
+        )
+        with gr.Row(equal_height=True):
+            with gr.Column():
+                with gr.Group(elem_classes=["panel-card"]):
+                    gr.Markdown("### Save locally")
+                    save_path_in = gr.Textbox(
+                        label="Output directory",
+                        placeholder="/path/to/output",
+                    )
+                    save_adapter_in = gr.Checkbox(
+                        label="Save LoRA adapter only (skip merge)",
+                        value=False,
+                    )
+                    save_btn = gr.Button("Save model")
+                    save_status = gr.Markdown("")
+            with gr.Column():
+                with gr.Group(elem_classes=["panel-card"]):
+                    gr.Markdown("### Upload to Hugging Face Hub")
+                    hf_token_in = gr.Textbox(
+                        label="Access token",
+                        type="password",
+                        placeholder="hf_...",
+                    )
+                    hf_repo_in = gr.Textbox(
+                        label="Repository ID",
+                        placeholder="username/model-name-heretic",
+                    )
+                    hf_private_in = gr.Checkbox(
+                        label="Private repository",
+                        value=False,
+                    )
+                    upload_adapter_in = gr.Checkbox(
+                        label="Upload LoRA adapter only (skip merge)",
+                        value=False,
+                    )
+                    upload_btn = gr.Button("Upload model")
+                    upload_status = gr.Markdown("")
+    return PublishTabComponents(
+        tab=export_tab,
+        save_path_in=save_path_in,
+        save_adapter_in=save_adapter_in,
+        save_btn=save_btn,
+        save_status=save_status,
+        hf_token_in=hf_token_in,
+        hf_repo_in=hf_repo_in,
+        hf_private_in=hf_private_in,
+        upload_adapter_in=upload_adapter_in,
+        upload_btn=upload_btn,
+        upload_status=upload_status,
+    )
+
+
+def _build_chat_tab(gr: Any) -> ChatTabComponents:
+    with gr.Tab("💬 Chat") as chat_tab:
+        with gr.Group(elem_classes=["chat-card"]):
+            gr.Markdown(
+                "### Verify the active trial\n"
+                "Apply a Pareto-optimal trial in the **Review** tab, then use this chat to probe the current model behavior."
+            )
+            chatbot = gr.Chatbot(
+                label="Conversation",
+                height=540,
+                type="messages",
+            )
+            with gr.Row():
+                chat_in = gr.Textbox(
+                    label="",
+                    placeholder="Type a message…",
+                    scale=5,
+                    show_label=False,
+                )
+                chat_send = gr.Button("Send", scale=1, variant="primary")
+            chat_clear = gr.Button("Clear conversation")
+    return ChatTabComponents(
+        tab=chat_tab,
+        chatbot=chatbot,
+        chat_in=chat_in,
+        chat_send=chat_send,
+        chat_clear=chat_clear,
+    )
+
+
 def create_app() -> Any:
     """Return the Gradio :class:`~gradio.Blocks` application."""
     try:
@@ -730,187 +1163,23 @@ def create_app() -> Any:
             "Gradio is required for the web UI. Install it with `pip install heretic-llm[webui]`."
         ) from exc
 
-    _ver = version("heretic-llm")
+    app_version = version("heretic-llm")
 
-    with gr.Blocks(title=f"Heretic {_ver}") as app:
-        gr.Markdown(
-            f"# 🔥 Heretic {_ver}\n"
-            "> Fully automatic censorship removal for language models\n\n"
-            "⚠️ *This is a single-user tool intended for local use only.*"
-        )
+    with gr.Blocks(title=f"Heretic {app_version}", css=_WEBUI_CSS) as app:
+        gr.HTML(_render_header(app_version))
 
-        # ── Persisted state ────────────────────────────────────────────────
-        settings_state = gr.BrowserState(
-            {
-                "model_source": MODEL_SOURCE_HF,
-                "model_id": "",
-                "local_model": None,
-                "quantization": "none",
-                "n_trials": 200,
-                "n_startup": 60,
-                "system_prompt": "You are a helpful assistant.",
-                "kl_scale": 1.0,
-                "kl_target": 0.01,
-            }
-        )
-        # Timer used to poll optimization state after a page reload.
-        _POLL_INTERVAL_SECONDS = 2.0
+        settings_state = gr.BrowserState(dict(_DEFAULT_UI_SETTINGS))
         opt_timer = gr.Timer(value=_POLL_INTERVAL_SECONDS, active=False)
-
         active_tab_state = gr.State("configure")
 
-        with gr.Tabs():
-            # ── Tab 1: Configure & Run ─────────────────────────────────────
-            with gr.Tab("⚙️ Configure & Run") as configure_tab:
-                with gr.Row():
-                    with gr.Column():
-                        model_source_radio = gr.Radio(
-                            choices=[MODEL_SOURCE_HF, MODEL_SOURCE_LOCAL],
-                            value=MODEL_SOURCE_HF,
-                            label="Model source",
-                        )
-                        # Shown when "Hugging Face Hub" is selected
-                        model_id_in = gr.Textbox(
-                            label="Model ID",
-                            placeholder="e.g., Qwen/Qwen3-4B-Instruct-2507",
-                            visible=True,
-                        )
-                        # Shown when "Local / Cached" is selected
-                        with gr.Column(visible=False) as local_model_section:
-                            with gr.Row():
-                                local_model_in = gr.Dropdown(
-                                    label="Local / cached model",
-                                    choices=_get_local_models(),
-                                    value=None,
-                                    scale=5,
-                                )
-                                refresh_local_btn = gr.Button(
-                                    "🔄", scale=0, min_width=48
-                                )
-                            local_models_status = gr.Markdown("")
-                        quantization_in = gr.Dropdown(
-                            choices=["none", "bnb_4bit"],
-                            value="none",
-                            label="Quantization",
-                            info="Use bnb_4bit to reduce VRAM usage",
-                        )
-                        n_trials_in = gr.Slider(
-                            minimum=10,
-                            maximum=500,
-                            value=200,
-                            step=10,
-                            label="Number of optimization trials",
-                        )
-                        system_prompt_in = gr.Textbox(
-                            label="System prompt",
-                            value="You are a helpful assistant.",
-                            lines=2,
-                        )
-
-                    with gr.Column():
-                        with gr.Accordion("Advanced settings", open=False):
-                            n_startup_in = gr.Slider(
-                                minimum=5,
-                                maximum=200,
-                                value=60,
-                                step=5,
-                                label="Startup trials (random exploration phase)",
-                            )
-                            kl_scale_in = gr.Number(
-                                value=1.0,
-                                label="KL divergence scale",
-                                info="Typical KL divergence for abliterated models",
-                            )
-                            kl_target_in = gr.Number(
-                                value=0.01,
-                                label="KL divergence target",
-                            )
-
-                start_btn = gr.Button("▶ Start Optimization", variant="primary")
-                log_out = gr.Textbox(
-                    label="Progress log",
-                    lines=20,
-                    max_lines=50,
-                    autoscroll=False,
-                    interactive=False,
+        with gr.Column(elem_classes=["app-shell"]):
+            with gr.Tabs():
+                ui = WebUIComponents(
+                    configure=_build_configure_tab(gr),
+                    review=_build_review_tab(gr),
+                    publish=_build_publish_tab(gr),
+                    chat=_build_chat_tab(gr),
                 )
-
-            # ── Tab 2: Results ─────────────────────────────────────────────
-            with gr.Tab("📊 Results") as results_tab:
-                results_status = gr.Markdown(
-                    "Run optimization first, then click *Refresh Results*."
-                )
-                refresh_btn = gr.Button("🔄 Refresh Results")
-                trials_table = gr.Dataframe(
-                    headers=["Trial #", "Refusals", "KL Divergence"],
-                    interactive=False,
-                    visible=False,
-                )
-                trial_selector = gr.Radio(
-                    label="Select a Pareto-optimal trial",
-                    visible=False,
-                )
-                apply_trial_btn = gr.Button(
-                    "✅ Apply selected trial", variant="primary", visible=False
-                )
-                trial_apply_status = gr.Markdown("")
-
-            # ── Tab 3: Export ──────────────────────────────────────────────
-            with gr.Tab("💾 Export") as export_tab:
-                with gr.Row():
-                    with gr.Column():
-                        gr.Markdown("### Save to local folder")
-                        save_path_in = gr.Textbox(
-                            label="Output directory",
-                            placeholder="/path/to/output",
-                        )
-                        save_adapter_in = gr.Checkbox(
-                            label="Save LoRA adapter only (skip merge)",
-                            value=False,
-                        )
-                        save_btn = gr.Button("💾 Save model")
-                        save_status = gr.Markdown("")
-
-                    with gr.Column():
-                        gr.Markdown("### Upload to Hugging Face Hub")
-                        hf_token_in = gr.Textbox(
-                            label="Hugging Face access token",
-                            type="password",
-                            placeholder="hf_...",
-                        )
-                        hf_repo_in = gr.Textbox(
-                            label="Repository ID",
-                            placeholder="username/model-name-heretic",
-                        )
-                        hf_private_in = gr.Checkbox(
-                            label="Private repository", value=False
-                        )
-                        upload_adapter_in = gr.Checkbox(
-                            label="Upload LoRA adapter only (skip merge)",
-                            value=False,
-                        )
-                        upload_btn = gr.Button("☁️ Upload to Hugging Face")
-                        upload_status = gr.Markdown("")
-
-            # ── Tab 4: Chat ────────────────────────────────────────────────
-            with gr.Tab("💬 Chat") as chat_tab:
-                gr.Markdown(
-                    "Apply a trial in the **Results** tab to enable the chat. "
-                    "Responses are generated by the decensored model."
-                )
-                chatbot = gr.Chatbot(
-                    label="Chat",
-                    height=500,
-                )
-                with gr.Row():
-                    chat_in = gr.Textbox(
-                        label="",
-                        placeholder="Type a message…",
-                        scale=5,
-                        show_label=False,
-                    )
-                    chat_send = gr.Button("Send", scale=1, variant="primary")
-                chat_clear = gr.Button("🗑️ Clear conversation")
 
         # ── Event handlers ─────────────────────────────────────────────────
 
@@ -918,10 +1187,10 @@ def create_app() -> Any:
             return tab_name
 
         for tab, tab_name in (
-            (configure_tab, "configure"),
-            (results_tab, "results"),
-            (export_tab, "export"),
-            (chat_tab, "chat"),
+            (ui.configure.tab, "configure"),
+            (ui.review.tab, "review"),
+            (ui.publish.tab, "publish"),
+            (ui.chat.tab, "chat"),
         ):
             tab.select(
                 fn=partial(_set_active_tab, tab_name),
@@ -935,10 +1204,10 @@ def create_app() -> Any:
             is_hf = source == MODEL_SOURCE_HF
             return gr.update(visible=is_hf), gr.update(visible=not is_hf)
 
-        model_source_radio.change(
+        ui.configure.model_source_radio.change(
             fn=_toggle_model_source,
-            inputs=[model_source_radio],
-            outputs=[model_id_in, local_model_section],
+            inputs=[ui.configure.model_source_radio],
+            outputs=[ui.configure.model_id_in, ui.configure.local_model_section],
         )
 
         def _refresh_local() -> tuple[Any, str]:
@@ -951,14 +1220,14 @@ def create_app() -> Any:
                 status = "*No local models found.*"
             return gr.update(choices=models), status
 
-        refresh_local_btn.click(
+        ui.configure.refresh_local_btn.click(
             fn=_refresh_local,
-            outputs=[local_model_in, local_models_status],
+            outputs=[ui.configure.local_model_in, ui.configure.local_models_status],
         )
 
         app.load(
             fn=_refresh_local,
-            outputs=[local_model_in, local_models_status],
+            outputs=[ui.configure.local_model_in, ui.configure.local_models_status],
         )
 
         def run_optimization_generator(
@@ -972,7 +1241,7 @@ def create_app() -> Any:
             kl_scale: float,
             kl_target: float,
         ) -> Generator[tuple, None, None]:
-            btn_idle = gr.update(value="▶ Start Optimization", interactive=True)
+            btn_idle = gr.update(value="Start optimization", interactive=True)
             btn_running = gr.update(value="⏳ Optimization running…", interactive=False)
 
             effective_model_id = (
@@ -1055,26 +1324,26 @@ def create_app() -> Any:
 
             yield render_log(truncated, log_lines), btn_idle
 
-        start_btn.click(
+        ui.configure.start_btn.click(
             fn=lambda: (gr.update(interactive=False), gr.update(active=False)),
-            outputs=[start_btn, opt_timer],
+            outputs=[ui.configure.start_btn, opt_timer],
         ).then(
             fn=run_optimization_generator,
             inputs=[
-                model_source_radio,
-                model_id_in,
-                local_model_in,
-                quantization_in,
-                n_trials_in,
-                n_startup_in,
-                system_prompt_in,
-                kl_scale_in,
-                kl_target_in,
+                ui.configure.model_source_radio,
+                ui.configure.model_id_in,
+                ui.configure.local_model_in,
+                ui.configure.quantization_in,
+                ui.configure.n_trials_in,
+                ui.configure.n_startup_in,
+                ui.configure.system_prompt_in,
+                ui.configure.kl_scale_in,
+                ui.configure.kl_target_in,
             ],
-            outputs=[log_out, start_btn],
+            outputs=[ui.configure.log_out, ui.configure.start_btn],
         )
 
-        # ── Results tab ────────────────────────────────────────────────────
+        # ── Review tab ─────────────────────────────────────────────────────
 
         def load_results() -> tuple:
             best: list[Any] | None = _session.get("best_trials")
@@ -1112,9 +1381,14 @@ def create_app() -> Any:
                 gr.update(visible=True),
             )
 
-        refresh_btn.click(
+        ui.review.refresh_btn.click(
             fn=load_results,
-            outputs=[results_status, trials_table, trial_selector, apply_trial_btn],
+            outputs=[
+                ui.review.results_status,
+                ui.review.trials_table,
+                ui.review.trial_selector,
+                ui.review.apply_trial_btn,
+            ],
         )
 
         def apply_trial(selected: str) -> str:
@@ -1149,18 +1423,18 @@ def create_app() -> Any:
                 _session["active_trial"] = trial
                 return (
                     f"✅ Trial {trial_idx} applied. "
-                    "You can now export the model (Export tab) or chat with it (Chat tab)."
+                    "You can now save or upload it in Publish, or test it in Chat."
                 )
             except Exception as exc:
                 return f"❌ Error: {exc}"
 
-        apply_trial_btn.click(
+        ui.review.apply_trial_btn.click(
             fn=apply_trial,
-            inputs=[trial_selector],
-            outputs=[trial_apply_status],
+            inputs=[ui.review.trial_selector],
+            outputs=[ui.review.trial_apply_status],
         )
 
-        # ── Export tab ─────────────────────────────────────────────────────
+        # ── Publish tab ────────────────────────────────────────────────────
 
         def save_model(path: str, adapter_only: bool) -> str:
             model: Model | None = _session.get("model")
@@ -1170,7 +1444,7 @@ def create_app() -> Any:
             if not path.strip():
                 return "⚠ Please enter a save path."
             if _session.get("active_trial") is None:
-                return "⚠ Apply a trial first (in the Results tab)."
+                return "⚠ Apply a trial first (in the Review tab)."
 
             try:
                 if adapter_only:
@@ -1193,10 +1467,10 @@ def create_app() -> Any:
             except Exception as exc:
                 return f"❌ Error: {exc}"
 
-        save_btn.click(
+        ui.publish.save_btn.click(
             fn=save_model,
-            inputs=[save_path_in, save_adapter_in],
-            outputs=[save_status],
+            inputs=[ui.publish.save_path_in, ui.publish.save_adapter_in],
+            outputs=[ui.publish.save_status],
         )
 
         def upload_model(
@@ -1211,7 +1485,7 @@ def create_app() -> Any:
             if not repo_id.strip():
                 return "⚠ Please provide a repository ID."
             if _session.get("active_trial") is None:
-                return "⚠ Apply a trial first (in the Results tab)."
+                return "⚠ Apply a trial first (in the Review tab)."
 
             try:
                 import huggingface_hub
@@ -1243,10 +1517,15 @@ def create_app() -> Any:
             except Exception as exc:
                 return f"❌ Error: {exc}"
 
-        upload_btn.click(
+        ui.publish.upload_btn.click(
             fn=upload_model,
-            inputs=[hf_token_in, hf_repo_in, hf_private_in, upload_adapter_in],
-            outputs=[upload_status],
+            inputs=[
+                ui.publish.hf_token_in,
+                ui.publish.hf_repo_in,
+                ui.publish.hf_private_in,
+                ui.publish.upload_adapter_in,
+            ],
+            outputs=[ui.publish.upload_status],
         )
 
         # ── Chat tab ───────────────────────────────────────────────────────
@@ -1290,7 +1569,7 @@ def create_app() -> Any:
                 return "", history + [
                     {
                         "role": "assistant",
-                        "content": "⚠ Apply a trial first (in the Results tab).",
+                        "content": "⚠ Apply a trial first (in the Review tab).",
                     }
                 ]
 
@@ -1312,42 +1591,35 @@ def create_app() -> Any:
 
             return "", history + [{"role": "assistant", "content": response}]
 
-        chat_send.click(
+        ui.chat.chat_send.click(
             fn=send_message,
-            inputs=[chat_in, chatbot],
-            outputs=[chat_in, chatbot],
+            inputs=[ui.chat.chat_in, ui.chat.chatbot],
+            outputs=[ui.chat.chat_in, ui.chat.chatbot],
         )
-        chat_in.submit(
+        ui.chat.chat_in.submit(
             fn=send_message,
-            inputs=[chat_in, chatbot],
-            outputs=[chat_in, chatbot],
+            inputs=[ui.chat.chat_in, ui.chat.chatbot],
+            outputs=[ui.chat.chat_in, ui.chat.chatbot],
         )
-        chat_clear.click(fn=lambda: ([], ""), outputs=[chatbot, chat_in])
+        ui.chat.chat_clear.click(
+            fn=lambda: ([], ""),
+            outputs=[ui.chat.chatbot, ui.chat.chat_in],
+        )
 
         # ── Settings persistence ───────────────────────────────────────────
 
-        _settings_keys = [
-            "model_source",
-            "model_id",
-            "local_model",
-            "quantization",
-            "n_trials",
-            "n_startup",
-            "system_prompt",
-            "kl_scale",
-            "kl_target",
-        ]
+        _settings_keys = list(_DEFAULT_UI_SETTINGS.keys())
         _settings_keys_tuple = tuple(_settings_keys)
         _settings_comps = [
-            model_source_radio,
-            model_id_in,
-            local_model_in,
-            quantization_in,
-            n_trials_in,
-            n_startup_in,
-            system_prompt_in,
-            kl_scale_in,
-            kl_target_in,
+            ui.configure.model_source_radio,
+            ui.configure.model_id_in,
+            ui.configure.local_model_in,
+            ui.configure.quantization_in,
+            ui.configure.n_trials_in,
+            ui.configure.n_startup_in,
+            ui.configure.system_prompt_in,
+            ui.configure.kl_scale_in,
+            ui.configure.kl_target_in,
         ]
         for _comp in _settings_comps:
             _comp.change(
@@ -1388,18 +1660,18 @@ def create_app() -> Any:
             fn=_on_page_load,
             inputs=[settings_state],
             outputs=[
-                model_source_radio,
-                model_id_in,
-                local_model_section,
-                local_model_in,
-                quantization_in,
-                n_trials_in,
-                system_prompt_in,
-                n_startup_in,
-                kl_scale_in,
-                kl_target_in,
-                log_out,
-                start_btn,
+                ui.configure.model_source_radio,
+                ui.configure.model_id_in,
+                ui.configure.local_model_section,
+                ui.configure.local_model_in,
+                ui.configure.quantization_in,
+                ui.configure.n_trials_in,
+                ui.configure.system_prompt_in,
+                ui.configure.n_startup_in,
+                ui.configure.kl_scale_in,
+                ui.configure.kl_target_in,
+                ui.configure.log_out,
+                ui.configure.start_btn,
                 opt_timer,
             ],
         )
@@ -1432,7 +1704,7 @@ def create_app() -> Any:
         opt_timer.tick(
             fn=_poll_optimization,
             inputs=[active_tab_state],
-            outputs=[log_out, start_btn, opt_timer],
+            outputs=[ui.configure.log_out, ui.configure.start_btn, opt_timer],
         )
 
     return app

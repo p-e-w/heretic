@@ -240,9 +240,24 @@ def write_ollama_modelfile(directory: str) -> str:
     """
     Writes a minimal Ollama-compatible Modelfile into `directory`.
     """
-    modelfile = Path(directory) / "Modelfile"
-    modelfile.write_text("FROM .\n", encoding="utf-8")
-    return str(modelfile)
+    output_dir = Path(directory).expanduser().resolve(strict=True)
+    if not output_dir.is_dir():
+        raise NotADirectoryError(f"Not a directory: {directory}")
+
+    dir_fd = os.open(output_dir, os.O_RDONLY)
+    try:
+        modelfile_fd = os.open(
+            "Modelfile",
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            mode=0o644,
+            dir_fd=dir_fd,
+        )
+        with os.fdopen(modelfile_fd, "w", encoding="utf-8") as handle:
+            handle.write("FROM .\n")
+    finally:
+        os.close(dir_fd)
+
+    return str(output_dir / "Modelfile")
 
 
 @dataclass

@@ -79,8 +79,10 @@ from .utils import (
     prompt_path,
     prompt_select,
     prompt_text,
+    resolve_ollama_model_reference,
     set_seed,
     upload_reproduce_folder,
+    write_ollama_modelfile,
 )
 
 
@@ -207,6 +209,20 @@ def run():
     if settings.collect_reproducibles is not None:
         collect_reproducibles(settings.collect_reproducibles)
         return
+
+    resolved_model = resolve_ollama_model_reference(settings.model)
+    if resolved_model != settings.model:
+        print(f"Using model source from Ollama Modelfile: [bold]{resolved_model}[/]")
+        settings.model = resolved_model
+
+    if settings.evaluate_model is not None:
+        resolved_evaluate_model = resolve_ollama_model_reference(settings.evaluate_model)
+        if resolved_evaluate_model != settings.evaluate_model:
+            print(
+                "Using evaluation model source from Ollama Modelfile: "
+                f"[bold]{resolved_evaluate_model}[/]"
+            )
+            settings.evaluate_model = resolved_evaluate_model
 
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
@@ -786,6 +802,8 @@ def run():
                     del merged_model
                     empty_cache()
                     model.tokenizer.save_pretrained(save_directory)
+                    modelfile_path = write_ollama_modelfile(save_directory)
+                    print(f"Ollama Modelfile saved to [bold]{modelfile_path}[/].")
                     reset_trial_model()
                     print(f"Model saved to [bold]{save_directory}[/].")
                 except Exception as error:
@@ -840,6 +858,10 @@ def run():
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
+                                modelfile_path = write_ollama_modelfile(save_directory)
+                                print(
+                                    f"Ollama Modelfile saved to [bold]{modelfile_path}[/]."
+                                )
                                 reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")

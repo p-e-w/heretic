@@ -416,7 +416,10 @@ class Settings(BaseSettings):
 
     max_shard_size: int | str = Field(
         default="5GB",
-        description="Maximum size for individual safetensors files generated when exporting a model.",
+        description=(
+            "Maximum size for individual safetensors files generated when exporting a model. "
+            "This also applies when exporting merged models for Ollama-compatible local import."
+        ),
     )
 
     refusal_markers: list[str] = Field(

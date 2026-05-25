@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import random
+import shlex
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -180,6 +181,68 @@ def is_hf_path(path: str) -> bool:
 
     validate_repo_id(path)
     return True
+
+
+def resolve_ollama_model_reference(model: str) -> str:
+    """
+    Resolves an Ollama Modelfile reference to its underlying model source.
+
+    If `model` points to a Modelfile (or a directory containing one), this function
+    extracts the `FROM` target and resolves local relative paths against the Modelfile
+    directory. If no valid Modelfile/`FROM` directive is found, the input is returned
+    unchanged.
+    """
+    model_path = Path(model).expanduser()
+
+    modelfile: Path | None = None
+    if model_path.is_file() and model_path.name.lower() == "modelfile":
+        modelfile = model_path
+    elif model_path.is_dir():
+        candidate = model_path / "Modelfile"
+        if candidate.is_file():
+            modelfile = candidate
+
+    if modelfile is None:
+        return model
+
+    try:
+        lines = modelfile.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return model
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        try:
+            parts = shlex.split(stripped)
+        except ValueError:
+            continue
+
+        if len(parts) < 2 or parts[0].upper() != "FROM":
+            continue
+
+        source = parts[1]
+        source_path = Path(source).expanduser()
+        if not source_path.is_absolute():
+            source_path = (modelfile.parent / source_path).resolve()
+
+        if source_path.exists():
+            return str(source_path)
+
+        return source
+
+    return model
+
+
+def write_ollama_modelfile(directory: str) -> str:
+    """
+    Writes a minimal Ollama-compatible Modelfile into `directory`.
+    """
+    modelfile = Path(directory) / "Modelfile"
+    modelfile.write_text("FROM .\n", encoding="utf-8")
+    return str(modelfile)
 
 
 @dataclass

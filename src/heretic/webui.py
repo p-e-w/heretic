@@ -1341,7 +1341,9 @@ def create_app() -> Any:
 
         # ── Page load: restore log, settings, and button/timer state ──────
 
-        def _on_page_load(state: dict) -> tuple:
+        def _on_page_load(state: dict | None) -> tuple:
+            if not isinstance(state, dict):
+                state = {}
             source = state.get("model_source", MODEL_SOURCE_HF)
             is_hf = source == MODEL_SOURCE_HF
             is_running = _optimization_running.is_set()

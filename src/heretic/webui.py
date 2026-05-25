@@ -898,7 +898,6 @@ def create_app() -> Any:
                 chatbot = gr.Chatbot(
                     label="Chat",
                     height=500,
-                    type="messages",
                 )
                 with gr.Row():
                     chat_in = gr.Textbox(

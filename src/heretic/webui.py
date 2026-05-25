@@ -653,12 +653,18 @@ def _get_local_models() -> list[str]:
             ["ollama", "list"],
             text=True,
             stderr=subprocess.DEVNULL,
+            timeout=2,
         )
         for line in output.splitlines()[1:]:
             parts = line.split()
             if parts:
                 found.append(parts[0])
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+        OSError,
+    ):
         pass
 
     # ── Local sub-directories ──────────────────────────────────────────────

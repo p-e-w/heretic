@@ -199,10 +199,12 @@ def _resolve_modelfile_source(lines: list[str], base_dir: Path | None = None) ->
             continue
 
         source = parts[1]
+        source_path = Path(source).expanduser()
         if base_dir is None:
+            if source_path.is_absolute() and source_path.exists():
+                return str(source_path)
             return source
 
-        source_path = Path(source).expanduser()
         if not source_path.is_absolute():
             source_path = (base_dir / source_path).resolve()
 

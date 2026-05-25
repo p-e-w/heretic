@@ -40,7 +40,14 @@ from .config import Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model
 from .system import empty_cache, get_accelerator_info
-from .utils import format_duration, get_trial_parameters, load_prompts, set_seed
+from .utils import (
+    format_duration,
+    get_trial_parameters,
+    load_prompts,
+    resolve_ollama_model_reference,
+    set_seed,
+    write_ollama_modelfile,
+)
 
 # ─── Log capture infrastructure ──────────────────────────────────────────────
 
@@ -278,6 +285,11 @@ def _run_optimization(
             )
         finally:
             sys.argv = old_argv
+
+        resolved_model = resolve_ollama_model_reference(settings.model)
+        if resolved_model != settings.model:
+            _log(f"Using model source from Ollama Modelfile: {resolved_model}")
+            settings.model = resolved_model
 
         _session["settings"] = settings
 
@@ -1124,8 +1136,12 @@ def create_app() -> Any:
                     del merged
                     empty_cache()
                     model.tokenizer.save_pretrained(path)
+                    modelfile_path = write_ollama_modelfile(path)
                     _restore_trial_model(model)
-                    return f"✅ Model saved to `{path}`"
+                    return (
+                        f"✅ Model saved to `{path}`\n\n"
+                        f"✅ Ollama Modelfile saved to `{modelfile_path}`"
+                    )
             except Exception as exc:
                 return f"❌ Error: {exc}"
 

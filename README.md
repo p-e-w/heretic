@@ -136,6 +136,18 @@ optimization finishes:
 heretic Qwen/Qwen3-4B-Instruct-2507 --output-dir /path/to/output
 ```
 
+When Heretic saves a merged model to a local folder, it now also writes an
+Ollama-compatible `Modelfile` (`FROM .`) into that folder. You can import it in
+Ollama with:
+
+```
+ollama create my-heretic-model -f /path/to/output/Modelfile
+```
+
+You can also use an Ollama `Modelfile` (or a folder containing one) as Heretic's
+input model path. Heretic resolves the `FROM` directive and loads that model
+source automatically.
+
 ### Docker
 
 A Docker image with CUDA support is published on Docker Hub:

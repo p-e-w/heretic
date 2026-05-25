@@ -1336,6 +1336,7 @@ def create_app() -> Any:
                 fn=lambda *vals, _keys=_settings_keys_tuple: dict(zip(_keys, vals)),
                 inputs=_settings_comps,
                 outputs=[settings_state],
+                queue=False,
             )
 
         # ── Page load: restore log, settings, and button/timer state ──────

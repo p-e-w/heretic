@@ -587,18 +587,30 @@ MODEL_SOURCE_LOCAL = "Local / Cached"
 def _get_local_models() -> list[str]:
     """Return paths/IDs for models available locally.
 
-    Two sources are scanned:
+    Three sources are scanned:
 
     1. The Hugging Face cache directory (``~/.cache/huggingface/hub/`` by default,
-       or ``$HF_HOME/hub``).  Only snapshots that contain a ``config.json`` are
+       or ``$HF_HOME/hub``). Only snapshots that contain a ``config.json`` are
        included, and they are returned as ``org/name`` model IDs (which
        ``transformers`` will resolve from cache without network access).
 
-    2. Sub-directories of the current working directory that contain a
-       ``config.json`` (i.e. locally stored model folders).
+    2. Ollama model names from ``ollama list``.
+
+    3. Sub-directories of the current working directory that contain a
+       ``config.json`` or ``Modelfile`` (i.e. locally stored model folders).
     """
     import os
+    import subprocess
     from pathlib import Path
+
+    def has_modelfile(path: Path) -> bool:
+        try:
+            return any(
+                candidate.is_file() and candidate.name.lower() == "modelfile"
+                for candidate in path.iterdir()
+            )
+        except OSError:
+            return False
 
     found: list[str] = []
 
@@ -635,6 +647,20 @@ def _get_local_models() -> list[str]:
         except OSError:
             pass
 
+    # ── Ollama model names ────────────────────────────────────────────────
+    try:
+        output = subprocess.check_output(
+            ["ollama", "list"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        for line in output.splitlines()[1:]:
+            parts = line.split()
+            if parts:
+                found.append(parts[0])
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        pass
+
     # ── Local sub-directories ──────────────────────────────────────────────
     # Keep the top-level CWD scan shallow (one level deep), and separately
     # scan `cwd/models/` up to two levels deep so that layouts like
@@ -642,7 +668,9 @@ def _get_local_models() -> list[str]:
     cwd = Path.cwd()
     try:
         for entry in sorted(cwd.iterdir()):
-            if entry.is_dir() and (entry / "config.json").exists():
+            if entry.is_dir() and (
+                (entry / "config.json").exists() or has_modelfile(entry)
+            ):
                 found.append(str(entry))
     except OSError:
         pass
@@ -653,7 +681,7 @@ def _get_local_models() -> list[str]:
             for entry in sorted(models_subdir.iterdir()):
                 if not entry.is_dir():
                     continue
-                if (entry / "config.json").exists():
+                if (entry / "config.json").exists() or has_modelfile(entry):
                     found.append(str(entry))
                 else:
                     # One level deeper: e.g. models/org/model-name/
@@ -661,7 +689,10 @@ def _get_local_models() -> list[str]:
                         for subentry in sorted(entry.iterdir()):
                             if (
                                 subentry.is_dir()
-                                and (subentry / "config.json").exists()
+                                and (
+                                    (subentry / "config.json").exists()
+                                    or has_modelfile(subentry)
+                                )
                             ):
                                 found.append(str(subentry))
                     except OSError:
@@ -713,7 +744,6 @@ def create_app() -> Any:
                 "system_prompt": "You are a helpful assistant.",
                 "kl_scale": 1.0,
                 "kl_target": 0.01,
-                "checkpoint_dir": "checkpoints",
             }
         )
         # Timer used to poll optimization state after a page reload.
@@ -785,10 +815,6 @@ def create_app() -> Any:
                             kl_target_in = gr.Number(
                                 value=0.01,
                                 label="KL divergence target",
-                            )
-                            checkpoint_dir_in = gr.Textbox(
-                                label="Checkpoint directory",
-                                value="checkpoints",
                             )
 
                 start_btn = gr.Button("▶ Start Optimization", variant="primary")
@@ -921,7 +947,6 @@ def create_app() -> Any:
             system_prompt: str,
             kl_scale: float,
             kl_target: float,
-            checkpoint_dir: str,
         ) -> Generator[tuple, None, None]:
             btn_idle = gr.update(value="▶ Start Optimization", interactive=True)
             btn_running = gr.update(value="⏳ Optimization running…", interactive=False)
@@ -964,7 +989,7 @@ def create_app() -> Any:
                     system_prompt,
                     kl_scale,
                     kl_target,
-                    checkpoint_dir,
+                    "checkpoints",
                 ),
                 daemon=True,
             )
@@ -1021,7 +1046,6 @@ def create_app() -> Any:
                 system_prompt_in,
                 kl_scale_in,
                 kl_target_in,
-                checkpoint_dir_in,
             ],
             outputs=[log_out, start_btn],
         )
@@ -1267,7 +1291,6 @@ def create_app() -> Any:
             "system_prompt",
             "kl_scale",
             "kl_target",
-            "checkpoint_dir",
         ]
         _settings_keys_tuple = tuple(_settings_keys)
         _settings_comps = [
@@ -1280,7 +1303,6 @@ def create_app() -> Any:
             system_prompt_in,
             kl_scale_in,
             kl_target_in,
-            checkpoint_dir_in,
         ]
         for _comp in _settings_comps:
             _comp.change(
@@ -1309,7 +1331,6 @@ def create_app() -> Any:
                 gr.update(value=state.get("n_startup", 60)),
                 gr.update(value=state.get("kl_scale", 1.0)),
                 gr.update(value=state.get("kl_target", 0.01)),
-                gr.update(value=state.get("checkpoint_dir", "checkpoints")),
                 gr.update(value=log_content),
                 gr.update(interactive=not is_running),
                 gr.update(active=is_running),
@@ -1329,7 +1350,6 @@ def create_app() -> Any:
                 n_startup_in,
                 kl_scale_in,
                 kl_target_in,
-                checkpoint_dir_in,
                 log_out,
                 start_btn,
                 opt_timer,

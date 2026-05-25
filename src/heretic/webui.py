@@ -836,7 +836,7 @@ class ConfigureTabComponents:
 
 
 @dataclass
-class ResultsTabComponents:
+class ReviewTabComponents:
     tab: Any
     results_status: Any
     refresh_btn: Any
@@ -847,7 +847,7 @@ class ResultsTabComponents:
 
 
 @dataclass
-class ExportTabComponents:
+class PublishTabComponents:
     tab: Any
     save_path_in: Any
     save_adapter_in: Any
@@ -873,8 +873,8 @@ class ChatTabComponents:
 @dataclass
 class WebUIComponents:
     configure: ConfigureTabComponents
-    results: ResultsTabComponents
-    export: ExportTabComponents
+    review: ReviewTabComponents
+    publish: PublishTabComponents
     chat: ChatTabComponents
 
 
@@ -1028,7 +1028,7 @@ def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
     )
 
 
-def _build_results_tab(gr: Any) -> ResultsTabComponents:
+def _build_review_tab(gr: Any) -> ReviewTabComponents:
     with gr.Tab("📊 Review") as results_tab:
         gr.Markdown(
             "Refresh the Pareto front after optimization, inspect the best trials, and apply one before exporting or chatting.",
@@ -1056,7 +1056,7 @@ def _build_results_tab(gr: Any) -> ResultsTabComponents:
                 visible=False,
             )
             trial_apply_status = gr.Markdown("")
-    return ResultsTabComponents(
+    return ReviewTabComponents(
         tab=results_tab,
         results_status=results_status,
         refresh_btn=refresh_btn,
@@ -1067,7 +1067,7 @@ def _build_results_tab(gr: Any) -> ResultsTabComponents:
     )
 
 
-def _build_export_tab(gr: Any) -> ExportTabComponents:
+def _build_publish_tab(gr: Any) -> PublishTabComponents:
     with gr.Tab("💾 Publish") as export_tab:
         gr.Markdown(
             "After applying a trial, either save the model locally or push it to Hugging Face Hub.",
@@ -1109,7 +1109,7 @@ def _build_export_tab(gr: Any) -> ExportTabComponents:
                     )
                     upload_btn = gr.Button("Upload model")
                     upload_status = gr.Markdown("")
-    return ExportTabComponents(
+    return PublishTabComponents(
         tab=export_tab,
         save_path_in=save_path_in,
         save_adapter_in=save_adapter_in,
@@ -1176,8 +1176,8 @@ def create_app() -> Any:
             with gr.Tabs():
                 ui = WebUIComponents(
                     configure=_build_configure_tab(gr),
-                    results=_build_results_tab(gr),
-                    export=_build_export_tab(gr),
+                    review=_build_review_tab(gr),
+                    publish=_build_publish_tab(gr),
                     chat=_build_chat_tab(gr),
                 )
 
@@ -1188,8 +1188,8 @@ def create_app() -> Any:
 
         for tab, tab_name in (
             (ui.configure.tab, "configure"),
-            (ui.results.tab, "results"),
-            (ui.export.tab, "export"),
+            (ui.review.tab, "review"),
+            (ui.publish.tab, "publish"),
             (ui.chat.tab, "chat"),
         ):
             tab.select(
@@ -1343,7 +1343,7 @@ def create_app() -> Any:
             outputs=[ui.configure.log_out, ui.configure.start_btn],
         )
 
-        # ── Results tab ────────────────────────────────────────────────────
+        # ── Review tab ─────────────────────────────────────────────────────
 
         def load_results() -> tuple:
             best: list[Any] | None = _session.get("best_trials")
@@ -1381,13 +1381,13 @@ def create_app() -> Any:
                 gr.update(visible=True),
             )
 
-        ui.results.refresh_btn.click(
+        ui.review.refresh_btn.click(
             fn=load_results,
             outputs=[
-                ui.results.results_status,
-                ui.results.trials_table,
-                ui.results.trial_selector,
-                ui.results.apply_trial_btn,
+                ui.review.results_status,
+                ui.review.trials_table,
+                ui.review.trial_selector,
+                ui.review.apply_trial_btn,
             ],
         )
 
@@ -1428,13 +1428,13 @@ def create_app() -> Any:
             except Exception as exc:
                 return f"❌ Error: {exc}"
 
-        ui.results.apply_trial_btn.click(
+        ui.review.apply_trial_btn.click(
             fn=apply_trial,
-            inputs=[ui.results.trial_selector],
-            outputs=[ui.results.trial_apply_status],
+            inputs=[ui.review.trial_selector],
+            outputs=[ui.review.trial_apply_status],
         )
 
-        # ── Export tab ─────────────────────────────────────────────────────
+        # ── Publish tab ────────────────────────────────────────────────────
 
         def save_model(path: str, adapter_only: bool) -> str:
             model: Model | None = _session.get("model")
@@ -1467,10 +1467,10 @@ def create_app() -> Any:
             except Exception as exc:
                 return f"❌ Error: {exc}"
 
-        ui.export.save_btn.click(
+        ui.publish.save_btn.click(
             fn=save_model,
-            inputs=[ui.export.save_path_in, ui.export.save_adapter_in],
-            outputs=[ui.export.save_status],
+            inputs=[ui.publish.save_path_in, ui.publish.save_adapter_in],
+            outputs=[ui.publish.save_status],
         )
 
         def upload_model(
@@ -1517,15 +1517,15 @@ def create_app() -> Any:
             except Exception as exc:
                 return f"❌ Error: {exc}"
 
-        ui.export.upload_btn.click(
+        ui.publish.upload_btn.click(
             fn=upload_model,
             inputs=[
-                ui.export.hf_token_in,
-                ui.export.hf_repo_in,
-                ui.export.hf_private_in,
-                ui.export.upload_adapter_in,
+                ui.publish.hf_token_in,
+                ui.publish.hf_repo_in,
+                ui.publish.hf_private_in,
+                ui.publish.upload_adapter_in,
             ],
-            outputs=[ui.export.upload_status],
+            outputs=[ui.publish.upload_status],
         )
 
         # ── Chat tab ───────────────────────────────────────────────────────
@@ -1608,17 +1608,7 @@ def create_app() -> Any:
 
         # ── Settings persistence ───────────────────────────────────────────
 
-        _settings_keys = [
-            "model_source",
-            "model_id",
-            "local_model",
-            "quantization",
-            "n_trials",
-            "n_startup",
-            "system_prompt",
-            "kl_scale",
-            "kl_target",
-        ]
+        _settings_keys = list(_DEFAULT_UI_SETTINGS.keys())
         _settings_keys_tuple = tuple(_settings_keys)
         _settings_comps = [
             ui.configure.model_source_radio,

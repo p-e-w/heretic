@@ -733,7 +733,7 @@ _DEFAULT_UI_SETTINGS = {
     "kl_target": 0.01,
 }
 _POLL_INTERVAL_SECONDS = 2.0
-_WEBUI_CSS = """
+WEBUI_CSS = """
 .gradio-container {
     background:
         radial-gradient(circle at top left, rgba(249, 115, 22, 0.14), transparent 28%),
@@ -1165,7 +1165,7 @@ def create_app() -> Any:
 
     app_version = version("heretic-llm")
 
-    with gr.Blocks(title=f"Heretic {app_version}", css=_WEBUI_CSS) as app:
+    with gr.Blocks(title=f"Heretic {app_version}") as app:
         gr.HTML(_render_header(app_version))
 
         settings_state = gr.BrowserState(dict(_DEFAULT_UI_SETTINGS))

@@ -18,6 +18,7 @@ import traceback
 import warnings
 from collections import deque
 from dataclasses import asdict
+from functools import partial
 from importlib.metadata import version
 from os.path import commonprefix
 from types import SimpleNamespace
@@ -913,26 +914,20 @@ def create_app() -> Any:
 
         # ── Event handlers ─────────────────────────────────────────────────
 
-        configure_tab.select(
-            fn=lambda: "configure",
-            outputs=[active_tab_state],
-            queue=False,
-        )
-        results_tab.select(
-            fn=lambda: "results",
-            outputs=[active_tab_state],
-            queue=False,
-        )
-        export_tab.select(
-            fn=lambda: "export",
-            outputs=[active_tab_state],
-            queue=False,
-        )
-        chat_tab.select(
-            fn=lambda: "chat",
-            outputs=[active_tab_state],
-            queue=False,
-        )
+        def _set_active_tab(tab_name: str) -> str:
+            return tab_name
+
+        for tab, tab_name in (
+            (configure_tab, "configure"),
+            (results_tab, "results"),
+            (export_tab, "export"),
+            (chat_tab, "chat"),
+        ):
+            tab.select(
+                fn=partial(_set_active_tab, tab_name),
+                outputs=[active_tab_state],
+                queue=False,
+            )
 
         def _toggle_model_source(
             source: str,
@@ -1415,8 +1410,8 @@ def create_app() -> Any:
 
         def _poll_optimization(active_tab: str) -> tuple:
             is_running = _optimization_running.is_set()
-            log_version, log_content = _get_log_snapshot()
             if active_tab == "configure":
+                log_version, log_content = _get_log_snapshot()
                 with last_polled_log_version_lock:
                     log_update = (
                         gr.update(value=log_content)

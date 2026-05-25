@@ -898,6 +898,7 @@ def create_app() -> Any:
                 chatbot = gr.Chatbot(
                     label="Chat",
                     height=500,
+                    type="messages",
                 )
                 with gr.Row():
                     chat_in = gr.Textbox(
@@ -1235,9 +1236,30 @@ def create_app() -> Any:
 
         def send_message(
             message: str,
-            history: list[dict[str, str]] | None,
+            history: list[dict[str, str] | tuple[str, str]] | None,
         ) -> tuple[str, list[dict[str, str]]]:
-            history = history or []
+            normalized_history: list[dict[str, str]] = []
+            for item in history or []:
+                if isinstance(item, dict):
+                    role = item.get("role")
+                    content = item.get("content")
+                    if role in {"user", "assistant"} and isinstance(content, str):
+                        normalized_history.append({"role": role, "content": content})
+                elif (
+                    isinstance(item, tuple)
+                    and len(item) == 2
+                    and all(isinstance(part, str) for part in item)
+                ):
+                    user_msg, assistant_msg = item
+                    if user_msg:
+                        normalized_history.append(
+                            {"role": "user", "content": user_msg}
+                        )
+                    if assistant_msg:
+                        normalized_history.append(
+                            {"role": "assistant", "content": assistant_msg}
+                        )
+            history = normalized_history
 
             if not message.strip():
                 return "", history

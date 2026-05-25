@@ -32,7 +32,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        from .webui import _WEBUI_CSS, create_app
+        from .webui import WEBUI_CSS, create_app
     except ImportError as exc:
         print(
             "The web UI dependencies are not available. Install them with "
@@ -51,5 +51,5 @@ def main() -> None:
         server_name=args.host,
         server_port=args.port,
         share=args.share,
-        css=_WEBUI_CSS,
+        css=WEBUI_CSS,
     )

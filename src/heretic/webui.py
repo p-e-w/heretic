@@ -733,7 +733,7 @@ _DEFAULT_UI_SETTINGS = {
     "kl_target": 0.01,
 }
 _POLL_INTERVAL_SECONDS = 2.0
-_WEBUI_CSS = """
+WEBUI_CSS = """
 .gradio-container {
     background:
         radial-gradient(circle at top left, rgba(249, 115, 22, 0.14), transparent 28%),

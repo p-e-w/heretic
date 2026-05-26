@@ -213,7 +213,7 @@ class Settings(BaseSettings):
     
     ara_lora_rank: int = Field(
         default=128,
-        description="If LoRA is used in ARA, this sets up its rank. Keep it high enough to simulate the 'arbitrary' effect",
+        description="If LoRA is used in ARA, this sets up its rank. Keep it high enough to simulate the 'arbitrary' effect.",
     )
 
     use_piqa: bool = Field(

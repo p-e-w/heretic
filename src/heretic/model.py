@@ -686,18 +686,18 @@ class Model:
         ):
             for component, modules in self.get_layer_modules(layer_index).items():
                 for module_index, module in enumerate(modules):
-                    # Cast to Linear to access weights and LoRA adapters
+                    # Cast to Linear to access weights and LoRA adapters.
                     module = cast(Linear, module)
 
-                    # --- 1. Base Weight Handling & Dequantization ---
-                    # We need the base weight in float32 to compute the effective weight
+                    # Base weight handling and dequantization.
+                    # We need the base weight in float32 to compute the effective weight.
                     base_weight = cast(Tensor, module.base_layer.weight)
                     quant_state = getattr(base_weight, "quant_state", None)
 
                     if quant_state is None:
                         W_base = base_weight.to(torch.float32)
                     else:
-                        # Maintain the original dequantization logic for bitsandbytes
+                        # Maintain the original dequantization logic for bitsandbytes.
                         W_base = cast(
                             Tensor,
                             bnb.functional.dequantize_4bit(
@@ -706,18 +706,23 @@ class Model:
                             ).to(torch.float32),
                         )
 
-                    # --- 2. Row Normalization Setup ---
-                    # Pre-calculate the original row norms to preserve them
-                    # This implements the RowNormalization.FULL logic
-                    W_row_norms = LA.vector_norm(W_base, dim=1, keepdim=True)
+                    # Row normalization setup.
+                    # Pre-calculate the original row norms to preserve them.
+                    # This implements the RowNormalization.FULL logic.
+                    W_row_norms = LA.vector_norm(W_base, dim=1, keepdim=True).detach()
 
-                    # --- 3. Adapter Target Identification ---
-                    # We optimize the LoRA weights A and B
+                    # Adapter target identification.
+                    # We optimize the LoRA weights A and B.
                     lora_A = cast(Tensor, module.lora_A["default"].weight)
                     lora_B = cast(Tensor, module.lora_B["default"].weight)
 
-                    # --- 4. Data Preparation ---
-                    # Move I/O tensors to the device of the adapter weights
+                    # Create float32 copies for stable optimization.
+                    # LBFGS is numerically unstable when optimizing float16/bfloat16 parameters directly.
+                    A_opt = lora_A.detach().float().clone().requires_grad_(True)
+                    B_opt = lora_B.detach().float().clone().requires_grad_(True)
+
+                    # Data preparation.
+                    # Move I/O tensors to the device of the adapter weights.
                     good_input, good_output = good_module_io[layer_index][component][module_index]
                     bad_input, bad_output = bad_module_io[layer_index][component][module_index]
 
@@ -726,21 +731,21 @@ class Model:
                     bad_input = bad_input.float().to(lora_A.device)
                     bad_output = bad_output.float().to(lora_A.device)
 
-                    # --- 5. The Objective Function ---
+                    # The objective function.
                     def objective(A: Tensor, B: Tensor) -> Tensor:
-                        # Calculate effective weight: W_eff = W_base + B @ A
+                        # Calculate effective weight: W_eff = W_base + B @ A.
                         W_eff = W_base + (B @ A)
 
                         # Apply Row Normalization (keep original norms)
                         if self.settings.row_normalization == RowNormalization.FULL:
-                            # Normalize to unit length, then scale by original norms
+                            # Normalize to unit length, then scale by original norms.
                             W_eff = F.normalize(W_eff, p=2, dim=1) * W_row_norms
 
-                        # Compute outputs using the effective weight
+                        # Compute outputs using the effective weight.
                         new_good_output = good_input @ W_eff.T
                         new_bad_output = bad_input @ W_eff.T
 
-                        # The original ARA loss function
+                        # The original ARA loss function.
                         preserve_good_behavior = (
                             (new_good_output - good_output) ** 2
                         ).mean()
@@ -765,10 +770,10 @@ class Model:
                             + parameters.steer_bad_behavior_weight * steer_bad_behavior
                         )
 
-                    # --- 6. Optimization Loop ---
-                    # We optimize A and B, not the base matrix
+                    # Optimization loop.
+                    # We optimize A and B, not the base matrix.
                     optimizer = LBFGS(
-                        [lora_A, lora_B],
+                        [A_opt, B_opt],
                         lr=1.0,
                         max_iter=20,
                         history_size=10,
@@ -777,14 +782,19 @@ class Model:
 
                     def closure():
                         optimizer.zero_grad()
-                        # Pass the actual tensors being optimized to the objective
-                        loss = objective(lora_A, lora_B)
+                        # Pass the actual tensors being optimized to the objective.
+                        loss = objective(A_opt, B_opt)
                         loss.backward()
                         return loss
 
-                    # Run optimization steps
+                    # Run optimization steps.
                     for step in range(5):
                         optimizer.step(closure)
+
+                    # Copy the optimized weights back to the original parameters.
+                    with torch.no_grad():
+                        lora_A.copy_(A_opt.to(lora_A.dtype))
+                        lora_B.copy_(B_opt.to(lora_B.dtype))
 
     def generate(
         self,

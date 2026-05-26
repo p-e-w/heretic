@@ -1165,7 +1165,7 @@ def create_app() -> Any:
 
     app_version = version("heretic-llm")
 
-    with gr.Blocks(css=WEBUI_CSS, title=f"Heretic {app_version}") as app:
+    with gr.Blocks(title=f"Heretic {app_version}") as app:
         gr.HTML(_render_header(app_version))
 
         settings_state = gr.BrowserState(dict(_DEFAULT_UI_SETTINGS))

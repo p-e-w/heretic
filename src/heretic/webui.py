@@ -1134,7 +1134,6 @@ def _build_chat_tab(gr: Any) -> ChatTabComponents:
             chatbot = gr.Chatbot(
                 label="Conversation",
                 height=540,
-                type="messages",
             )
             with gr.Row():
                 chat_in = gr.Textbox(

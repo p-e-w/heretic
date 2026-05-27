@@ -653,27 +653,37 @@ def _get_local_models() -> list[str]:
     # ── Ollama model names ────────────────────────────────────────────────
     # Prefer querying the Ollama REST API directly; it works even when the
     # `ollama` binary is not on PATH and avoids fragile text-output parsing.
+    # A single 5-second budget is shared between the REST attempt and the
+    # subprocess fallback so the total wait stays bounded.
     ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+    _discovery_start = time.monotonic()
+    _budget = 5.0
     _ollama_api_succeeded = False
     try:
         req = urllib.request.Request(f"{ollama_host}/api/tags")
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=_budget) as resp:
             data = json.loads(resp.read())
-        for model_info in data.get("models", []):
-            name = model_info.get("name")
+        if not isinstance(data, dict):
+            raise ValueError(f"Unexpected response shape: {type(data).__name__}")
+        models = data.get("models", [])
+        if not isinstance(models, list):
+            raise ValueError(f"Unexpected 'models' value type: {type(models).__name__}")
+        for model_info in models:
+            name = model_info.get("name") if isinstance(model_info, dict) else None
             if name:
                 found.append(name)
         _ollama_api_succeeded = True
-    except (urllib.error.URLError, json.JSONDecodeError, OSError, ValueError):
+    except (urllib.error.URLError, OSError, ValueError):
         pass
 
     if not _ollama_api_succeeded:
+        _remaining_budget = max(1.0, _budget - (time.monotonic() - _discovery_start))
         try:
             output = subprocess.check_output(
                 ["ollama", "list"],
                 text=True,
                 stderr=subprocess.DEVNULL,
-                timeout=5,
+                timeout=_remaining_budget,
             )
             for line in output.splitlines()[1:]:
                 parts = line.split()

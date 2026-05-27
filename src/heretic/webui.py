@@ -800,20 +800,6 @@ WEBUI_CSS = """
     color: #475569;
     font-size: 0.95rem;
 }
-.tabs > .tab-nav {
-    border-bottom: 2px solid rgba(148, 163, 184, 0.22);
-    margin-bottom: 1rem;
-}
-.tabs > .tab-nav button {
-    padding: 0.65rem 1.2rem;
-    font-weight: 600;
-    color: #475569;
-    border-radius: 8px 8px 0 0;
-}
-.tabs > .tab-nav button.selected {
-    color: #f97316;
-    border-bottom: 2px solid #f97316;
-}
 """
 
 
@@ -900,6 +886,7 @@ def _render_header(app_version: str) -> str:
 
 
 def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
+    gr.Markdown("## 🚀 Launch")
     gr.Markdown(
         "Set up the optimization run and monitor progress below.",
         elem_classes=["tab-copy"],
@@ -1022,6 +1009,7 @@ def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
 
 
 def _build_review_tab(gr: Any) -> ReviewTabComponents:
+    gr.Markdown("## 📊 Review")
     gr.Markdown(
         "Refresh the Pareto front after optimization, inspect the best trials, and apply one before exporting or chatting.",
         elem_classes=["tab-copy"],
@@ -1059,6 +1047,7 @@ def _build_review_tab(gr: Any) -> ReviewTabComponents:
 
 
 def _build_publish_tab(gr: Any) -> PublishTabComponents:
+    gr.Markdown("## 💾 Publish")
     gr.Markdown(
         "After applying a trial, either save the model locally or push it to Hugging Face Hub.",
         elem_classes=["tab-copy"],
@@ -1114,8 +1103,9 @@ def _build_publish_tab(gr: Any) -> PublishTabComponents:
 
 
 def _build_chat_tab(gr: Any) -> ChatTabComponents:
+    gr.Markdown("## 💬 Chat")
     gr.Markdown(
-        "Apply a Pareto-optimal trial in the **Review** tab, then use this chat to probe the current model behavior.",
+        "Apply a Pareto-optimal trial in the **Review** section above, then use this chat to probe the current model behavior.",
         elem_classes=["tab-copy"],
     )
     with gr.Group(elem_classes=["panel-card"]):
@@ -1157,20 +1147,11 @@ def create_app() -> Any:
 
         with gr.Column(elem_classes=["app-shell"]):
             gr.HTML(_render_header(app_version))
-            with gr.Tabs():
-                with gr.Tab("🚀 Configure"):
-                    configure = _build_configure_tab(gr)
-                with gr.Tab("📊 Review"):
-                    review = _build_review_tab(gr)
-                with gr.Tab("💾 Publish"):
-                    publish = _build_publish_tab(gr)
-                with gr.Tab("💬 Chat"):
-                    chat = _build_chat_tab(gr)
             ui = WebUIComponents(
-                configure=configure,
-                review=review,
-                publish=publish,
-                chat=chat,
+                configure=_build_configure_tab(gr),
+                review=_build_review_tab(gr),
+                publish=_build_publish_tab(gr),
+                chat=_build_chat_tab(gr),
             )
 
         # ── Event handlers ─────────────────────────────────────────────────

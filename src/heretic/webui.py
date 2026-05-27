@@ -735,7 +735,7 @@ _POLL_INTERVAL_SECONDS = 2.0
 WEBUI_CSS = """
 .gradio-container {
     background:
-        radial-gradient(circle at top left, rgba(249, 115, 22, 0.14), transparent 28%),
+        radial-gradient(ellipse 60% 40% at top left, rgba(249, 115, 22, 0.12) 0%, transparent 100%),
         #f8fafc;
 }
 .app-shell {

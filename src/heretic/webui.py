@@ -648,24 +648,44 @@ def _get_local_models() -> list[str]:
             pass
 
     # ── Ollama model names ────────────────────────────────────────────────
+    # Prefer querying the Ollama REST API directly; it works even when the
+    # `ollama` binary is not on PATH and avoids fragile text-output parsing.
+    import json
+    import urllib.request
+
+    ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+    _ollama_api_succeeded = False
     try:
-        output = subprocess.check_output(
-            ["ollama", "list"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=2,
-        )
-        for line in output.splitlines()[1:]:
-            parts = line.split()
-            if parts:
-                found.append(parts[0])
-    except (
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        FileNotFoundError,
-        OSError,
-    ):
+        req = urllib.request.Request(f"{ollama_host}/api/tags")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+        for model_info in data.get("models", []):
+            name = model_info.get("name")
+            if name:
+                found.append(name)
+        _ollama_api_succeeded = True
+    except Exception:
         pass
+
+    if not _ollama_api_succeeded:
+        try:
+            output = subprocess.check_output(
+                ["ollama", "list"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            for line in output.splitlines()[1:]:
+                parts = line.split()
+                if parts:
+                    found.append(parts[0])
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+            OSError,
+        ):
+            pass
 
     # ── Local sub-directories ──────────────────────────────────────────────
     # Keep the top-level CWD scan shallow (one level deep), and separately

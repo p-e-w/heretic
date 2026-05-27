@@ -736,7 +736,7 @@ WEBUI_CSS = """
 .gradio-container {
     background:
         radial-gradient(circle at top left, rgba(249, 115, 22, 0.14), transparent 28%),
-        linear-gradient(180deg, #0b1220 0%, #111827 24%, #f8fafc 24%, #f8fafc 100%);
+        #f8fafc;
 }
 .app-shell {
     max-width: 1240px;
@@ -744,16 +744,14 @@ WEBUI_CSS = """
     padding-bottom: 2rem;
 }
 .hero-card,
-.panel-card,
-.section-card,
-.chat-card {
+.panel-card {
     border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: 22px;
     box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
 }
 .hero-card {
     padding: 2rem;
-    margin-bottom: 1rem;
+    margin-bottom: 1.25rem;
     color: #f8fafc;
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.88));
 }
@@ -790,27 +788,31 @@ WEBUI_CSS = """
 .tab-copy {
     margin-bottom: 0.9rem;
 }
-.panel-card,
-.section-card,
-.chat-card {
+.panel-card {
     background: rgba(255, 255, 255, 0.95);
     margin-bottom: 1rem;
+    padding: 1.2rem;
 }
-.panel-card,
-.chat-card {
-    padding: 1.15rem 1.2rem 1.25rem;
-}
-.section-card {
-    padding: 0.75rem 0.9rem 0.2rem;
-}
-.section-card h3,
-.panel-card h3,
-.chat-card h3 {
+.panel-card h3 {
     margin-top: 0;
 }
 .subtle-note {
     color: #475569;
     font-size: 0.95rem;
+}
+.tabs > .tab-nav {
+    border-bottom: 2px solid rgba(148, 163, 184, 0.22);
+    margin-bottom: 1rem;
+}
+.tabs > .tab-nav button {
+    padding: 0.65rem 1.2rem;
+    font-weight: 600;
+    color: #475569;
+    border-radius: 8px 8px 0 0;
+}
+.tabs > .tab-nav button.selected {
+    color: #f97316;
+    border-bottom: 2px solid #f97316;
 }
 """
 
@@ -875,24 +877,22 @@ class WebUIComponents:
 
 def _render_header(app_version: str) -> str:
     return f"""
-<div class="app-shell">
-  <div class="hero-card">
-    <h1>🔥 Heretic {app_version}</h1>
-    <p>Fully automatic censorship removal for language models.</p>
-    <p><strong>Local-first, single-user workflow:</strong> configure a model, launch optimization, compare Pareto-optimal trials, then export or chat with the selected result.</p>
-    <div class="hero-metrics">
-      <div class="hero-metric">
-        <span>Step 1</span>
-        <strong>Configure model source, quantization, and trial budget</strong>
-      </div>
-      <div class="hero-metric">
-        <span>Step 2</span>
-        <strong>Watch the live optimization log without leaving the page</strong>
-      </div>
-      <div class="hero-metric">
-        <span>Step 3</span>
-        <strong>Apply the best trial, then save, upload, or chat</strong>
-      </div>
+<div class="hero-card">
+  <h1>🔥 Heretic {app_version}</h1>
+  <p>Fully automatic censorship removal for language models.</p>
+  <p><strong>Local-first, single-user workflow:</strong> configure a model, launch optimization, compare Pareto-optimal trials, then export or chat with the selected result.</p>
+  <div class="hero-metrics">
+    <div class="hero-metric">
+      <span>Step 1</span>
+      <strong>Configure model source, quantization, and trial budget</strong>
+    </div>
+    <div class="hero-metric">
+      <span>Step 2</span>
+      <strong>Watch the live optimization log without leaving the page</strong>
+    </div>
+    <div class="hero-metric">
+      <span>Step 3</span>
+      <strong>Apply the best trial, then save, upload, or chat</strong>
     </div>
   </div>
 </div>
@@ -900,7 +900,6 @@ def _render_header(app_version: str) -> str:
 
 
 def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
-    gr.Markdown("## 🚀 Launch")
     gr.Markdown(
         "Set up the optimization run and monitor progress below.",
         elem_classes=["tab-copy"],
@@ -1023,7 +1022,6 @@ def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
 
 
 def _build_review_tab(gr: Any) -> ReviewTabComponents:
-    gr.Markdown("## 📊 Review")
     gr.Markdown(
         "Refresh the Pareto front after optimization, inspect the best trials, and apply one before exporting or chatting.",
         elem_classes=["tab-copy"],
@@ -1061,7 +1059,6 @@ def _build_review_tab(gr: Any) -> ReviewTabComponents:
 
 
 def _build_publish_tab(gr: Any) -> PublishTabComponents:
-    gr.Markdown("## 💾 Publish")
     gr.Markdown(
         "After applying a trial, either save the model locally or push it to Hugging Face Hub.",
         elem_classes=["tab-copy"],
@@ -1117,12 +1114,11 @@ def _build_publish_tab(gr: Any) -> PublishTabComponents:
 
 
 def _build_chat_tab(gr: Any) -> ChatTabComponents:
-    gr.Markdown("## 💬 Chat")
-    with gr.Group(elem_classes=["chat-card"]):
-        gr.Markdown(
-            "### Verify the active trial\n"
-            "Apply a Pareto-optimal trial in the **Review** section above, then use this chat to probe the current model behavior."
-        )
+    gr.Markdown(
+        "Apply a Pareto-optimal trial in the **Review** tab, then use this chat to probe the current model behavior.",
+        elem_classes=["tab-copy"],
+    )
+    with gr.Group(elem_classes=["panel-card"]):
         chatbot = gr.Chatbot(
             label="Conversation",
             height=540,
@@ -1156,17 +1152,25 @@ def create_app() -> Any:
     app_version = version("heretic-llm")
 
     with gr.Blocks(title=f"Heretic {app_version}") as app:
-        gr.HTML(_render_header(app_version))
-
         settings_state = gr.BrowserState(dict(_DEFAULT_UI_SETTINGS))
         opt_timer = gr.Timer(value=_POLL_INTERVAL_SECONDS, active=False)
 
         with gr.Column(elem_classes=["app-shell"]):
+            gr.HTML(_render_header(app_version))
+            with gr.Tabs():
+                with gr.Tab("🚀 Configure"):
+                    configure = _build_configure_tab(gr)
+                with gr.Tab("📊 Review"):
+                    review = _build_review_tab(gr)
+                with gr.Tab("💾 Publish"):
+                    publish = _build_publish_tab(gr)
+                with gr.Tab("💬 Chat"):
+                    chat = _build_chat_tab(gr)
             ui = WebUIComponents(
-                configure=_build_configure_tab(gr),
-                review=_build_review_tab(gr),
-                publish=_build_publish_tab(gr),
-                chat=_build_chat_tab(gr),
+                configure=configure,
+                review=review,
+                publish=publish,
+                chat=chat,
             )
 
         # ── Event handlers ─────────────────────────────────────────────────

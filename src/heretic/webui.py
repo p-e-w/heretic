@@ -5,6 +5,7 @@
 
 # ruff: noqa: E402
 
+import json
 import logging
 import math
 import os
@@ -15,6 +16,8 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 import warnings
 from collections import deque
 from dataclasses import asdict, dataclass
@@ -650,9 +653,6 @@ def _get_local_models() -> list[str]:
     # ── Ollama model names ────────────────────────────────────────────────
     # Prefer querying the Ollama REST API directly; it works even when the
     # `ollama` binary is not on PATH and avoids fragile text-output parsing.
-    import json
-    import urllib.request
-
     ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
     _ollama_api_succeeded = False
     try:
@@ -664,7 +664,7 @@ def _get_local_models() -> list[str]:
             if name:
                 found.append(name)
         _ollama_api_succeeded = True
-    except Exception:
+    except (urllib.error.URLError, json.JSONDecodeError, OSError, ValueError):
         pass
 
     if not _ollama_api_succeeded:

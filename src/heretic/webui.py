@@ -18,7 +18,6 @@ import traceback
 import warnings
 from collections import deque
 from dataclasses import asdict, dataclass
-from functools import partial
 from importlib.metadata import version
 from os.path import commonprefix
 from types import SimpleNamespace
@@ -905,110 +904,111 @@ def _render_header(app_version: str) -> str:
 
 
 def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
-    with gr.Tab("🚀 Launch") as configure_tab:
-        gr.Markdown(
-            "Set up the optimization run, then keep this tab open to monitor progress.",
-            elem_classes=["tab-copy"],
-        )
-        with gr.Row(equal_height=True):
-            with gr.Column(scale=7):
-                with gr.Group(elem_classes=["panel-card"]):
-                    gr.Markdown("### Model & run setup")
-                    model_source_radio = gr.Radio(
-                        choices=[MODEL_SOURCE_HF, MODEL_SOURCE_LOCAL],
-                        value=_DEFAULT_UI_SETTINGS["model_source"],
-                        label="Model source",
-                    )
-                    model_id_in = gr.Textbox(
-                        label="Model ID",
-                        placeholder="e.g., Qwen/Qwen3-4B-Instruct-2507",
-                        value=_DEFAULT_UI_SETTINGS["model_id"],
-                        visible=True,
-                    )
-                    with gr.Column(visible=False) as local_model_section:
-                        with gr.Row():
-                            local_model_in = gr.Dropdown(
-                                label="Local / cached model",
-                                choices=_get_local_models(),
-                                value=_DEFAULT_UI_SETTINGS["local_model"],
-                                scale=5,
-                            )
-                            refresh_local_btn = gr.Button("Refresh", scale=1, min_width=96)
-                        local_models_status = gr.Markdown(
-                            "*Refresh to scan the Hugging Face cache, Ollama, and local model folders.*",
-                            elem_classes=["subtle-note"],
-                        )
-                    quantization_in = gr.Dropdown(
-                        choices=["none", "bnb_4bit"],
-                        value=_DEFAULT_UI_SETTINGS["quantization"],
-                        label="Quantization",
-                        info="Use bnb_4bit to reduce VRAM usage.",
-                    )
+    configure_tab = None
+    gr.Markdown("## 🚀 Launch")
+    gr.Markdown(
+        "Set up the optimization run and monitor progress below.",
+        elem_classes=["tab-copy"],
+    )
+    with gr.Row(equal_height=True):
+        with gr.Column(scale=7):
+            with gr.Group(elem_classes=["panel-card"]):
+                gr.Markdown("### Model & run setup")
+                model_source_radio = gr.Radio(
+                    choices=[MODEL_SOURCE_HF, MODEL_SOURCE_LOCAL],
+                    value=_DEFAULT_UI_SETTINGS["model_source"],
+                    label="Model source",
+                )
+                model_id_in = gr.Textbox(
+                    label="Model ID",
+                    placeholder="e.g., Qwen/Qwen3-4B-Instruct-2507",
+                    value=_DEFAULT_UI_SETTINGS["model_id"],
+                    visible=True,
+                )
+                with gr.Column(visible=False) as local_model_section:
                     with gr.Row():
-                        n_trials_in = gr.Slider(
-                            minimum=10,
-                            maximum=500,
-                            value=_DEFAULT_UI_SETTINGS["n_trials"],
-                            step=10,
-                            label="Optimization trials",
+                        local_model_in = gr.Dropdown(
+                            label="Local / cached model",
+                            choices=_get_local_models(),
+                            value=_DEFAULT_UI_SETTINGS["local_model"],
+                            scale=5,
                         )
-                        n_startup_in = gr.Slider(
-                            minimum=5,
-                            maximum=200,
-                            value=_DEFAULT_UI_SETTINGS["n_startup"],
-                            step=5,
-                            label="Startup trials",
-                        )
-                    system_prompt_in = gr.Textbox(
-                        label="System prompt",
-                        value=_DEFAULT_UI_SETTINGS["system_prompt"],
-                        lines=3,
-                    )
-            with gr.Column(scale=5):
-                with gr.Group(elem_classes=["panel-card"]):
-                    gr.Markdown("### Optimization targets")
-                    gr.Markdown(
-                        "- Lower refusals are better.\n"
-                        "- Lower KL divergence is better.\n"
-                        "- Startup trials seed Optuna with random exploration.",
+                        refresh_local_btn = gr.Button("Refresh", scale=1, min_width=96)
+                    local_models_status = gr.Markdown(
+                        "*Refresh to scan the Hugging Face cache, Ollama, and local model folders.*",
                         elem_classes=["subtle-note"],
                     )
-                    kl_scale_in = gr.Number(
-                        value=_DEFAULT_UI_SETTINGS["kl_scale"],
-                        label="KL divergence scale",
-                        info="Typical KL divergence for abliterated models.",
+                quantization_in = gr.Dropdown(
+                    choices=["none", "bnb_4bit"],
+                    value=_DEFAULT_UI_SETTINGS["quantization"],
+                    label="Quantization",
+                    info="Use bnb_4bit to reduce VRAM usage.",
+                )
+                with gr.Row():
+                    n_trials_in = gr.Slider(
+                        minimum=10,
+                        maximum=500,
+                        value=_DEFAULT_UI_SETTINGS["n_trials"],
+                        step=10,
+                        label="Optimization trials",
                     )
-                    kl_target_in = gr.Number(
-                        value=_DEFAULT_UI_SETTINGS["kl_target"],
-                        label="KL divergence target",
+                    n_startup_in = gr.Slider(
+                        minimum=5,
+                        maximum=200,
+                        value=_DEFAULT_UI_SETTINGS["n_startup"],
+                        step=5,
+                        label="Startup trials",
                     )
-                with gr.Group(elem_classes=["panel-card"]):
-                    gr.Markdown("### Session notes")
-                    gr.Markdown(
-                        "- Optimization uses the current working directory for checkpoints.\n"
-                        "- The web UI is designed for local, single-user sessions.\n"
-                        "- Reloading the page preserves the saved form values and server-side log.",
-                        elem_classes=["subtle-note"],
-                    )
-        with gr.Group(elem_classes=["panel-card"]):
-            with gr.Row(equal_height=True):
-                with gr.Column(scale=3):
-                    start_btn = gr.Button(
-                        "Start optimization",
-                        variant="primary",
-                    )
-                with gr.Column(scale=9):
-                    gr.Markdown(
-                        "Launches the full Heretic pipeline in a background thread and streams the captured log below.",
-                        elem_classes=["subtle-note"],
-                    )
-            log_out = gr.Textbox(
-                label="Live run log",
-                lines=22,
-                max_lines=60,
-                autoscroll=False,
-                interactive=False,
-            )
+                system_prompt_in = gr.Textbox(
+                    label="System prompt",
+                    value=_DEFAULT_UI_SETTINGS["system_prompt"],
+                    lines=3,
+                )
+        with gr.Column(scale=5):
+            with gr.Group(elem_classes=["panel-card"]):
+                gr.Markdown("### Optimization targets")
+                gr.Markdown(
+                    "- Lower refusals are better.\n"
+                    "- Lower KL divergence is better.\n"
+                    "- Startup trials seed Optuna with random exploration.",
+                    elem_classes=["subtle-note"],
+                )
+                kl_scale_in = gr.Number(
+                    value=_DEFAULT_UI_SETTINGS["kl_scale"],
+                    label="KL divergence scale",
+                    info="Typical KL divergence for abliterated models.",
+                )
+                kl_target_in = gr.Number(
+                    value=_DEFAULT_UI_SETTINGS["kl_target"],
+                    label="KL divergence target",
+                )
+            with gr.Group(elem_classes=["panel-card"]):
+                gr.Markdown("### Session notes")
+                gr.Markdown(
+                    "- Optimization uses the current working directory for checkpoints.\n"
+                    "- The web UI is designed for local, single-user sessions.\n"
+                    "- Reloading the page preserves the saved form values and server-side log.",
+                    elem_classes=["subtle-note"],
+                )
+    with gr.Group(elem_classes=["panel-card"]):
+        with gr.Row(equal_height=True):
+            with gr.Column(scale=3):
+                start_btn = gr.Button(
+                    "Start optimization",
+                    variant="primary",
+                )
+            with gr.Column(scale=9):
+                gr.Markdown(
+                    "Launches the full Heretic pipeline in a background thread and streams the captured log below.",
+                    elem_classes=["subtle-note"],
+                )
+        log_out = gr.Textbox(
+            label="Live run log",
+            lines=22,
+            max_lines=60,
+            autoscroll=False,
+            interactive=False,
+        )
     return ConfigureTabComponents(
         tab=configure_tab,
         model_source_radio=model_source_radio,
@@ -1029,33 +1029,34 @@ def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
 
 
 def _build_review_tab(gr: Any) -> ReviewTabComponents:
-    with gr.Tab("📊 Review") as results_tab:
-        gr.Markdown(
-            "Refresh the Pareto front after optimization, inspect the best trials, and apply one before exporting or chatting.",
-            elem_classes=["tab-copy"],
+    results_tab = None
+    gr.Markdown("## 📊 Review")
+    gr.Markdown(
+        "Refresh the Pareto front after optimization, inspect the best trials, and apply one before exporting or chatting.",
+        elem_classes=["tab-copy"],
+    )
+    with gr.Group(elem_classes=["panel-card"]):
+        results_status = gr.Markdown(
+            "No optimization results loaded yet. Run a session, then refresh."
         )
-        with gr.Group(elem_classes=["panel-card"]):
-            results_status = gr.Markdown(
-                "No optimization results loaded yet. Run a session, then refresh this tab."
-            )
-            refresh_btn = gr.Button("Refresh results", variant="secondary")
-        with gr.Group(elem_classes=["panel-card"]):
-            trials_table = gr.Dataframe(
-                headers=["Trial #", "Refusals", "KL Divergence"],
-                interactive=False,
-                visible=False,
-                label="Pareto-optimal trials",
-            )
-            trial_selector = gr.Radio(
-                label="Trial to apply",
-                visible=False,
-            )
-            apply_trial_btn = gr.Button(
-                "Apply selected trial",
-                variant="primary",
-                visible=False,
-            )
-            trial_apply_status = gr.Markdown("")
+        refresh_btn = gr.Button("Refresh results", variant="secondary")
+    with gr.Group(elem_classes=["panel-card"]):
+        trials_table = gr.Dataframe(
+            headers=["Trial #", "Refusals", "KL Divergence"],
+            interactive=False,
+            visible=False,
+            label="Pareto-optimal trials",
+        )
+        trial_selector = gr.Radio(
+            label="Trial to apply",
+            visible=False,
+        )
+        apply_trial_btn = gr.Button(
+            "Apply selected trial",
+            variant="primary",
+            visible=False,
+        )
+        trial_apply_status = gr.Markdown("")
     return ReviewTabComponents(
         tab=results_tab,
         results_status=results_status,
@@ -1068,47 +1069,48 @@ def _build_review_tab(gr: Any) -> ReviewTabComponents:
 
 
 def _build_publish_tab(gr: Any) -> PublishTabComponents:
-    with gr.Tab("💾 Publish") as export_tab:
-        gr.Markdown(
-            "After applying a trial, either save the model locally or push it to Hugging Face Hub.",
-            elem_classes=["tab-copy"],
-        )
-        with gr.Row(equal_height=True):
-            with gr.Column():
-                with gr.Group(elem_classes=["panel-card"]):
-                    gr.Markdown("### Save locally")
-                    save_path_in = gr.Textbox(
-                        label="Output directory",
-                        placeholder="/path/to/output",
-                    )
-                    save_adapter_in = gr.Checkbox(
-                        label="Save LoRA adapter only (skip merge)",
-                        value=False,
-                    )
-                    save_btn = gr.Button("Save model")
-                    save_status = gr.Markdown("")
-            with gr.Column():
-                with gr.Group(elem_classes=["panel-card"]):
-                    gr.Markdown("### Upload to Hugging Face Hub")
-                    hf_token_in = gr.Textbox(
-                        label="Access token",
-                        type="password",
-                        placeholder="hf_...",
-                    )
-                    hf_repo_in = gr.Textbox(
-                        label="Repository ID",
-                        placeholder="username/model-name-heretic",
-                    )
-                    hf_private_in = gr.Checkbox(
-                        label="Private repository",
-                        value=False,
-                    )
-                    upload_adapter_in = gr.Checkbox(
-                        label="Upload LoRA adapter only (skip merge)",
-                        value=False,
-                    )
-                    upload_btn = gr.Button("Upload model")
-                    upload_status = gr.Markdown("")
+    export_tab = None
+    gr.Markdown("## 💾 Publish")
+    gr.Markdown(
+        "After applying a trial, either save the model locally or push it to Hugging Face Hub.",
+        elem_classes=["tab-copy"],
+    )
+    with gr.Row(equal_height=True):
+        with gr.Column():
+            with gr.Group(elem_classes=["panel-card"]):
+                gr.Markdown("### Save locally")
+                save_path_in = gr.Textbox(
+                    label="Output directory",
+                    placeholder="/path/to/output",
+                )
+                save_adapter_in = gr.Checkbox(
+                    label="Save LoRA adapter only (skip merge)",
+                    value=False,
+                )
+                save_btn = gr.Button("Save model")
+                save_status = gr.Markdown("")
+        with gr.Column():
+            with gr.Group(elem_classes=["panel-card"]):
+                gr.Markdown("### Upload to Hugging Face Hub")
+                hf_token_in = gr.Textbox(
+                    label="Access token",
+                    type="password",
+                    placeholder="hf_...",
+                )
+                hf_repo_in = gr.Textbox(
+                    label="Repository ID",
+                    placeholder="username/model-name-heretic",
+                )
+                hf_private_in = gr.Checkbox(
+                    label="Private repository",
+                    value=False,
+                )
+                upload_adapter_in = gr.Checkbox(
+                    label="Upload LoRA adapter only (skip merge)",
+                    value=False,
+                )
+                upload_btn = gr.Button("Upload model")
+                upload_status = gr.Markdown("")
     return PublishTabComponents(
         tab=export_tab,
         save_path_in=save_path_in,
@@ -1125,25 +1127,26 @@ def _build_publish_tab(gr: Any) -> PublishTabComponents:
 
 
 def _build_chat_tab(gr: Any) -> ChatTabComponents:
-    with gr.Tab("💬 Chat") as chat_tab:
-        with gr.Group(elem_classes=["chat-card"]):
-            gr.Markdown(
-                "### Verify the active trial\n"
-                "Apply a Pareto-optimal trial in the **Review** tab, then use this chat to probe the current model behavior."
+    chat_tab = None
+    gr.Markdown("## 💬 Chat")
+    with gr.Group(elem_classes=["chat-card"]):
+        gr.Markdown(
+            "### Verify the active trial\n"
+            "Apply a Pareto-optimal trial in the **Review** section above, then use this chat to probe the current model behavior."
+        )
+        chatbot = gr.Chatbot(
+            label="Conversation",
+            height=540,
+        )
+        with gr.Row():
+            chat_in = gr.Textbox(
+                label="",
+                placeholder="Type a message…",
+                scale=5,
+                show_label=False,
             )
-            chatbot = gr.Chatbot(
-                label="Conversation",
-                height=540,
-            )
-            with gr.Row():
-                chat_in = gr.Textbox(
-                    label="",
-                    placeholder="Type a message…",
-                    scale=5,
-                    show_label=False,
-                )
-                chat_send = gr.Button("Send", scale=1, variant="primary")
-            chat_clear = gr.Button("Clear conversation")
+            chat_send = gr.Button("Send", scale=1, variant="primary")
+        chat_clear = gr.Button("Clear conversation")
     return ChatTabComponents(
         tab=chat_tab,
         chatbot=chatbot,
@@ -1169,33 +1172,16 @@ def create_app() -> Any:
 
         settings_state = gr.BrowserState(dict(_DEFAULT_UI_SETTINGS))
         opt_timer = gr.Timer(value=_POLL_INTERVAL_SECONDS, active=False)
-        active_tab_state = gr.State("configure")
 
         with gr.Column(elem_classes=["app-shell"]):
-            with gr.Tabs():
-                ui = WebUIComponents(
-                    configure=_build_configure_tab(gr),
-                    review=_build_review_tab(gr),
-                    publish=_build_publish_tab(gr),
-                    chat=_build_chat_tab(gr),
-                )
+            ui = WebUIComponents(
+                configure=_build_configure_tab(gr),
+                review=_build_review_tab(gr),
+                publish=_build_publish_tab(gr),
+                chat=_build_chat_tab(gr),
+            )
 
         # ── Event handlers ─────────────────────────────────────────────────
-
-        def _set_active_tab(tab_name: str) -> str:
-            return tab_name
-
-        for tab, tab_name in (
-            (ui.configure.tab, "configure"),
-            (ui.review.tab, "review"),
-            (ui.publish.tab, "publish"),
-            (ui.chat.tab, "chat"),
-        ):
-            tab.select(
-                fn=partial(_set_active_tab, tab_name),
-                outputs=[active_tab_state],
-                queue=False,
-            )
 
         def _toggle_model_source(
             source: str,
@@ -1679,30 +1665,24 @@ def create_app() -> Any:
         poll_state = SimpleNamespace(last_polled_log_version=-1)
         last_polled_log_version_lock = threading.Lock()
 
-        def _poll_optimization(active_tab: str) -> tuple:
+        def _poll_optimization() -> tuple:
             is_running = _optimization_running.is_set()
-            if active_tab == "configure":
-                log_version, log_content = _get_log_snapshot()
-                with last_polled_log_version_lock:
-                    log_update = (
-                        gr.update(value=log_content)
-                        if log_version != poll_state.last_polled_log_version
-                        else gr.update()
-                    )
-                    poll_state.last_polled_log_version = log_version
-                start_btn_update = gr.update(interactive=not is_running)
-            else:
-                log_update = gr.skip()
-                start_btn_update = gr.skip()
+            log_version, log_content = _get_log_snapshot()
+            with last_polled_log_version_lock:
+                log_update = (
+                    gr.update(value=log_content)
+                    if log_version != poll_state.last_polled_log_version
+                    else gr.update()
+                )
+                poll_state.last_polled_log_version = log_version
             return (
                 log_update,
-                start_btn_update,
+                gr.update(interactive=not is_running),
                 gr.update(active=is_running),
             )
 
         opt_timer.tick(
             fn=_poll_optimization,
-            inputs=[active_tab_state],
             outputs=[ui.configure.log_out, ui.configure.start_btn, opt_timer],
         )
 

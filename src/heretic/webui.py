@@ -817,7 +817,6 @@ WEBUI_CSS = """
 
 @dataclass
 class ConfigureTabComponents:
-    tab: Any
     model_source_radio: Any
     model_id_in: Any
     local_model_section: Any
@@ -836,7 +835,6 @@ class ConfigureTabComponents:
 
 @dataclass
 class ReviewTabComponents:
-    tab: Any
     results_status: Any
     refresh_btn: Any
     trials_table: Any
@@ -847,7 +845,6 @@ class ReviewTabComponents:
 
 @dataclass
 class PublishTabComponents:
-    tab: Any
     save_path_in: Any
     save_adapter_in: Any
     save_btn: Any
@@ -862,7 +859,6 @@ class PublishTabComponents:
 
 @dataclass
 class ChatTabComponents:
-    tab: Any
     chatbot: Any
     chat_in: Any
     chat_send: Any
@@ -904,7 +900,6 @@ def _render_header(app_version: str) -> str:
 
 
 def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
-    configure_tab = None
     gr.Markdown("## 🚀 Launch")
     gr.Markdown(
         "Set up the optimization run and monitor progress below.",
@@ -1010,7 +1005,6 @@ def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
             interactive=False,
         )
     return ConfigureTabComponents(
-        tab=configure_tab,
         model_source_radio=model_source_radio,
         model_id_in=model_id_in,
         local_model_section=local_model_section,
@@ -1029,7 +1023,6 @@ def _build_configure_tab(gr: Any) -> ConfigureTabComponents:
 
 
 def _build_review_tab(gr: Any) -> ReviewTabComponents:
-    results_tab = None
     gr.Markdown("## 📊 Review")
     gr.Markdown(
         "Refresh the Pareto front after optimization, inspect the best trials, and apply one before exporting or chatting.",
@@ -1058,7 +1051,6 @@ def _build_review_tab(gr: Any) -> ReviewTabComponents:
         )
         trial_apply_status = gr.Markdown("")
     return ReviewTabComponents(
-        tab=results_tab,
         results_status=results_status,
         refresh_btn=refresh_btn,
         trials_table=trials_table,
@@ -1069,7 +1061,6 @@ def _build_review_tab(gr: Any) -> ReviewTabComponents:
 
 
 def _build_publish_tab(gr: Any) -> PublishTabComponents:
-    export_tab = None
     gr.Markdown("## 💾 Publish")
     gr.Markdown(
         "After applying a trial, either save the model locally or push it to Hugging Face Hub.",
@@ -1112,7 +1103,6 @@ def _build_publish_tab(gr: Any) -> PublishTabComponents:
                 upload_btn = gr.Button("Upload model")
                 upload_status = gr.Markdown("")
     return PublishTabComponents(
-        tab=export_tab,
         save_path_in=save_path_in,
         save_adapter_in=save_adapter_in,
         save_btn=save_btn,
@@ -1127,7 +1117,6 @@ def _build_publish_tab(gr: Any) -> PublishTabComponents:
 
 
 def _build_chat_tab(gr: Any) -> ChatTabComponents:
-    chat_tab = None
     gr.Markdown("## 💬 Chat")
     with gr.Group(elem_classes=["chat-card"]):
         gr.Markdown(
@@ -1148,7 +1137,6 @@ def _build_chat_tab(gr: Any) -> ChatTabComponents:
             chat_send = gr.Button("Send", scale=1, variant="primary")
         chat_clear = gr.Button("Clear conversation")
     return ChatTabComponents(
-        tab=chat_tab,
         chatbot=chatbot,
         chat_in=chat_in,
         chat_send=chat_send,

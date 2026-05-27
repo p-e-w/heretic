@@ -732,9 +732,9 @@ _DEFAULT_UI_SETTINGS = {
     "kl_target": 0.01,
 }
 _POLL_INTERVAL_SECONDS = 2.0
-# WEBUI_CSS is injected into the page by Gradio via the `head` parameter when the
-# app is served.  It is NOT passed via gr.Blocks(css=...) — keep it as a module-level
-# string so it is easy to edit without touching the Blocks call.
+# WEBUI_CSS is injected when `webui_cli.py` calls `app.launch(css=WEBUI_CSS)`.
+# It is NOT passed via `gr.Blocks(css=...)` — keep it as a module-level string so
+# it is easy to edit without touching the Blocks call.
 WEBUI_CSS = """
 .gradio-container {
     background: #0f172a !important;

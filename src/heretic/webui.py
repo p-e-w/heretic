@@ -868,6 +868,7 @@ class ReviewTabComponents:
 @dataclass
 class PublishTabComponents:
     save_path_in: Any
+    save_format_in: Any
     save_adapter_in: Any
     save_btn: Any
     save_status: Any
@@ -1094,6 +1095,11 @@ def _build_publish_tab(gr: Any) -> PublishTabComponents:
                     label="Output directory",
                     placeholder="/path/to/output",
                 )
+                save_format_in = gr.Radio(
+                    choices=["Ollama", "HuggingFace"],
+                    value="Ollama",
+                    label="Save format",
+                )
                 save_adapter_in = gr.Checkbox(
                     label="Save LoRA adapter only (skip merge)",
                     value=False,
@@ -1124,6 +1130,7 @@ def _build_publish_tab(gr: Any) -> PublishTabComponents:
                 upload_status = gr.Markdown("")
     return PublishTabComponents(
         save_path_in=save_path_in,
+        save_format_in=save_format_in,
         save_adapter_in=save_adapter_in,
         save_btn=save_btn,
         save_status=save_status,
@@ -1428,7 +1435,7 @@ def create_app() -> Any:
 
         # ── Publish tab ────────────────────────────────────────────────────
 
-        def save_model(path: str, adapter_only: bool) -> str:
+        def save_model(path: str, save_format: str, adapter_only: bool) -> str:
             model: Model | None = _session.get("model")
             settings: Settings | None = _session.get("settings")
             if model is None or settings is None:
@@ -1450,18 +1457,21 @@ def create_app() -> Any:
                     del merged
                     empty_cache()
                     model.tokenizer.save_pretrained(path)
-                    modelfile_path = write_ollama_modelfile(path)
                     _restore_trial_model(model)
-                    return (
-                        f"✅ Model saved to `{path}`\n\n"
-                        f"✅ Ollama Modelfile saved to `{modelfile_path}`"
-                    )
+                    if save_format == "Ollama":
+                        modelfile_path = write_ollama_modelfile(path)
+                        return (
+                            f"✅ Model saved to `{path}`\n\n"
+                            f"✅ Ollama Modelfile saved to `{modelfile_path}`"
+                        )
+                    else:
+                        return f"✅ Model saved to `{path}` (HuggingFace format)"
             except Exception as exc:
                 return f"❌ Error: {exc}"
 
         ui.publish.save_btn.click(
             fn=save_model,
-            inputs=[ui.publish.save_path_in, ui.publish.save_adapter_in],
+            inputs=[ui.publish.save_path_in, ui.publish.save_format_in, ui.publish.save_adapter_in],
             outputs=[ui.publish.save_status],
         )
 

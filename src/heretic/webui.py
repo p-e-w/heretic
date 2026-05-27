@@ -1096,7 +1096,7 @@ def _build_publish_tab(gr: Any) -> PublishTabComponents:
                     placeholder="/path/to/output",
                 )
                 save_format_in = gr.Radio(
-                    choices=["Ollama", "HuggingFace"],
+                    choices=["Ollama", "Hugging Face"],
                     value="Ollama",
                     label="Save format",
                 )
@@ -1465,7 +1465,7 @@ def create_app() -> Any:
                             f"✅ Ollama Modelfile saved to `{modelfile_path}`"
                         )
                     else:
-                        return f"✅ Model saved to `{path}` (HuggingFace format)"
+                        return f"✅ Model saved to `{path}` (Hugging Face format)"
             except Exception as exc:
                 return f"❌ Error: {exc}"
 

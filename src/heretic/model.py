@@ -716,11 +716,6 @@ class Model:
                     lora_A = cast(Tensor, module.lora_A["default"].weight)
                     lora_B = cast(Tensor, module.lora_B["default"].weight)
 
-                    # Create float32 copies for stable optimization.
-                    # LBFGS is numerically unstable when optimizing float16/bfloat16 parameters directly.
-                    A_opt = lora_A.detach().float().clone().requires_grad_(True)
-                    B_opt = lora_B.detach().float().clone().requires_grad_(True)
-
                     # Data preparation.
                     # Move I/O tensors to the device of the adapter weights.
                     good_input, good_output = good_module_io[layer_index][component][module_index]
@@ -736,7 +731,7 @@ class Model:
                         # Calculate effective weight: W_eff = W_base + B @ A.
                         W_eff = W_base + (B @ A)
 
-                        # Apply Row Normalization (keep original norms)
+                        # Apply Row Normalization (keep original norms).
                         if self.settings.row_normalization == RowNormalization.FULL:
                             # Normalize to unit length, then scale by original norms.
                             W_eff = F.normalize(W_eff, p=2, dim=1) * W_row_norms
@@ -773,7 +768,7 @@ class Model:
                     # Optimization loop.
                     # We optimize A and B, not the base matrix.
                     optimizer = LBFGS(
-                        [A_opt, B_opt],
+                        [lora_A, lora_B],
                         lr=1.0,
                         max_iter=20,
                         history_size=10,
@@ -783,18 +778,13 @@ class Model:
                     def closure():
                         optimizer.zero_grad()
                         # Pass the actual tensors being optimized to the objective.
-                        loss = objective(A_opt, B_opt)
+                        loss = objective(lora_A, lora_B)
                         loss.backward()
                         return loss
 
                     # Run optimization steps.
                     for step in range(5):
                         optimizer.step(closure)
-
-                    # Copy the optimized weights back to the original parameters.
-                    with torch.no_grad():
-                        lora_A.copy_(A_opt.to(lora_A.dtype))
-                        lora_B.copy_(B_opt.to(lora_B.dtype))
 
     def generate(
         self,

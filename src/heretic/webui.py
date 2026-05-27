@@ -732,11 +732,12 @@ _DEFAULT_UI_SETTINGS = {
     "kl_target": 0.01,
 }
 _POLL_INTERVAL_SECONDS = 2.0
+# WEBUI_CSS is injected when `webui_cli.py` calls `app.launch(css=WEBUI_CSS)`.
+# It is NOT passed via `gr.Blocks(css=...)` — keep it as a module-level string so
+# it is easy to edit without touching the Blocks call.
 WEBUI_CSS = """
 .gradio-container {
-    background:
-        radial-gradient(ellipse 60% 40% at top left, rgba(249, 115, 22, 0.12) 0%, transparent 100%),
-        #f8fafc;
+    background: #0f172a !important;
 }
 .app-shell {
     max-width: 1240px;
@@ -747,13 +748,14 @@ WEBUI_CSS = """
 .panel-card {
     border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: 22px;
-    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.4);
 }
 .hero-card {
     padding: 2rem;
     margin-bottom: 1.25rem;
     color: #f8fafc;
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.88));
+    border-color: rgba(251, 146, 60, 0.3);
 }
 .hero-card h1,
 .hero-card p,
@@ -784,20 +786,22 @@ WEBUI_CSS = """
     display: block;
     margin-top: 0.3rem;
     font-size: 1rem;
+    color: #f8fafc;
 }
 .tab-copy {
     margin-bottom: 0.9rem;
 }
 .panel-card {
-    background: rgba(255, 255, 255, 0.95);
+    background: #1e293b;
     margin-bottom: 1rem;
     padding: 1.2rem;
 }
 .panel-card h3 {
     margin-top: 0;
+    color: #f1f5f9;
 }
 .subtle-note {
-    color: #475569;
+    color: #94a3b8;
     font-size: 0.95rem;
 }
 """

@@ -732,10 +732,9 @@ _DEFAULT_UI_SETTINGS = {
     "kl_target": 0.01,
 }
 _POLL_INTERVAL_SECONDS = 2.0
-# WEBUI_CSS is passed directly to gr.Blocks(css=WEBUI_CSS) in create_app() and is
-# the sole mechanism for injecting custom styles into the Gradio page.  Keep this
-# variable; removing or renaming it without updating the gr.Blocks() call will
-# silently drop all custom styles.
+# WEBUI_CSS is injected into the page by Gradio via the `head` parameter when the
+# app is served.  It is NOT passed via gr.Blocks(css=...) — keep it as a module-level
+# string so it is easy to edit without touching the Blocks call.
 WEBUI_CSS = """
 .gradio-container {
     background: #0f172a !important;
@@ -1146,7 +1145,7 @@ def create_app() -> Any:
 
     app_version = version("heretic-llm")
 
-    with gr.Blocks(title=f"Heretic {app_version}", css=WEBUI_CSS) as app:
+    with gr.Blocks(title=f"Heretic {app_version}") as app:
         settings_state = gr.BrowserState(dict(_DEFAULT_UI_SETTINGS))
         opt_timer = gr.Timer(value=_POLL_INTERVAL_SECONDS, active=False)
 

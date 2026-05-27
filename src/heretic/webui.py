@@ -5,6 +5,7 @@
 
 # ruff: noqa: E402
 
+import json
 import logging
 import math
 import os
@@ -15,6 +16,8 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
+import urllib.request
 import warnings
 from collections import deque
 from dataclasses import asdict, dataclass
@@ -648,24 +651,51 @@ def _get_local_models() -> list[str]:
             pass
 
     # ── Ollama model names ────────────────────────────────────────────────
+    # Prefer querying the Ollama REST API directly; it works even when the
+    # `ollama` binary is not on PATH and avoids fragile text-output parsing.
+    # A single 5-second budget is shared between the REST attempt and the
+    # subprocess fallback so the total wait stays bounded.
+    ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+    _discovery_start = time.monotonic()
+    _budget = 5.0
+    _ollama_api_succeeded = False
     try:
-        output = subprocess.check_output(
-            ["ollama", "list"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=2,
-        )
-        for line in output.splitlines()[1:]:
-            parts = line.split()
-            if parts:
-                found.append(parts[0])
-    except (
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        FileNotFoundError,
-        OSError,
-    ):
+        req = urllib.request.Request(f"{ollama_host}/api/tags")
+        with urllib.request.urlopen(req, timeout=_budget) as resp:
+            data = json.loads(resp.read())
+        if not isinstance(data, dict):
+            raise ValueError(f"Unexpected response shape: {type(data).__name__}")
+        models = data.get("models", [])
+        if not isinstance(models, list):
+            raise ValueError(f"Unexpected 'models' value type: {type(models).__name__}")
+        for model_info in models:
+            name = model_info.get("name") if isinstance(model_info, dict) else None
+            if name:
+                found.append(name)
+        _ollama_api_succeeded = True
+    except (urllib.error.URLError, OSError, ValueError):
         pass
+
+    if not _ollama_api_succeeded:
+        _remaining_budget = max(1.0, _budget - (time.monotonic() - _discovery_start))
+        try:
+            output = subprocess.check_output(
+                ["ollama", "list"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=_remaining_budget,
+            )
+            for line in output.splitlines()[1:]:
+                parts = line.split()
+                if parts:
+                    found.append(parts[0])
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+            OSError,
+        ):
+            pass
 
     # ── Local sub-directories ──────────────────────────────────────────────
     # Keep the top-level CWD scan shallow (one level deep), and separately

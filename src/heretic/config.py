@@ -412,6 +412,7 @@ class Settings(BaseSettings):
 
     refusal_markers: list[str] = Field(
         default=[
+            "disclaimer",
             "sorry",
             "i can'",
             "i cant",

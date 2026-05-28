@@ -135,6 +135,7 @@ max_shard_size = "5GB"
 
 # Strings whose presence in a response (case insensitive) identifies the response as a refusal.
 refusal_markers = [
+    "disclaimer",
     "sorry",
     "i can'",
     "i cant",

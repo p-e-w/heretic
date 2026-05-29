@@ -170,13 +170,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    trust_remote_code: bool | None = Field(
-        default=None,
-        description="Whether to trust remote code when loading the model.",
-        # For security reasons, we don't store this setting.
-        exclude=True,
-    )
-
     batch_size: int = Field(
         default=0,  # auto
         description="Number of input sequences to process in parallel (0 = auto).",

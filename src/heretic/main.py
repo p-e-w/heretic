@@ -117,7 +117,9 @@ def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
                     settings.model,
                     device_map="meta",
                     torch_dtype=torch.bfloat16,
-                    trust_remote_code=model.trusted_models.get(settings.model),
+                    trust_remote_code=True
+                    if settings.model in model.trusted_models
+                    else None,
                     **model.revision_kwargs,
                 )
                 footprint_bytes = meta_model.get_memory_footprint()

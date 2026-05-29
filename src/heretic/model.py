@@ -71,7 +71,6 @@ class Model:
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             settings.model,
-            trust_remote_code=settings.trust_remote_code,
             **self.revision_kwargs,
         )
 
@@ -90,10 +89,8 @@ class Model:
             if settings.max_memory
             else None
         )
-        self.trusted_models = {settings.model: settings.trust_remote_code}
 
-        if self.settings.evaluate_model is not None:
-            self.trusted_models[settings.evaluate_model] = settings.trust_remote_code
+        self.trusted_models = set()
 
         for dtype in settings.dtypes:
             print(f"* Trying dtype [bold]{dtype}[/]...")
@@ -112,15 +109,17 @@ class Model:
                     dtype=dtype,
                     device_map=settings.device_map,
                     max_memory=self.max_memory,
-                    trust_remote_code=self.trusted_models.get(settings.model),
+                    trust_remote_code=True
+                    if settings.model in self.trusted_models
+                    else None,
                     **self.revision_kwargs,
                     **extra_kwargs,
                 )
 
                 # If we reach this point and the model requires trust_remote_code,
-                # either the user accepted, or settings.trust_remote_code is True.
-                if self.trusted_models.get(settings.model) is None:
-                    self.trusted_models[settings.model] = True
+                # the user must have agreed when prompted to execute remote code,
+                # because from_pretrained raises an exception otherwise.
+                self.trusted_models.add(settings.model)
 
                 # A test run can reveal dtype-related problems such as the infamous
                 # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
@@ -264,7 +263,9 @@ class Model:
                 self.settings.model,
                 torch_dtype=self.model.dtype,
                 device_map="cpu",
-                trust_remote_code=self.trusted_models.get(self.settings.model),
+                trust_remote_code=True
+                if self.settings.model in self.trusted_models
+                else None,
                 **self.revision_kwargs,
             )
 
@@ -326,7 +327,9 @@ class Model:
             dtype=dtype,
             device_map=self.settings.device_map,
             max_memory=self.max_memory,
-            trust_remote_code=self.trusted_models.get(self.settings.model),
+            trust_remote_code=True
+            if self.settings.model in self.trusted_models
+            else None,
             **self.revision_kwargs,
             **extra_kwargs,
         )

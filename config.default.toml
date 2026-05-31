@@ -173,6 +173,11 @@ refusal_markers = [
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 
+# Each "dataset" below can be a Hugging Face dataset ID, a path to a dataset on disk,
+# or a path to a plain text file with one prompt per line (empty lines are ignored).
+# For text files, "column" is ignored and "split" is optional; when given, it selects
+# a subset of the lines using slice notation (e.g. "[:400]").
+
 # Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"

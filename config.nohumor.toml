@@ -1,15 +1,6 @@
 # Rename this file to config.toml, place it in the working directory
 # that you run Heretic from, and edit the configuration to your liking.
 
-# This config targets the "humor axis": it treats humorous output as the
-# behavior to ablate away. After processing, the model should respond to
-# the same prompts in a more serious, deadpan register.
-#
-# The good_prompts/good_evaluation_prompts (non-humorous baseline) use the
-# default mlabonne/harmless_alpaca splits. The bad_prompts/bad_evaluation_prompts
-# use UnstableLlama/jokes, a small dataset of joke-eliciting prompts,
-# split 4:1 for training vs. evaluation.
-
 max_response_length = 300
 
 residual_plot_title = "PaCMAP Projection of Residuals for Serious/Humorous Prompts"

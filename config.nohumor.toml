@@ -5,8 +5,8 @@
 # behavior to ablate away. After processing, the model should respond to
 # the same prompts in a more serious, deadpan register.
 #
-# good_prompts/good_evaluation_prompts (non-humorous baseline) use the
-# default mlabonne/harmless_alpaca splits. bad_prompts/bad_evaluation_prompts
+# The good_prompts/good_evaluation_prompts (non-humorous baseline) use the
+# default mlabonne/harmless_alpaca splits. The bad_prompts/bad_evaluation_prompts
 # use UnstableLlama/jokes, a small dataset of joke-eliciting prompts,
 # split 4:1 for training vs. evaluation.
 

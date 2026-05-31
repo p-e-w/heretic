@@ -1,0 +1,69 @@
+# Rename this file to config.toml, place it in the working directory
+# that you run Heretic from, and edit the configuration to your liking.
+
+max_response_length = 300
+
+residual_plot_title = "PaCMAP Projection of Residuals for Serious/Humorous Prompts"
+
+refusal_markers = [
+    "😅",
+    "here's one",
+    "why did",
+    "walked into a bar",
+    "gets worse",
+    "the punchline",
+    "classic",
+    "dad joke",
+    "bad joke",
+    "pun intended",
+    "ba dum tss",
+    "rimshot",
+    "😂",
+    "😄",
+    "😆",
+    "haha",
+    "hehe",
+    "lol",
+    "funny",
+    "joke",
+    "humor",
+    "that's hilarious",
+    "you could say",
+    "one-liner",
+    "comedian",
+    "stand-up",
+    "unexpectedly",
+    "because apparently",
+    "to be fair",
+    "on the bright side",
+    "lmao",
+    "omg",
+    "rofl",
+    "silly",
+    "humorous",
+    "clever",
+]
+
+[good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:400]"
+column = "text"
+residual_plot_label = "Serious prompts"
+residual_plot_color = "royalblue"
+
+[bad_prompts]
+dataset = "UnstableLlama/jokes"
+split = "train[:200]"
+column = "text"
+residual_plot_label = "Humorous prompts"
+residual_plot_color = "darkorange"
+
+[good_evaluation_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[:100]"
+column = "text"
+
+[bad_evaluation_prompts]
+dataset = "UnstableLlama/jokes"
+split = "train[200:250]"
+column = "text"

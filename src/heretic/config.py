@@ -42,9 +42,15 @@ class DatasetSpecification(BaseModel):
         description="Hugging Face commit hash of the dataset.",
     )
 
-    split: str = Field(description="Portion of the dataset to use.")
+    split: str | None = Field(
+        default=None,
+        description="Portion of the dataset to use. Required for datasets, optional for plain text files.",
+    )
 
-    column: str = Field(description="Column in the dataset that contains the prompts.")
+    column: str | None = Field(
+        default=None,
+        description="Column in the dataset that contains the prompts. Required for datasets, ignored for plain text files.",
+    )
 
     prefix: str = Field(
         default="",

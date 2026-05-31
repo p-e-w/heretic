@@ -188,6 +188,20 @@ class Prompt:
     user: str
 
 
+def get_split_slice(split_str: str, length: int) -> tuple[int, int]:
+    """Resolves a split specification into absolute (start, end) indices."""
+
+    # The split name is the part before the slice, e.g. "train" in "train[:400]".
+    split_name = split_str.split("[")[0]
+    # Associate the split with its number of examples (lines).
+    name_to_length = {split_name: length}
+    # Convert the instructions to absolute indices and select the first one.
+    absolute_instruction = ReadInstruction.from_spec(split_str).to_absolute(
+        name_to_length
+    )[0]
+    return absolute_instruction.from_, absolute_instruction.to
+
+
 def load_prompts(
     settings: Settings,
     specification: DatasetSpecification,
@@ -195,29 +209,41 @@ def load_prompts(
     path = specification.dataset
     split_str = specification.split
 
-    if is_hf_path(path):
-        dataset = load_dataset(
-            path,
-            revision=specification.commit,
-            split=split_str,
-        )
+    if os.path.isfile(path):
+        # Plain text file with one prompt per line. Empty lines are ignored.
+        with open(path, encoding="utf-8") as file:
+            prompts = [line.strip() for line in file if line.strip()]
+
+        # The split is optional for text files. When given, it selects a subset
+        # of the lines using slice notation (e.g. "[:400]"). A synthetic split
+        # name is prepended because ReadInstruction expects a named split.
+        if split_str is not None:
+            start, end = get_split_slice(f"_{split_str}", len(prompts))
+            prompts = prompts[start:end]
     else:
-        if Path(path, DATASET_STATE_JSON_FILENAME).exists():
+        # All dataset sources require an explicit split and column.
+        if split_str is None:
+            raise ValueError(f'The "split" field is required for datasets: {path}')
+
+        if specification.column is None:
+            raise ValueError(f'The "column" field is required for datasets: {path}')
+
+        if is_hf_path(path):
+            dataset = load_dataset(
+                path,
+                revision=specification.commit,
+                split=split_str,
+            )
+        elif Path(path, DATASET_STATE_JSON_FILENAME).exists():
             # Dataset saved with datasets.save_to_disk; needs special handling.
             # Path should be the subdirectory for a particular split.
             dataset = load_from_disk(path)
             assert not isinstance(dataset, DatasetDict), (
                 "Loading dataset dicts is not supported"
             )
-            # Parse the split instructions.
-            instruction = ReadInstruction.from_spec(split_str)
-            # Associate the split with its number of examples (lines).
-            split_name = str(dataset.split)
-            name2len = {split_name: len(dataset)}
-            # Convert the instructions to absolute indices and select the first one.
-            abs_instruction = instruction.to_absolute(name2len)[0]
-            # Get the dataset by applying the indices.
-            dataset = dataset[abs_instruction.from_ : abs_instruction.to]
+            # Parse the split instructions and apply them.
+            start, end = get_split_slice(split_str, len(dataset))
+            dataset = dataset[start:end]
         else:
             # Path should be a local directory.
             dataset = load_dataset(
@@ -229,7 +255,7 @@ def load_prompts(
                 download_mode=DownloadMode.FORCE_REDOWNLOAD,
             )
 
-    prompts = list(dataset[specification.column])
+        prompts = list(dataset[specification.column])
 
     if specification.prefix:
         prompts = [f"{specification.prefix} {prompt}" for prompt in prompts]

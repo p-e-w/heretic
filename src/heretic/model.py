@@ -394,15 +394,15 @@ class Model:
             try_add("attn.o_proj", layer.conv.out_proj)  # ty:ignore[possibly-missing-attribute]
 
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.feed_forward.w2)   # ty:ignore[possibly-missing-attribute]
+            try_add("mlp.down_proj", layer.feed_forward.w2)  # ty:ignore[possibly-missing-attribute]
 
         # LFM transformer blocks.
         with suppress(Exception):
-            try_add("attn.o_proj", layer.self_attn.out_proj)   # ty:ignore[possibly-missing-attribute]
+            try_add("attn.o_proj", layer.self_attn.out_proj)  # ty:ignore[possibly-missing-attribute]
 
         with suppress(Exception):
             for expert in layer.feed_forward.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
-                try_add("mlp.down_proj", expert.w2) # ty:ignore[possibly-missing-attribute]
+                try_add("mlp.down_proj", expert.w2)  # ty:ignore[possibly-missing-attribute]
 
         # Granite MoE Hybrid - attention layers with shared_mlp.
         with suppress(Exception):

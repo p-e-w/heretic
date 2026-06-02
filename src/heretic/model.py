@@ -389,20 +389,20 @@ class Model:
             for expert in layer.block_sparse_moe.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
                 try_add("mlp.down_proj", expert.w2)  # ty:ignore[possibly-missing-attribute]
 
-        # LFM dense operator blocks
+        # LFM dense operator blocks.
         with suppress(Exception):
-            try_add("attn.o_proj", layer.conv.out_proj)
+            try_add("attn.o_proj", layer.conv.out_proj)  # ty:ignore[possibly-missing-attribute]
 
         with suppress(Exception):
-            try_add("mlp.down_proj", layer.feed_forward.w2)
+            try_add("mlp.down_proj", layer.feed_forward.w2)   # ty:ignore[possibly-missing-attribute]
 
-        # LFM transformer blocks
+        # LFM transformer blocks.
         with suppress(Exception):
-            try_add("attn.o_proj", layer.self_attn.out_proj)
+            try_add("attn.o_proj", layer.self_attn.out_proj)   # ty:ignore[possibly-missing-attribute]
 
         with suppress(Exception):
-            for expert in layer.feed_forward.experts:
-                try_add("mlp.down_proj", expert.w2)
+            for expert in layer.feed_forward.experts:  # ty:ignore[possibly-missing-attribute, not-iterable]
+                try_add("mlp.down_proj", expert.w2) # ty:ignore[possibly-missing-attribute]
 
         # Granite MoE Hybrid - attention layers with shared_mlp.
         with suppress(Exception):

@@ -78,9 +78,9 @@ class Model:
             **self.revision_kwargs,
         )
 
-        # Multimodal models have a processor we'll want to save; text-only ones raise here.
+        # Multimodal models have a processor we'll want to save.
         self.processor = None
-        with suppress(Exception):
+        if get_model_class(settings.model) == AutoModelForImageTextToText:
             self.processor = AutoProcessor.from_pretrained(
                 settings.model,
                 trust_remote_code=settings.trust_remote_code,

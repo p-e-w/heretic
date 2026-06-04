@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import torch.nn.functional as F
 from torch import Tensor
 
 from .config import Settings
@@ -92,15 +91,28 @@ class Evaluator:
 
         return refusal_count
 
+    def kl_divergence(self, logprobs: Tensor) -> float:
+        # KL divergence D(base || abliterated) of the first-token distributions,
+        #   sum over the vocabulary of  P_base * (log P_base - log P_abliterated),
+        # averaged over the evaluation prompts. This is equivalent to
+        # F.kl_div(logprobs, base_logprobs, reduction="batchmean", log_target=True),
+        # but robust to tokens that the generation pipeline forces to zero probability.
+        #
+        # Some models declare `suppress_tokens` in their generation config (e.g. the
+        # multimodal Gemma-4 models suppress the end-of-image/end-of-audio tokens).
+        # generate() sets those tokens' logits to -inf in *both* logprob tensors, so the
+        # naive term becomes 0 * (-inf - -inf) = 0 * nan = nan, which poisons the entire
+        # sum and yields a NaN KL divergence (https://github.com/p-e-w/heretic/issues/346).
+        # Those positions carry zero probability mass under the base distribution, so by
+        # the standard convention 0 * log(0/q) = 0 they must contribute nothing.
+        kl_terms = self.base_logprobs.exp() * (self.base_logprobs - logprobs)
+        kl_terms = kl_terms.masked_fill(self.base_logprobs.isneginf(), 0.0)
+        return (kl_terms.sum() / self.base_logprobs.shape[0]).item()
+
     def get_score(self) -> tuple[tuple[float, float], float, int]:
         print("  * Obtaining first-token probability distributions...")
         logprobs = self.model.get_logprobs_batched(self.good_prompts)
-        kl_divergence = F.kl_div(
-            logprobs,
-            self.base_logprobs,
-            reduction="batchmean",
-            log_target=True,
-        ).item()
+        kl_divergence = self.kl_divergence(logprobs)
         print(f"  * KL divergence: [bold]{kl_divergence:.4f}[/]")
 
         print("  * Counting model refusals...")

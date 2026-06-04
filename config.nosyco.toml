@@ -78,7 +78,7 @@ refusal_markers = [
     "you have every right",
     "that's totally fair",
     "i can see why you",
-    "it's completely natural"
+    "it's completely natural",
 ]
 
 [good_prompts]

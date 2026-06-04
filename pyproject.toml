@@ -27,7 +27,6 @@ dependencies = [
     "datasets~=4.7",
     "huggingface-hub~=1.7",
     "immutabledict~=4.3",
-    "kernels~=0.13",
     "langdetect~=1.0",
     "lm-eval[hf]~=0.4",
     "numpy~=2.2",
@@ -40,7 +39,7 @@ dependencies = [
     "rich~=14.3",
     "tomli-w~=1.2",
     "tqdm~=4.67",
-    "transformers~=5.6",
+    "transformers[kernels]~=5.6",
 ]
 
 [project.optional-dependencies]

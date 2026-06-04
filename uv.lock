@@ -8,7 +8,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer = "2026-05-28T06:40:14.509192809Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -939,7 +939,6 @@ dependencies = [
     { name = "datasets" },
     { name = "huggingface-hub" },
     { name = "immutabledict" },
-    { name = "kernels" },
     { name = "langdetect" },
     { name = "lm-eval", extra = ["hf"] },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -953,7 +952,7 @@ dependencies = [
     { name = "rich" },
     { name = "tomli-w" },
     { name = "tqdm" },
-    { name = "transformers" },
+    { name = "transformers", extra = ["kernels"] },
 ]
 
 [package.optional-dependencies]
@@ -981,7 +980,6 @@ requires-dist = [
     { name = "huggingface-hub", specifier = "~=1.7" },
     { name = "imageio", marker = "extra == 'research'", specifier = "~=2.37" },
     { name = "immutabledict", specifier = "~=4.3" },
-    { name = "kernels", specifier = "~=0.13" },
     { name = "langdetect", specifier = "~=1.0" },
     { name = "lm-eval", extras = ["hf"], specifier = "~=0.4" },
     { name = "matplotlib", marker = "extra == 'research'", specifier = "~=3.10" },
@@ -997,7 +995,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'research'", specifier = "~=1.7" },
     { name = "tomli-w", specifier = "~=1.2" },
     { name = "tqdm", specifier = "~=4.67" },
-    { name = "transformers", specifier = "~=5.6" },
+    { name = "transformers", extras = ["kernels"], specifier = "~=5.6" },
 ]
 provides-extras = ["research"]
 
@@ -1154,18 +1152,17 @@ wheels = [
 
 [[package]]
 name = "kernels"
-version = "0.13.0"
+version = "0.12.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
-    { name = "tomlkit" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3e/0d/e9c158c527a7b51382fe816a7b7e60caae17ff1153640c1803211a067c99/kernels-0.13.0.tar.gz", hash = "sha256:bf7908206009bff0017d09b87f0f6b5934a1a20520562caf1cbb06cab36418cc", size = 74755, upload-time = "2026-04-10T14:30:45.356Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/84/9f68f355f6ce99e977872021fbdbafadcf2820f51d3f7bd697ec3801cb7a/kernels-0.12.3.tar.gz", hash = "sha256:87e29716578e7e71dc5a7578e0132bfdae305bedaeb602698f87c88ca6c60e32", size = 57407, upload-time = "2026-03-20T10:20:42.166Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/45/2cb29e965c199ab01151fee24cbb57b23550c9e6bc897ca242b1e4b8c4bf/kernels-0.13.0-py3-none-any.whl", hash = "sha256:5d857ee4e06dc7496bcd59c4756e84eb71c019b34524dea58ccb0eaaae3bb6df", size = 69177, upload-time = "2026-04-10T14:30:43.551Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/3e/778e4a86830e9139df2d16d86c4488fce426ec19daa83cbd2854ef389030/kernels-0.12.3-py3-none-any.whl", hash = "sha256:5d1d33fcb774e03bb7f0688ac24d91ef6b963692f80f0a85ddd2286e69f3cf2f", size = 55501, upload-time = "2026-03-20T10:20:40.643Z" },
 ]
 
 [[package]]
@@ -3664,15 +3661,6 @@ wheels = [
 ]
 
 [[package]]
-name = "tomlkit"
-version = "0.14.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c3/af/14b24e41977adb296d6bd1fb59402cf7d60ce364f90c890bd2ec65c43b5a/tomlkit-0.14.0.tar.gz", hash = "sha256:cf00efca415dbd57575befb1f6634c4f42d2d87dbba376128adb42c121b87064", size = 187167, upload-time = "2026-01-13T01:14:53.304Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/11/87d6d29fb5d237229d67973a6c9e06e048f01cf4994dee194ab0ea841814/tomlkit-0.14.0-py3-none-any.whl", hash = "sha256:592064ed85b40fa213469f81ac584f67a4f2992509a7c3ea2d632208623a3680", size = 39310, upload-time = "2026-01-13T01:14:51.965Z" },
-]
-
-[[package]]
 name = "torch"
 version = "2.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3764,6 +3752,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a4/e9/c6c80a07690142a7d05444271f47b9f3c8aac7dea01d52e1137ee480ad78/transformers-5.6.2.tar.gz", hash = "sha256:e657134c3e5a6bc00a3c35f4e2674bb51adfcd89898495b788a18552bac2b91a", size = 8311867, upload-time = "2026-04-23T18:33:29.332Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/95/0b0218149b0d6f14df35f5b8f676fa83df4f19ed253c3cc447107ef86eca/transformers-5.6.2-py3-none-any.whl", hash = "sha256:f8d3a1bb96778fed9b8aabfd0dd6e19843e4b0f2bb6b59f32b8a92051b0f348f", size = 10364898, upload-time = "2026-04-23T18:33:26.081Z" },
+]
+
+[package.optional-dependencies]
+kernels = [
+    { name = "kernels" },
 ]
 
 [[package]]

@@ -58,7 +58,7 @@ def collect_reproducibles(path: str):
             if model.tags is not None and "gguf" in model.tags:
                 continue
 
-            if model.gated is not False:
+            if model.gated:
                 if not token:
                     continue
                 try:

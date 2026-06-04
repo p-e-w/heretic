@@ -55,7 +55,7 @@ from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
 from optuna.study import StudyDirection
-from optuna.trial import TrialState
+from optuna.trial import TrialState, create_trial
 from pydantic import ValidationError
 from questionary import Choice, Style
 from rich.table import Table
@@ -217,6 +217,8 @@ def run():
         collect_reproducibles(settings.collect_reproducibles)
         return
 
+    reproduction_mode = settings.reproduce is not None
+
     if settings.reproduce is not None:
         print(f"Loading reproduction information from [bold]{settings.reproduce}[/]...")
         # FIXME: "Reproduction"/"reproducibility" name inconsistency!
@@ -234,7 +236,9 @@ def run():
         if not check_environment(reproduction_information):
             return
 
-        return
+        print()
+
+        settings = Settings.model_validate(reproduction_information["settings"])
 
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
@@ -285,7 +289,11 @@ def run():
     except IndexError:
         existing_study = None
 
-    if existing_study is not None and settings.evaluate_model is None:
+    if (
+        existing_study is not None
+        and settings.evaluate_model is None
+        and not reproduction_mode
+    ):
         choices = []
 
         if existing_study.user_attrs["finished"]:
@@ -625,155 +633,183 @@ def run():
             trial.study.stop()
             raise TrialPruned()
 
-    study = optuna.create_study(
-        sampler=TPESampler(
-            n_startup_trials=settings.n_startup_trials,
-            n_ei_candidates=128,
-            multivariate=True,
-            seed=settings.seed,
-        ),
-        directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
-        storage=storage,
-        study_name="heretic",
-        load_if_exists=True,
-    )
-
-    study.set_user_attr("settings", settings.model_dump_json())
-    study.set_user_attr("finished", False)
-
-    def count_completed_trials() -> int:
-        # Count number of complete trials to compute trials to run.
-        return sum([(1 if t.state == TrialState.COMPLETE else 0) for t in study.trials])
-
-    start_index = trial_index = count_completed_trials()
-    if start_index > 0:
-        print()
-        print("Resuming existing study.")
-
-    try:
-        study.optimize(
-            objective_wrapper,
-            n_trials=settings.n_trials - count_completed_trials(),
+    if not reproduction_mode:
+        study = optuna.create_study(
+            sampler=TPESampler(
+                n_startup_trials=settings.n_startup_trials,
+                n_ei_candidates=128,
+                multivariate=True,
+                seed=settings.seed,
+            ),
+            directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
+            storage=storage,
+            study_name="heretic",
+            load_if_exists=True,
         )
-    except KeyboardInterrupt:
-        # This additional handler takes care of the small chance that KeyboardInterrupt
-        # is raised just between trials, which wouldn't be caught by the handler
-        # defined in objective_wrapper above.
-        pass
 
-    if count_completed_trials() == settings.n_trials:
-        study.set_user_attr("finished", True)
+        study.set_user_attr("settings", settings.model_dump_json())
+        study.set_user_attr("finished", False)
+
+        def count_completed_trials() -> int:
+            # Count number of complete trials to compute trials to run.
+            return sum(
+                [(1 if t.state == TrialState.COMPLETE else 0) for t in study.trials]
+            )
+
+        start_index = trial_index = count_completed_trials()
+        if start_index > 0:
+            print()
+            print("Resuming existing study.")
+
+        try:
+            study.optimize(
+                objective_wrapper,
+                n_trials=settings.n_trials - count_completed_trials(),
+            )
+        except KeyboardInterrupt:
+            # This additional handler takes care of the small chance that KeyboardInterrupt
+            # is raised just between trials, which wouldn't be caught by the handler
+            # defined in objective_wrapper above.
+            pass
+
+        if count_completed_trials() == settings.n_trials:
+            study.set_user_attr("finished", True)
 
     while True:
-        # If no trials at all have been evaluated, the study must have been stopped
-        # by pressing Ctrl+C while the first trial was running. In this case, we just
-        # re-raise the interrupt to invoke the standard handler defined below.
-        completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
-        if not completed_trials:
-            raise KeyboardInterrupt
+        if not reproduction_mode:
+            # If no trials at all have been evaluated, the study must have been stopped
+            # by pressing Ctrl+C while the first trial was running. In this case, we just
+            # re-raise the interrupt to invoke the standard handler defined below.
+            completed_trials = [
+                t for t in study.trials if t.state == TrialState.COMPLETE
+            ]
+            if not completed_trials:
+                raise KeyboardInterrupt
 
-        # Get the Pareto front of trials. We can't use study.best_trials directly
-        # as get_score() doesn't return the pure KL divergence and refusal count.
-        # Note: Unlike study.best_trials, this does not handle objective constraints.
-        sorted_trials = sorted(
-            completed_trials,
-            key=lambda trial: (
-                trial.user_attrs["refusals"],
-                trial.user_attrs["kl_divergence"],
-            ),
-        )
-        min_divergence = math.inf
-        best_trials = []
-        for trial in sorted_trials:
-            kl_divergence = trial.user_attrs["kl_divergence"]
-            if kl_divergence < min_divergence:
-                min_divergence = kl_divergence
-                best_trials.append(trial)
-
-        choices = [
-            Choice(
-                title=(
-                    f"[Trial {trial.user_attrs['index']:>3}] "
-                    f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                    f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
+            # Get the Pareto front of trials. We can't use study.best_trials directly
+            # as get_score() doesn't return the pure KL divergence and refusal count.
+            # Note: Unlike study.best_trials, this does not handle objective constraints.
+            sorted_trials = sorted(
+                completed_trials,
+                key=lambda trial: (
+                    trial.user_attrs["refusals"],
+                    trial.user_attrs["kl_divergence"],
                 ),
-                value=trial,
             )
-            for trial in best_trials
-        ]
+            min_divergence = math.inf
+            best_trials = []
+            for trial in sorted_trials:
+                kl_divergence = trial.user_attrs["kl_divergence"]
+                if kl_divergence < min_divergence:
+                    min_divergence = kl_divergence
+                    best_trials.append(trial)
 
-        choices.append(
-            Choice(
-                title="Run additional trials",
-                value="continue",
-            )
-        )
+            choices = [
+                Choice(
+                    title=(
+                        f"[Trial {trial.user_attrs['index']:>3}] "
+                        f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+                        f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
+                    ),
+                    value=trial,
+                )
+                for trial in best_trials
+            ]
 
-        choices.append(
-            Choice(
-                title="Exit program",
-                value="",
+            choices.append(
+                Choice(
+                    title="Run additional trials",
+                    value="continue",
+                )
             )
-        )
 
-        print()
-        print("[bold green]Optimization finished![/]")
-        print()
-        print(
-            (
-                "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
-                "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
-                "chat with it to test how well it works, or run standard benchmarks on it. "
-                "You can return to this menu later to select a different trial. "
-                "[yellow]Note that KL divergence values above 0.5 usually indicate significant damage to the original model's capabilities.[/]"
+            choices.append(
+                Choice(
+                    title="Exit program",
+                    value="",
+                )
             )
-        )
+
+            print()
+            print("[bold green]Optimization finished![/]")
+            print()
+            print(
+                (
+                    "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
+                    "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
+                    "chat with it to test how well it works, or run standard benchmarks on it. "
+                    "You can return to this menu later to select a different trial. "
+                    "[yellow]Note that KL divergence values above 0.5 usually indicate significant damage to the original model's capabilities.[/]"
+                )
+            )
 
         while True:
-            print()
-            trial = prompt_select("Which trial do you want to use?", choices)
+            if reproduction_mode:
+                parameters = reproduction_information["parameters"]
+                metrics = reproduction_information["metrics"]
 
-            if trial == "continue":
-                while True:
+                trial = create_trial(
+                    values=[],
+                    user_attrs={
+                        "direction_index": parameters["direction_index"],
+                        "parameters": parameters["abliteration_parameters"],
+                        "kl_divergence": metrics["kl_divergence"],
+                        "refusals": metrics["refusals"],
+                        "base_refusals": metrics["base_refusals"],
+                        "n_bad_prompts": metrics["n_bad_prompts"],
+                    },
+                )
+
+                print()
+                print("Restoring model from reproduction information...")
+            else:
+                print()
+                trial = prompt_select("Which trial do you want to use?", choices)
+
+                if trial is None or trial == "":
+                    return
+
+                if trial == "continue":
+                    while True:
+                        try:
+                            n_additional_trials = prompt_text(
+                                "How many additional trials do you want to run?"
+                            )
+                            if n_additional_trials is None or n_additional_trials == "":
+                                n_additional_trials = 0
+                                break
+                            n_additional_trials = int(n_additional_trials)
+                            if n_additional_trials > 0:
+                                break
+                            print("[red]Please enter a number greater than 0.[/]")
+                        except ValueError:
+                            print("[red]Please enter a number.[/]")
+
+                    if n_additional_trials == 0:
+                        continue
+
+                    settings.n_trials += n_additional_trials
+                    study.set_user_attr("settings", settings.model_dump_json())
+                    study.set_user_attr("finished", False)
+
                     try:
-                        n_additional_trials = prompt_text(
-                            "How many additional trials do you want to run?"
+                        study.optimize(
+                            objective_wrapper,
+                            n_trials=settings.n_trials - count_completed_trials(),
                         )
-                        if n_additional_trials is None or n_additional_trials == "":
-                            n_additional_trials = 0
-                            break
-                        n_additional_trials = int(n_additional_trials)
-                        if n_additional_trials > 0:
-                            break
-                        print("[red]Please enter a number greater than 0.[/]")
-                    except ValueError:
-                        print("[red]Please enter a number.[/]")
+                    except KeyboardInterrupt:
+                        pass
 
-                if n_additional_trials == 0:
-                    continue
+                    if count_completed_trials() == settings.n_trials:
+                        study.set_user_attr("finished", True)
 
-                settings.n_trials += n_additional_trials
-                study.set_user_attr("settings", settings.model_dump_json())
-                study.set_user_attr("finished", False)
+                    break
 
-                try:
-                    study.optimize(
-                        objective_wrapper,
-                        n_trials=settings.n_trials - count_completed_trials(),
-                    )
-                except KeyboardInterrupt:
-                    pass
+                print()
+                print(
+                    f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]..."
+                )
 
-                if count_completed_trials() == settings.n_trials:
-                    study.set_user_attr("finished", True)
-
-                break
-
-            elif trial is None or trial == "":
-                return
-
-            print()
-            print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
             print("* Parameters:")
             for name, value in get_trial_parameters(trial).items():
                 print(f"  * {name} = [bold]{value}[/]")
@@ -804,12 +840,20 @@ def run():
                         "Upload the model to Hugging Face",
                         "Chat with the model",
                         "Benchmark the model",
-                        "Return to the trial selection menu",
+                        Choice(
+                            title="Exit program"
+                            if reproduction_mode
+                            else "Return to the trial selection menu",
+                            value="",
+                        ),
                     ],
                 )
 
-                if action is None or action == "Return to the trial selection menu":
-                    break
+                if action is None or action == "":
+                    if reproduction_mode:
+                        return
+                    else:
+                        break
 
                 # All actions are wrapped in a try/except block so that if an error occurs,
                 # another action can be tried, instead of the program crashing and losing
@@ -891,8 +935,10 @@ def run():
                                 settings.good_evaluation_prompts.dataset,
                                 settings.bad_evaluation_prompts.dataset,
                             ]
-                            is_reproducible = is_hf_path(settings.model) and all(
-                                is_hf_path(dataset) for dataset in datasets
+                            is_reproducible = (
+                                is_hf_path(settings.model)
+                                and all(is_hf_path(dataset) for dataset in datasets)
+                                and not reproduction_mode
                             )
 
                             if is_reproducible:

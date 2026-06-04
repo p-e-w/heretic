@@ -23,6 +23,7 @@ from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
 from optuna import Trial
+from optuna.trial import FrozenTrial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
@@ -258,7 +259,7 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
 
-def get_trial_parameters(trial: Trial) -> dict[str, str]:
+def get_trial_parameters(trial: Trial | FrozenTrial) -> dict[str, str]:
     params = {}
 
     direction_index = trial.user_attrs["direction_index"]
@@ -275,7 +276,7 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
 
 def get_readme_intro(
     settings: Settings,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     contains_reproducibility_information: bool,
 ) -> str:
     if is_hf_path(settings.model):
@@ -367,7 +368,7 @@ def format_hf_link(
 def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a README.md for the reproduce/ folder."""
@@ -536,7 +537,7 @@ This directory contains the necessary information and assets to reproduce the re
 
 def generate_reproduce_json(
     settings: Settings,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     timestamp: str,
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
@@ -604,7 +605,7 @@ def create_reproduce_folder(
     path: Path,
     settings: Settings,
     checkpoint_path: str | Path,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
 ):
@@ -678,7 +679,7 @@ def upload_reproduce_folder(
     settings: Settings,
     token: str,
     checkpoint_path: str | Path,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     include_system_information: bool,
 ):
     api = huggingface_hub.HfApi()

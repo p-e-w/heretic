@@ -79,11 +79,9 @@ if not _is_help_invocation():
         _BOOTSTRAP_REPRODUCTION_INFORMATION = _load_reproduction_information_bootstrap(
             reproduce_path
         )
-        requirements = _BOOTSTRAP_REPRODUCTION_INFORMATION.get("environment", {}).get(
-            "requirements"
+        _install_reproduction_requirements(
+            _BOOTSTRAP_REPRODUCTION_INFORMATION["environment"]["requirements"]
         )
-        if requirements:
-            _install_reproduction_requirements(requirements)
 
 from .config import Settings
 

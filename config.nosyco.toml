@@ -3,7 +3,7 @@
 
 max_response_length = 300
 
-residual_plot_title = "PaCMAP Projection of Residuals for Neurtal / Sycophancy-Inducing Prompts"
+residual_plot_title = "PaCMAP Projection of Residuals for Neutral / Sycophancy-Inducing Prompts"
 
 refusal_markers = [
     "absolutely right",

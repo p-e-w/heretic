@@ -915,6 +915,11 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
 ]
+rocm-group = [
+    { name = "rocm", marker = "sys_platform == 'win32'" },
+    { name = "rocm-sdk-core", marker = "sys_platform == 'win32'" },
+    { name = "rocm-sdk-libraries-gfx103x-all", marker = "sys_platform == 'win32'" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -956,6 +961,11 @@ provides-extras = ["research", "rocm"]
 dev = [
     { name = "ruff", specifier = ">=0.14.5" },
     { name = "ty", specifier = ">=0.0.5" },
+]
+rocm-group = [
+    { name = "rocm", marker = "sys_platform == 'win32'", url = "https://repo.amd.com/rocm/whl/gfx103X-all/rocm-7.13.0.tar.gz" },
+    { name = "rocm-sdk-core", marker = "sys_platform == 'win32'", url = "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl" },
+    { name = "rocm-sdk-libraries-gfx103x-all", marker = "sys_platform == 'win32'", url = "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl" },
 ]
 
 [[package]]

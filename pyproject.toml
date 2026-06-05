@@ -62,6 +62,11 @@ dev = [
     "ruff>=0.14.5",
     "ty>=0.0.5",
 ]
+rocm-group = [
+    "rocm; sys_platform == 'win32'",
+    "rocm-sdk-core; sys_platform == 'win32'",
+    "rocm-sdk-libraries-gfx103x-all; sys_platform == 'win32'",
+]
 
 [project.urls]
 Homepage = "https://github.com/p-e-w/heretic"
@@ -81,6 +86,7 @@ build-backend = "uv_build"
 exclude-newer = "7 days"
 exclude-newer-package = { rocm = false, rocm-sdk-core = false, rocm-sdk-libraries-gfx103x-all = false, rocm-sdk-libraries-gfx103X-all = false, torch = false, triton = false }
 environments = ["sys_platform == 'win32'", "sys_platform == 'linux'"]
+default-groups = ["dev", "rocm-group"]
 
 [[tool.uv.index]]
 name = "rocm"

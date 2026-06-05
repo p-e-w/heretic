@@ -143,8 +143,13 @@ if sys.platform == "win32":
                         except Exception as pe:
                             print(f"[red]Failed to run patch script automatically: {pe}. Please run 'python scripts/patch_bitsandbytes.py' manually.[/]")
                         
-                        print("\n[green]Please restart Heretic to run with the new ROCm accelerated environment.[/]")
-                        sys.exit(0)
+                        print("\n[green]ROCm environment configured. Relaunching Heretic...[/]\n")
+                        try:
+                            sys.exit(subprocess.call([sys.executable] + sys.argv))
+                        except Exception as re:
+                            print(f"[red]Failed to relaunch automatically: {re}[/]")
+                            print("Please restart Heretic manually.")
+                            sys.exit(1)
                     except Exception as e:
                         print(f"[red]Installation failed: {e}[/]")
                         print("Falling back to CPU-only execution...")

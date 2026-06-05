@@ -70,6 +70,16 @@ Verify the GPU is visible:
 > CPU-only build from PyPI. Always use `.venv\Scripts\python.exe` or `.venv\Scripts\heretic.exe`
 > directly after installing the ROCm wheels.
 
+### 4. Enable 4-bit quantization (bitsandbytes)
+
+To enable `--quantization bnb_4bit`, run the bundled patching script to copy the ROCm DLL and patch the installed `bitsandbytes` package:
+
+```powershell
+.venv\Scripts\python.exe scripts/patch_bitsandbytes.py
+```
+
+This script registers the Windows ROCm SDK DLL path, copies `libbitsandbytes_rocm83.dll` into the package, and patches `bitsandbytes` to load it correctly without resorting to Linux-only tools.
+
 ---
 
 ## Running heretic
@@ -96,7 +106,7 @@ Example with a small test model:
 |---|---|---|
 | GPU inference (FP16/BF16) | ✅ Working | Full speed, gfx1030 kernels confirmed |
 | `--quantization NONE` | ✅ Working | |
-| `--quantization bnb_4bit` | ❌ Not working | `bitsandbytes` does not ship ROCm Windows DLLs. Use `NONE`. |
+| `--quantization bnb_4bit` | ✅ Working | Works using the patch script (see step 4) |
 | `torchvision` / `torchaudio` | ⚠️ Not installed | Not required by heretic; install separately if needed |
 
 ---

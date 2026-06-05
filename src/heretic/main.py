@@ -105,7 +105,7 @@ def _get_reproduction_export_strategy(
 def obtain_merge_strategy(
     settings: Settings,
     model: Model,
-    forced_strategy: str | None = None,
+    original_strategy: str | None = None,
 ) -> str | None:
     """
     Prompts the user for how to proceed with saving the model.
@@ -157,10 +157,10 @@ def obtain_merge_strategy(
         print()
 
     # Reproduction must use the same export strategy (adapter / merged)
-    # this is required for hash verification to match original.
-    if forced_strategy is not None:
-        print(f"Using original export strategy: [bold]{forced_strategy}[/]")
-        return forced_strategy
+    # this is required for hash verification to match the original model weights.
+    if original_strategy is not None:
+        print(f"Using original export strategy: [bold]{original_strategy}[/]")
+        return original_strategy
 
     strategy = prompt_select(
         "How do you want to proceed?",

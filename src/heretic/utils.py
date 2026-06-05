@@ -22,7 +22,7 @@ from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
-from huggingface_hub.utils import validate_repo_id
+from huggingface_hub.utils import HFValidationError, validate_repo_id
 from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
@@ -178,7 +178,11 @@ def is_hf_path(path: str) -> bool:
     if Path(path).exists():
         return False
 
-    validate_repo_id(path)
+    try:
+        validate_repo_id(path)
+    except HFValidationError:
+        return False
+
     return True
 
 

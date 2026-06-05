@@ -88,7 +88,25 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
+def _get_reproduction_export_strategy(
+    reproduction_information: dict[str, Any],
+) -> str | None:
+    export = reproduction_information.get("export")
+    if not isinstance(export, dict):
+        return None
+
+    strategy = export.get("strategy")
+    if strategy in ["adapter", "merge"]:
+        return strategy
+
+    return None
+
+
+def obtain_merge_strategy(
+    settings: Settings,
+    model: Model,
+    forced_strategy: str | None = None,
+) -> str | None:
     """
     Prompts the user for how to proceed with saving the model.
     Provides info to the user if the model is quantized on memory use.
@@ -137,6 +155,12 @@ def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
                 "[yellow]Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
             )
         print()
+
+    # Reproduction must use the same export strategy (adapter / merged)
+    # this is required for hash verification to match original.
+    if forced_strategy is not None:
+        print(f"Using original export strategy: [bold]{forced_strategy}[/]")
+        return forced_strategy
 
     strategy = prompt_select(
         "How do you want to proceed?",
@@ -224,7 +248,7 @@ def run():
         # FIXME: "Reproduction"/"reproducibility" name inconsistency!
         reproduction_information = load_reproduction_information(settings.reproduce)
 
-        if reproduction_information["version"] not in ["1"]:
+        if reproduction_information["version"] not in ["1", "2"]:
             print(
                 (
                     f"[red]Unsupported file format version: [bold]{reproduction_information['version']}[/].[/] "
@@ -923,7 +947,18 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings, model)
+                            original_strategy = (
+                                _get_reproduction_export_strategy(
+                                    reproduction_information
+                                )
+                                if reproduction_mode
+                                else None
+                            )
+                            strategy = obtain_merge_strategy(
+                                settings,
+                                model,
+                                original_strategy,
+                            )
                             if strategy is None:
                                 continue
 
@@ -1043,6 +1078,7 @@ def run():
                                     token,
                                     checkpoint_path=study_checkpoint_file,
                                     trial=trial,
+                                    export_strategy=strategy,
                                     include_system_information=(
                                         reproducibility_information == "full"
                                     ),

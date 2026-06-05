@@ -539,6 +539,7 @@ def generate_reproduce_json(
     settings: Settings,
     trial: Trial | FrozenTrial,
     timestamp: str,
+    export_strategy: str,
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
 ) -> str:
@@ -547,7 +548,7 @@ def generate_reproduce_json(
     version_info = get_heretic_version_info()
 
     data = {
-        "version": "1",  # Version number of the reproduce.json file format, to allow for future changes.
+        "version": "2",  # Version number of the reproduce.json file format, to allow for future changes.
         "timestamp": timestamp,
         "system": None,  # Defined here to preserve insertion order.
         "environment": {
@@ -569,6 +570,9 @@ def generate_reproduce_json(
             "refusals": trial.user_attrs["refusals"],
             "base_refusals": trial.user_attrs["base_refusals"],
             "n_bad_prompts": trial.user_attrs["n_bad_prompts"],
+        },
+        "export": {
+            "strategy": export_strategy,
         },
         "hashes": uploaded_model_hashes,
     }
@@ -606,6 +610,7 @@ def create_reproduce_folder(
     settings: Settings,
     checkpoint_path: str | Path,
     trial: Trial | FrozenTrial,
+    export_strategy: str,
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
 ):
@@ -652,6 +657,7 @@ def create_reproduce_folder(
             settings,
             trial,
             timestamp=timestamp,
+            export_strategy=export_strategy,
             uploaded_model_hashes=uploaded_model_hashes,
             include_system_information=include_system_information,
         ),
@@ -680,6 +686,7 @@ def upload_reproduce_folder(
     token: str,
     checkpoint_path: str | Path,
     trial: Trial | FrozenTrial,
+    export_strategy: str,
     include_system_information: bool,
 ):
     api = huggingface_hub.HfApi()
@@ -707,6 +714,7 @@ def upload_reproduce_folder(
             settings,
             checkpoint_path=checkpoint_path,
             trial=trial,
+            export_strategy=export_strategy,
             uploaded_model_hashes=uploaded_model_hashes,
             include_system_information=include_system_information,
         )

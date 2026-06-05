@@ -813,6 +813,8 @@ def run():
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
+                                if model.processor is not None:
+                                    model.processor.save_pretrained(save_directory)
                                 reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")
@@ -923,6 +925,12 @@ def run():
                                     private=private,
                                     token=token,
                                 )
+                                if model.processor is not None:
+                                    model.processor.push_to_hub(
+                                        repo_id,
+                                        private=private,
+                                        token=token,
+                                    )
                                 reset_trial_model()
 
                             if is_hf_path(settings.model):

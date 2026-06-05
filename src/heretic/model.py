@@ -17,12 +17,14 @@ from torch.nn import Module, ModuleList
 from transformers import (
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
+    AutoProcessor,
     AutoTokenizer,
     BatchEncoding,
     BitsAndBytesConfig,
     PretrainedConfig,
     PreTrainedModel,
     PreTrainedTokenizerBase,
+    ProcessorMixin,
     TextStreamer,
 )
 from transformers.generation import (
@@ -56,6 +58,8 @@ class AbliterationParameters:
 class Model:
     model: PreTrainedModel | PeftModel
     tokenizer: PreTrainedTokenizerBase
+    # Set for multimodal models, None for text-only ones.
+    processor: ProcessorMixin | None
     peft_config: LoraConfig
 
     def __init__(self, settings: Settings):
@@ -74,6 +78,15 @@ class Model:
             trust_remote_code=settings.trust_remote_code,
             **self.revision_kwargs,
         )
+
+        # Multimodal models have a processor we'll want to save.
+        self.processor = None
+        if get_model_class(settings.model) == AutoModelForImageTextToText:
+            self.processor = AutoProcessor.from_pretrained(
+                settings.model,
+                trust_remote_code=settings.trust_remote_code,
+                **self.revision_kwargs,
+            )
 
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:

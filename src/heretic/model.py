@@ -539,6 +539,9 @@ class Model:
                         W = W - W_org
                         # Use a low-rank SVD to get an approximation of the matrix.
                         r = self.peft_config.r
+                        # svd_lowrank uses PyTorch RNG internally. Reseed immediately
+                        # before the call so restoring a trial is independent of RNG history.
+                        torch.manual_seed(self.settings.seed)
                         U, S, Vh = torch.svd_lowrank(W, q=2 * r + 4, niter=6)
                         # Truncate it to the part we want to store in the LoRA adapter.
                         # Note: svd_lowrank actually returns V, so transpose it to get Vh.

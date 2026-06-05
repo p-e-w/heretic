@@ -4,6 +4,7 @@
 # ruff: noqa: E402
 
 import sys
+import os
 
 if sys.platform == "win32":
     # Reconfigure stdout/stderr to UTF-8 for Windows terminals that default to cp1252.
@@ -12,6 +13,141 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     except Exception:
         pass
+
+    # Windows AMD ROCm Auto-Installer wizard runs before any ML libraries are imported
+    # to avoid locking PyTorch DLLs (like torch/_C.cp312-win_amd64.pyd) in memory.
+    if "-h" not in sys.argv and "--help" not in sys.argv:
+        import subprocess
+        # Check if torch is installed and if it is CPU-only
+        is_cpu = True
+        try:
+            # Check without importing torch in this process to avoid locking DLLs on Windows
+            output = subprocess.check_output(
+                [sys.executable, "-c", "import torch; print(torch.cuda.is_available())"],
+                text=True,
+                stderr=subprocess.DEVNULL
+            )
+            is_cpu = "False" in output
+        except Exception:
+            pass
+            
+        if is_cpu:
+            # Check if an AMD GPU is installed
+            has_amd = False
+            try:
+                output = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True, stderr=subprocess.DEVNULL)
+                has_amd = any(brand in output for brand in ["AMD", "Radeon"])
+            except Exception:
+                try:
+                    output = subprocess.check_output('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', shell=True, text=True, stderr=subprocess.DEVNULL)
+                    has_amd = any(brand in output for brand in ["AMD", "Radeon"])
+                except Exception:
+                    pass
+                    
+            if has_amd:
+                import questionary
+                from questionary import Choice
+                print("[yellow]WARNING: An AMD GPU was detected, but PyTorch CPU-only is currently active.[/]")
+                print("Would you like Heretic to automatically install the AMD ROCm PyTorch wheels and enable 4-bit quantization support?")
+                choices = [
+                    Choice(title="Yes, auto-install AMD ROCm wheels & patch bitsandbytes", value="install"),
+                    Choice(title="No, run with CPU-only mode", value="skip")
+                ]
+                
+                # Check for notebook environment
+                is_nb = False
+                if os.getenv("COLAB_GPU") or os.getenv("KAGGLE_KERNEL_RUN_TYPE"):
+                    is_nb = True
+                else:
+                    try:
+                        from IPython import get_ipython
+                        if get_ipython() is not None:
+                            is_nb = True
+                    except Exception:
+                        pass
+                
+                choice = "skip"
+                if is_nb:
+                    print("\nSelect action:")
+                    for i, c in enumerate(choices, 1):
+                        print(f"[{i}] {c.title}")
+                    while True:
+                        try:
+                            sel = input("Enter number: ")
+                            if not sel.strip():
+                                choice = choices[0].value
+                                break
+                            idx = int(sel) - 1
+                            if 0 <= idx < len(choices):
+                                choice = choices[idx].value
+                                break
+                            print(f"Please enter a number between 1 and {len(choices)}")
+                        except ValueError:
+                            print("Invalid input. Please enter a number.")
+                        except EOFError:
+                            choice = choices[0].value
+                            break
+                else:
+                    choice = questionary.select(
+                        "Select action:",
+                        choices=choices,
+                        style=questionary.Style([("highlighted", "reverse")]),
+                    ).ask()
+                    if choice is None:
+                        choice = "skip"
+                        
+                if choice == "install":
+                    print("\nInstalling AMD ROCm PyTorch and SDK wheels. This may take several minutes...")
+                    py_ver = f"{sys.version_info.major}{sys.version_info.minor}"
+                    torch_wheel_url = f"https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp{py_ver}-cp{py_ver}-win_amd64.whl"
+                    
+                    cmd = [
+                        sys.executable, "-m", "pip", "install",
+                        "--extra-index-url", "https://repo.amd.com/rocm/whl/gfx103X-all/",
+                        torch_wheel_url,
+                        "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
+                        "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
+                    ]
+                    
+                    try:
+                        subprocess.check_call(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        cmd = [
+                            "uv", "--no-config", "pip", "install",
+                            "--python", sys.executable,
+                            "--extra-index-url", "https://repo.amd.com/rocm/whl/gfx103X-all/",
+                            "--index-strategy", "unsafe-best-match",
+                            torch_wheel_url,
+                            "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
+                            "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
+                        ]
+                    except Exception:
+                        pass
+                    
+                    try:
+                        subprocess.check_call(cmd)
+                        print("[green]ROCm PyTorch and SDK wheels installed successfully![/]")
+                        
+                        # Run the patching script
+                        try:
+                            main_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                            script_path = os.path.join(main_dir, "scripts", "patch_bitsandbytes.py")
+                            if not os.path.exists(script_path):
+                                script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
+                                
+                            if os.path.exists(script_path):
+                                subprocess.check_call([sys.executable, script_path])
+                            else:
+                                env = os.environ.copy()
+                                env["PYTHONPATH"] = os.getcwd() + os.pathsep + env.get("PYTHONPATH", "")
+                                subprocess.check_call([sys.executable, "-m", "scripts.patch_bitsandbytes"], env=env)
+                        except Exception as pe:
+                            print(f"[red]Failed to run patch script automatically: {pe}. Please run 'python scripts/patch_bitsandbytes.py' manually.[/]")
+                        
+                        print("\n[green]Please restart Heretic to run with the new ROCm accelerated environment.[/]")
+                        sys.exit(0)
+                    except Exception as e:
+                        print(f"[red]Installation failed: {e}[/]")
+                        print("Falling back to CPU-only execution...")
 
 from .config import Settings
 
@@ -170,73 +306,6 @@ def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
 
 
 def run():
-    if sys.platform == "win32" and not torch.cuda.is_available():
-        import subprocess
-        # Check if an AMD GPU is installed
-        try:
-            output = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True)
-            has_amd = any(brand in output for brand in ["AMD", "Radeon"])
-        except Exception:
-            has_amd = False
-            
-        if has_amd:
-            print("[yellow]WARNING: An AMD GPU was detected, but PyTorch CPU-only is currently active.[/]")
-            print("Would you like Heretic to automatically install the AMD ROCm PyTorch wheels and enable 4-bit quantization support?")
-            choices = [
-                Choice(title="Yes, auto-install AMD ROCm wheels & patch bitsandbytes", value="install"),
-                Choice(title="No, run with CPU-only mode", value="skip")
-            ]
-            choice = prompt_select("Select action:", choices)
-            if choice == "install":
-                print("\nInstalling AMD ROCm PyTorch and SDK wheels. This may take several minutes...")
-                py_ver = f"{sys.version_info.major}{sys.version_info.minor}"
-                torch_wheel_url = f"https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp{py_ver}-cp{py_ver}-win_amd64.whl"
-                
-                cmd = [
-                    sys.executable, "-m", "pip", "install",
-                    "--extra-index-url", "https://repo.amd.com/rocm/whl/gfx103X-all/",
-                    "--index-strategy", "unsafe-best-match",
-                    "--exclude-newer-package", "rocm=false",
-                    torch_wheel_url,
-                    "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
-                    "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
-                ]
-                
-                try:
-                    subprocess.check_call(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    cmd = [
-                        "uv", "pip", "install",
-                        "--extra-index-url", "https://repo.amd.com/rocm/whl/gfx103X-all/",
-                        "--index-strategy", "unsafe-best-match",
-                        "--exclude-newer-package", "rocm=false",
-                        torch_wheel_url,
-                        "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
-                        "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
-                    ]
-                except Exception:
-                    pass
-                
-                try:
-                    subprocess.check_call(cmd)
-                    print("[green]ROCm PyTorch and SDK wheels installed successfully![/]")
-                    
-                    # Run the patching script
-                    try:
-                        script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                        script_path = os.path.join(script_dir, "scripts", "patch_bitsandbytes.py")
-                        if os.path.exists(script_path):
-                            subprocess.check_call([sys.executable, script_path])
-                        else:
-                            subprocess.check_call([sys.executable, "-m", "scripts.patch_bitsandbytes"])
-                    except Exception as pe:
-                        print(f"[red]Failed to run patch script automatically: {pe}. Please run 'python scripts/patch_bitsandbytes.py' manually.[/]")
-                    
-                    print("\n[green]Please restart Heretic to run with the new ROCm accelerated environment.[/]")
-                    sys.exit(0)
-                except Exception as e:
-                    print(f"[red]Installation failed: {e}[/]")
-                    print("Falling back to CPU-only execution...")
-
     # Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
     if (
         "PYTORCH_ALLOC_CONF" not in os.environ

@@ -15,6 +15,10 @@ def main():
     
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     dll_src = os.path.join(repo_dir, "bin", "libbitsandbytes_rocm83.dll")
+    if not os.path.exists(dll_src):
+        # Fall back to current working directory
+        dll_src = os.path.join(os.getcwd(), "bin", "libbitsandbytes_rocm83.dll")
+        
     dll_dest = os.path.join(bnb_dir, "libbitsandbytes_rocm83.dll")
     
     if not os.path.exists(dll_src):
@@ -108,8 +112,18 @@ def main():
         if rocm_path:
             paths_to_check.append(os.path.join(rocm_path, "bin"))
             paths_to_check.append(rocm_path)
-        # Default fallback to Python site-packages devel path
-        paths_to_check.append(r"C:\\Users\\Matlan\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_rocm_sdk_devel\\bin")
+        
+        # Dynamically locate any _rocm_sdk* packages in the same site-packages directory
+        try:
+            site_packages = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if os.path.isdir(site_packages):
+                for name in os.listdir(site_packages):
+                    if name.lower().startswith("_rocm_sdk"):
+                        bin_path = os.path.join(site_packages, name, "bin")
+                        if os.path.isdir(bin_path):
+                            paths_to_check.append(bin_path)
+        except Exception:
+            pass
         
         for path in paths_to_check:
             if os.path.isdir(path):

@@ -108,6 +108,8 @@ def prompt_select(message: str, choices: list[Any]) -> Any:
         while True:
             try:
                 selection = input("Enter number: ")
+                if not selection.strip():
+                    return real_choices[0]
                 index = int(selection) - 1
                 if 0 <= index < len(real_choices):
                     return real_choices[index]
@@ -116,6 +118,9 @@ def prompt_select(message: str, choices: list[Any]) -> Any:
                 )
             except ValueError:
                 print("[red]Invalid input. Please enter a number.[/]")
+            except EOFError:
+                # Default to the first choice on EOF (e.g. piped empty input)
+                return real_choices[0]
     else:
         return questionary.select(
             message,
@@ -132,8 +137,11 @@ def prompt_text(
 ) -> str:
     if is_notebook():
         print()
-        result = input(f"{message} [{default}]: " if default else f"{message}: ")
-        return result if result else default
+        try:
+            result = input(f"{message} [{default}]: " if default else f"{message}: ")
+            return result if result else default
+        except EOFError:
+            return default
     else:
         question = questionary.text(message, default=default, qmark=qmark)
         if unsafe:
@@ -152,7 +160,10 @@ def prompt_path(message: str) -> str:
 def prompt_password(message: str) -> str:
     if is_notebook():
         print()
-        return getpass.getpass(message)
+        try:
+            return getpass.getpass(message)
+        except EOFError:
+            return ""
     else:
         return questionary.password(message).ask()
 

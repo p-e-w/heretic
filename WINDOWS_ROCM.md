@@ -35,14 +35,25 @@ uv sync
 
 ### 3. Install AMD ROCm 7.13 PyTorch and SDK wheels
 
-These wheels are served from AMD's official index and target the `gfx103X` RDNA2 family:
+These wheels are served from AMD's official index and target the `gfx103X` RDNA2 family.
+
+> **Important:** The ROCm torch wheel depends on a `rocm` package that is not on PyPI (only on AMD's
+> index). You must pass the extra flags below so `uv` can find and resolve it correctly.
 
 ```powershell
 uv pip install `
+  --extra-index-url https://repo.amd.com/rocm/whl/gfx103X-all/ `
+  --index-strategy unsafe-best-match `
+  --exclude-newer-package rocm=false `
   "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl" `
   "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl" `
   "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
 ```
+
+**What the flags do:**
+- `--extra-index-url` — adds AMD's wheel index so `uv` can resolve the `rocm` dependency
+- `--index-strategy unsafe-best-match` — allows `uv` to look up packages in the extra index when they are not on PyPI
+- `--exclude-newer-package rocm=false` — disables the project-level `exclude-newer` date-cutoff for the `rocm` package (which has no upload timestamp and would otherwise be filtered out)
 
 > **Note:** `rocm_sdk_libraries` is ~250 MB and `rocm_sdk_core` is ~690 MB. The download will take a few minutes depending on your connection.
 
@@ -107,13 +118,17 @@ requested.
 
 ## Troubleshooting
 
+**`No solution found: rocm[libraries]==7.13.0`** — You ran `uv pip install` without the required
+AMD index flags. Use the full command from step 3 (with `--extra-index-url`,
+`--index-strategy unsafe-best-match`, and `--exclude-newer-package rocm=false`).
+
 **`HIP error: invalid device function`** — The wrong torch wheel is installed (one without gfx1030
-kernels). Re-run step 3 with `--force-reinstall`.
+kernels). Re-run step 3 with `--force-reinstall` appended.
 
 **`NoConsoleScreenBufferError`** — You are running heretic from an IDE subprocess. Open a real
 PowerShell/cmd window and run it there.
 
 **GPU not detected / `torch.cuda.is_available()` returns `False`** — You ran the verify step with
-`uv run python` instead of `.venv\Scripts\python.exe`. `uv run` overwrites the ROCm wheels with
-the CPU-only PyPI build. Re-run step 3 to reinstall the ROCm wheels, then verify with
-`.venv\Scripts\python.exe` directly.
+`uv run python` instead of `.venv\Scripts\python.exe`. `uv run` re-syncs the venv and overwrites
+the ROCm wheels with the CPU-only PyPI build. Re-run step 3 to reinstall the ROCm wheels, then
+verify with `.venv\Scripts\python.exe` directly.

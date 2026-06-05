@@ -2,9 +2,9 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Dict
+from typing import Dict, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     CliSettingsSource,
@@ -32,10 +32,32 @@ class RowNormalization(str, Enum):
     FULL = "full"
 
 
+def clean_hf_repo_id(v: str) -> str:
+    import re
+    # Matches:
+    # https://huggingface.co/datasets/namespace/name
+    # https://huggingface.co/namespace/name
+    # huggingface.co/namespace/name
+    m = re.match(
+        r"^(?:https?://)?(?:www\.)?huggingface\.co/(?:datasets/)?([^/]+/[^/]+)(?:/.*)?$",
+        v,
+    )
+    if m:
+        return m.group(1)
+    return v
+
+
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
     )
+
+    @field_validator("dataset", mode="before")
+    @classmethod
+    def clean_dataset(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return clean_hf_repo_id(v)
+        return v
 
     commit: str | None = Field(
         default=None,
@@ -94,6 +116,13 @@ class BenchmarkSpecification(BaseModel):
 
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
+
+    @field_validator("model", "evaluate_model", mode="before")
+    @classmethod
+    def clean_model(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return clean_hf_repo_id(v)
+        return v
 
     model_commit: str | None = Field(
         default=None,

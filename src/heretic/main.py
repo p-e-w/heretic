@@ -47,7 +47,7 @@ import questionary
 import torch
 import torch.nn.functional as F
 import transformers
-from huggingface_hub import ModelCard, ModelCardData
+from huggingface_hub import HfApi, ModelCard, ModelCardData
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -1049,6 +1049,54 @@ def run():
                                 )
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
+
+                            if reproduction_mode:
+                                print("Verifying hashes of weight files...")
+
+                                api = HfApi()
+                                model_info = api.model_info(
+                                    repo_id,
+                                    files_metadata=True,
+                                    token=token,
+                                )
+
+                                if not model_info.siblings:
+                                    raise RuntimeError(
+                                        "Could not fetch uploaded model hashes."
+                                    )
+
+                                for (
+                                    filename,
+                                    original_sha256,
+                                ) in reproduction_information["hashes"].items():
+                                    file_found = False
+
+                                    for file in model_info.siblings:
+                                        if file.rfilename == filename:
+                                            sha256 = getattr(file, "lfs", {}).get(
+                                                "sha256"
+                                            )
+                                            if not sha256:
+                                                raise RuntimeError(
+                                                    "Could not fetch uploaded model hashes."
+                                                )
+
+                                            if sha256 == original_sha256:
+                                                print(
+                                                    f"[bold]{filename}:[/] [green]Hash matches[/]"
+                                                )
+                                            else:
+                                                print(
+                                                    f"[bold]{filename}:[/] [yellow]Hash doesn't match[/]"
+                                                )
+
+                                            file_found = True
+                                            break
+
+                                    if not file_found:
+                                        print(
+                                            f"[bold]{filename}:[/] [red]File not found[/]"
+                                        )
 
                         case "Chat with the model":
                             print()

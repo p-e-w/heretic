@@ -5,6 +5,14 @@
 
 import sys
 
+if sys.platform == "win32":
+    # Reconfigure stdout/stderr to UTF-8 for Windows terminals that default to cp1252.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except Exception:
+        pass
+
 from .config import Settings
 
 
@@ -28,6 +36,13 @@ patch_tqdm()
 """
 
 import logging
+
+if sys.platform == "win32":
+    # bitsandbytes calls `rocminfo` (a Linux-only tool) at import time to
+    # detect GPU architecture on ROCm. On Windows this raises FileNotFoundError
+    # and logs noisy ERROR messages that are harmless when quantization is
+    # disabled.
+    logging.getLogger("bitsandbytes").setLevel(logging.CRITICAL)
 import math
 import os
 import random

@@ -6,7 +6,14 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Type, cast
 
-import bitsandbytes as bnb
+try:
+    import bitsandbytes as bnb
+except (ImportError, RuntimeError):
+    # bitsandbytes is optional: it is only required when --quantization bnb_4bit
+    # is used. On platforms where the native ROCm or CUDA library is absent
+    # (e.g. Windows ROCm), the import raises RuntimeError. heretic will still
+    # work with --quantization none.
+    bnb = None  # type: ignore[assignment]
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
@@ -229,6 +236,12 @@ class Model:
             BitsAndBytesConfig or None
         """
         if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+            if bnb is None:
+                raise RuntimeError(
+                    "bitsandbytes could not be loaded. "
+                    "4-bit quantization (--quantization bnb_4bit) is unavailable. "
+                    "Use --quantization none, or see WINDOWS_ROCM.md for setup instructions."
+                )
             # BitsAndBytesConfig expects a torch.dtype, not a string.
             if dtype == "auto":
                 compute_dtype = torch.bfloat16

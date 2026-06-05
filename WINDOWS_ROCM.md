@@ -38,7 +38,7 @@ uv sync
 Simply run `heretic` once. Heretic will detect your AMD GPU, prompt you to install the ROCm PyTorch wheels automatically, download them, and configure 4-bit bitsandbytes quantization:
 
 ```powershell
-.venv\Scripts\python.exe -m heretic.main --model <model-id>
+.venv\Scripts\heretic --model <model-id>
 ```
 
 When prompted, choose **Yes** to automatically install the ROCm PyTorch and SDK wheels, copy the required Windows ROCm DLL, and patch the environment.

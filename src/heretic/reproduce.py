@@ -13,7 +13,7 @@ from urllib.request import urlopen
 
 import cpuinfo
 import torch
-from huggingface_hub import HfApi, get_token, hf_hub_download
+from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.utils import (
     GatedRepoError,
     disable_progress_bars,
@@ -36,9 +36,7 @@ def collect_reproducibles(path: str):
     )
     print()
 
-    token = get_token()
-    token_arg = token or False
-    api = HfApi(token=token_arg)
+    api = HfApi()
 
     models = api.list_models(
         filter=["heretic", "reproducible"],
@@ -59,8 +57,6 @@ def collect_reproducibles(path: str):
                 continue
 
             if model.gated:
-                if not token:
-                    continue
                 try:
                     api.auth_check(model.id, repo_type="model")
                 except GatedRepoError:
@@ -98,7 +94,6 @@ def collect_reproducibles(path: str):
             cache_path = hf_hub_download(
                 model.id,
                 "reproduce/reproduce.json",
-                token=token_arg,
             )
 
             file_path.parent.mkdir(parents=True, exist_ok=True)

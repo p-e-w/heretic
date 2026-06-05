@@ -23,7 +23,7 @@ This guide covers running `heretic` natively on **Windows 11** with **AMD RDNA2 
 ### 1. Clone and enter the repository
 
 ```powershell
-git clone https://github.com/p-e-w/heretic.git
+git clone https://github.com/Matlan1/heretic.git
 cd heretic
 ```
 
@@ -33,13 +33,23 @@ cd heretic
 uv sync
 ```
 
-### 3. Install AMD ROCm 7.13 PyTorch and SDK wheels
+### 3. Automatically Set Up AMD ROCm & bitsandbytes
 
-These wheels are served from AMD's official index and target the `gfx103X` RDNA2 family.
+Simply run `heretic` once. Heretic will detect your AMD GPU, prompt you to install the ROCm PyTorch wheels automatically, download them, and configure 4-bit bitsandbytes quantization:
 
-> **Important:** The ROCm torch wheel depends on a `rocm` package that is not on PyPI (only on AMD's
-> index). You must pass the extra flags below so `uv` can find and resolve it correctly.
+```powershell
+.venv\Scripts\python.exe -m heretic.main --model <model-id>
+```
 
+When prompted, choose **Yes** to automatically install the ROCm PyTorch and SDK wheels, copy the required Windows ROCm DLL, and patch the environment.
+
+---
+
+### Manual Installation (Alternative)
+
+If you prefer to install the wheels and patch bitsandbytes manually, run the following:
+
+#### A. Install AMD ROCm PyTorch and SDK wheels
 ```powershell
 uv pip install `
   --extra-index-url https://repo.amd.com/rocm/whl/gfx103X-all/ `
@@ -49,16 +59,14 @@ uv pip install `
   "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl" `
   "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
 ```
+*(Note: Replace `cp312` with your Python version, e.g. `cp311` for Python 3.11).*
 
-**What the flags do:**
-- `--extra-index-url` — adds AMD's wheel index so `uv` can resolve the `rocm` dependency
-- `--index-strategy unsafe-best-match` — allows `uv` to look up packages in the extra index when they are not on PyPI
-- `--exclude-newer-package rocm=false` — disables the project-level `exclude-newer` date-cutoff for the `rocm` package (which has no upload timestamp and would otherwise be filtered out)
+#### B. Patch bitsandbytes for 4-bit quantization support
+```powershell
+.venv\Scripts\python.exe scripts/patch_bitsandbytes.py
+```
 
-> **Note:** `rocm_sdk_libraries` is ~250 MB and `rocm_sdk_core` is ~690 MB. The download will take a few minutes depending on your connection.
-
-Verify the GPU is visible:
-
+Verify that the GPU is detected successfully:
 ```powershell
 .venv\Scripts\python.exe -c "import torch; print(torch.cuda.get_device_name(0)); print(torch.cuda.get_arch_list())"
 # Expected: AMD Radeon RX 6900 XT
@@ -69,16 +77,6 @@ Verify the GPU is visible:
 > `pyproject.toml` before executing, which would overwrite the ROCm torch wheel with the standard
 > CPU-only build from PyPI. Always use `.venv\Scripts\python.exe` or `.venv\Scripts\heretic.exe`
 > directly after installing the ROCm wheels.
-
-### 4. Enable 4-bit quantization (bitsandbytes)
-
-To enable `--quantization bnb_4bit`, run the bundled patching script to copy the ROCm DLL and patch the installed `bitsandbytes` package:
-
-```powershell
-.venv\Scripts\python.exe scripts/patch_bitsandbytes.py
-```
-
-This script registers the Windows ROCm SDK DLL path, copies `libbitsandbytes_rocm83.dll` into the package, and patches `bitsandbytes` to load it correctly without resorting to Linux-only tools.
 
 ---
 

@@ -24,6 +24,7 @@ from transformers import (
     PretrainedConfig,
     PreTrainedModel,
     PreTrainedTokenizerBase,
+    ProcessorMixin,
     TextStreamer,
 )
 from transformers.generation import (
@@ -58,7 +59,7 @@ class Model:
     model: PreTrainedModel | PeftModel
     tokenizer: PreTrainedTokenizerBase
     # Set for multimodal models, None for text-only ones.
-    processor: Any | None
+    processor: ProcessorMixin | None
     peft_config: LoraConfig
 
     def __init__(self, settings: Settings):

@@ -195,8 +195,10 @@ def run():
     except ValidationError as error:
         print(f"[red]Configuration contains [bold]{error.error_count()}[/] errors:[/]")
 
-        for error in error.errors():
-            print(f"[bold]{error['loc'][0]}[/]: [yellow]{error['msg']}[/]")
+        for error_detail in error.errors():
+            print(
+                f"[bold]{error_detail['loc'][0]}[/]: [yellow]{error_detail['msg']}[/]"
+            )
 
         print()
         print(

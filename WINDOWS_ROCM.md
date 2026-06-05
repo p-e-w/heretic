@@ -49,25 +49,30 @@ uv pip install `
 Verify the GPU is visible:
 
 ```powershell
-uv run python -c "import torch; print(torch.cuda.get_device_name(0)); print(torch.cuda.get_arch_list())"
+.venv\Scripts\python.exe -c "import torch; print(torch.cuda.get_device_name(0)); print(torch.cuda.get_arch_list())"
 # Expected: AMD Radeon RX 6900 XT
 # Expected: ['gfx1030', 'gfx1031', ...]
 ```
+
+> **Why not `uv run python`?** `uv run` automatically re-syncs the virtual environment against
+> `pyproject.toml` before executing, which would overwrite the ROCm torch wheel with the standard
+> CPU-only build from PyPI. Always use `.venv\Scripts\python.exe` or `.venv\Scripts\heretic.exe`
+> directly after installing the ROCm wheels.
 
 ---
 
 ## Running heretic
 
-Once installed, run heretic exactly as documented in the main README:
+Once installed, launch heretic using the virtual environment's executable directly:
 
 ```powershell
-uv run heretic --model <model-id> --quantization NONE
+.venv\Scripts\heretic.exe --model <model-id> --quantization NONE
 ```
 
 Example with a small test model:
 
 ```powershell
-uv run heretic --model Qwen/Qwen2.5-0.5B-Instruct --quantization NONE
+.venv\Scripts\heretic.exe --model Qwen/Qwen2.5-0.5B-Instruct --quantization NONE
 ```
 
 > **Important:** Always run from a proper **PowerShell** or **cmd** terminal — not from an IDE terminal or subprocess. heretic uses an interactive TUI that requires a real Windows console.
@@ -107,3 +112,8 @@ kernels). Re-run step 3 with `--force-reinstall`.
 
 **`NoConsoleScreenBufferError`** — You are running heretic from an IDE subprocess. Open a real
 PowerShell/cmd window and run it there.
+
+**GPU not detected / `torch.cuda.is_available()` returns `False`** — You ran the verify step with
+`uv run python` instead of `.venv\Scripts\python.exe`. `uv run` overwrites the ROCm wheels with
+the CPU-only PyPI build. Re-run step 3 to reinstall the ROCm wheels, then verify with
+`.venv\Scripts\python.exe` directly.

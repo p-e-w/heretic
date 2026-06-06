@@ -1,8 +1,18 @@
 <img width="128" height="128" align="right" alt="Logo" src="https://github.com/user-attachments/assets/df5f2840-2f92-4991-aa57-252747d7182e" />
 
-# Heretic: Fully automatic censorship removal for language models<br><br>[![Discord](https://img.shields.io/discord/1447831134212984903?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/gdXc48gSyT) [![Follow us on Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg)](https://huggingface.co/heretic-org) [![Codeberg mirror](https://img.shields.io/badge/Codeberg%20mirror-black?logo=codeberg&style=for-the-badge)](https://codeberg.org/p-e-w/heretic)
+# Heretic (Windows & AMD ROCm Fork)<br><br>[![Discord](https://img.shields.io/discord/1447831134212984903?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/gdXc48gSyT) [![Follow us on Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg)](https://huggingface.co/heretic-org)
 
-[![#1 Repository of the Day](https://trendshift.io/api/badge/repositories/20538)](https://trendshift.io/repositories/20538)
+> [!NOTE]
+> **Windows & AMD RDNA2 (gfx103X) Optimized Fork**
+> This repository is a fork of the original [heretic](https://github.com/p-e-w/heretic) project, specifically modified to enable out-of-the-box native Windows support on AMD GPUs (RDNA2, RDNA3, and RDNA4) via ROCm/HIP.
+> 
+> **Key Additions in this Fork:**
+> - **Native Windows ROCm/HIP Support:** Designed to work natively on Windows 11 with AMD GPUs (including RDNA2 `gfx103X` architectures like RX 6700 XT, 6800, 6800 XT, and 6900 XT).
+> - **GPU Auto-Installation Wizard:** Detects your AMD GPU on startup, automatically installs ROCm-enabled PyTorch and SDK wheels, patches `bitsandbytes` with the required ROCm DLLs, and resumes execution seamlessly.
+> - **`uv` Integration:** Pre-configured index/sources in `pyproject.toml` ensure that standard `uv sync` pulls Windows ROCm wheels directly, preventing PyPI CPU-only package overrides.
+> - **Extended Model Support:** Integrates dynamic Hugging Face mappings for Gemma 2/4 architectures, saves processors for multimodal/vision-language models, and automatically parses Hugging Face URLs to extract repo IDs.
+> 
+> For full setup details, see [WINDOWS_ROCM.md](WINDOWS_ROCM.md).
 
 Heretic is a tool that removes censorship (aka "safety alignment") from
 transformer-based language models without expensive post-training.
@@ -83,15 +93,40 @@ models with Heretic.
 
 ## Usage
 
-Prepare a Python 3.10+ environment with PyTorch 2.2+ installed as appropriate
-for your hardware. Then run:
+### Using `uv` (Recommended)
 
-```
+Since this fork utilizes [uv](https://docs.astral.sh/uv/) for native dependency and platform targeting on Windows/Linux, the setup is fully automated:
+
+1. Clone and enter the repository:
+   ```powershell
+   git clone https://github.com/Matlan1/heretic-win-rdna2.git
+   cd heretic-win-rdna2
+   ```
+
+2. Sync the virtual environment:
+   ```powershell
+   uv sync
+   ```
+   *(On Windows, this automatically pulls the AMD ROCm PyTorch and SDK wheels from `repo.amd.com` without any manual pip command overrides).*
+
+3. Run Heretic:
+   ```powershell
+   uv run heretic Qwen/Qwen3-4B-Instruct-2507
+   ```
+   *(On first run, the ROCm Auto-Installer wizard will prompt you to set up bitsandbytes and automatically patch it with the required ROCm DLLs for 4-bit quantization).*
+
+Replace `Qwen/Qwen3-4B-Instruct-2507` with the Hugging Face model path or local model directory you wish to process.
+
+---
+
+### Standard Installation (Alternative)
+
+If you are not using `uv`, prepare a Python 3.10+ environment with PyTorch 2.2+ installed for your hardware. Then run:
+
+```bash
 pip install -U heretic-llm
 heretic Qwen/Qwen3-4B-Instruct-2507
 ```
-
-Replace `Qwen/Qwen3-4B-Instruct-2507` with whatever model you want to decensor.
 
 > [!IMPORTANT]
 >
@@ -99,14 +134,6 @@ Replace `Qwen/Qwen3-4B-Instruct-2507` with whatever model you want to decensor.
 > some models and configurations might require features only found in
 > later versions. For example, loading MXFP4-quantized models like gpt-oss
 > uses `torch.accelerator`, which was added in PyTorch 2.6.
-
-> [!TIP]
->
-> Heretic uses [uv](https://docs.astral.sh/uv/) for dependency management,
-> and the repository includes a `uv.lock` file pinning every package version.
-> If you already use uv (and you probably should!), you can just clone the repo
-> and run Heretic with `uv run heretic`, which ensures that your dependencies
-> match those used by the developers, improving reliability and security.
 
 The process is fully automatic and does not require configuration; however,
 Heretic has a variety of configuration parameters that can be changed for

@@ -21,16 +21,41 @@ if sys.platform == "win32":
         # Check if torch is installed and if it is CPU-only
         is_cpu = True
         try:
-            # Check without importing torch in this process to avoid locking DLLs on Windows
-            output = subprocess.check_output(
-                [sys.executable, "-c", "import torch; print(torch.cuda.is_available())"],
-                text=True,
-                stderr=subprocess.DEVNULL
-            )
-            is_cpu = "False" in output
+            # Fast check using package metadata to avoid slow Python subprocess loading torch
+            from importlib.metadata import version
+            torch_ver = version("torch")
+            if "+rocm" in torch_ver or "+cu" in torch_ver:
+                is_cpu = False
         except Exception:
-            pass
-            
+            # Fallback to importing torch in a subprocess if metadata check fails
+            try:
+                output = subprocess.check_output(
+                    [sys.executable, "-c", "import torch; print(torch.cuda.is_available())"],
+                    text=True,
+                    stderr=subprocess.DEVNULL
+                )
+                is_cpu = "False" in output
+            except Exception:
+                pass
+
+        # If torch is ROCm-enabled, check if bitsandbytes needs to be patched automatically
+        if not is_cpu:
+            import importlib.util
+            try:
+                spec = importlib.util.find_spec("bitsandbytes")
+                if spec is not None and spec.submodule_search_locations is not None:
+                    bnb_dir = spec.submodule_search_locations[0]
+                    dll_dest = os.path.join(bnb_dir, "libbitsandbytes_rocm83.dll")
+                    if not os.path.exists(dll_dest):
+                        main_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        script_path = os.path.join(main_dir, "scripts", "patch_bitsandbytes.py")
+                        if not os.path.exists(script_path):
+                            script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
+                        if os.path.exists(script_path):
+                            subprocess.check_call([sys.executable, script_path])
+            except Exception:
+                pass
+
         if is_cpu:
             # Check if an AMD GPU is installed
             has_amd = False

@@ -88,12 +88,19 @@ from .utils import (
 )
 
 
-def obtain_export_strategy(settings: Settings, model: Model) -> ExportStrategy | None:
+def obtain_export_strategy(
+    settings: Settings,
+    model: Model,
+    original_export_strategy: ExportStrategy | None = None,
+) -> ExportStrategy | None:
     """
-    Prompts the user for how to proceed with saving the model.
+    Gets the export strategy from settings or prompts the user.
     Provides info to the user if the model is quantized on memory use.
     Returns an export strategy, or None if cancelled.
     """
+
+    if settings.export_strategy is not None:
+        return settings.export_strategy
 
     if settings.quantization == QuantizationMethod.BNB_4BIT:
         print()
@@ -138,8 +145,11 @@ def obtain_export_strategy(settings: Settings, model: Model) -> ExportStrategy |
             )
         print()
 
-    if settings.export_strategy is not None:
-        return settings.export_strategy
+    if original_export_strategy is not None:
+        print(
+            f"Original export strategy was [bold]{original_export_strategy.value}[/]; "
+            "choose it for proper hash verification."
+        )
 
     strategy = prompt_select(
         "How do you want to proceed?",
@@ -221,6 +231,7 @@ def run():
         return
 
     reproduction_mode = settings.reproduce is not None
+    original_export_strategy: ExportStrategy | None = None
 
     if settings.reproduce is not None:
         print(f"Loading reproduction information from [bold]{settings.reproduce}[/]...")
@@ -242,6 +253,8 @@ def run():
         print()
 
         settings = Settings.model_validate(reproduction_information["settings"])
+        original_export_strategy = settings.export_strategy
+        settings.export_strategy = None
 
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
@@ -868,7 +881,11 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_export_strategy(settings, model)
+                            strategy = obtain_export_strategy(
+                                settings,
+                                model,
+                                original_export_strategy,
+                            )
                             if strategy is None:
                                 continue
 
@@ -926,7 +943,11 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            strategy = obtain_export_strategy(settings, model)
+                            strategy = obtain_export_strategy(
+                                settings,
+                                model,
+                                original_export_strategy,
+                            )
                             if strategy is None:
                                 continue
 
@@ -1039,6 +1060,7 @@ def run():
                                 # Set the number of trials to the number of actual completed trials
                                 # for the reproduction configuration.
                                 settings.n_trials = count_completed_trials()
+                                current_export_strategy = settings.export_strategy
                                 settings.export_strategy = strategy
 
                                 upload_reproduce_folder(
@@ -1051,6 +1073,7 @@ def run():
                                         reproducibility_information == "full"
                                     ),
                                 )
+                                settings.export_strategy = current_export_strategy
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 

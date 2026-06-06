@@ -126,20 +126,43 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
 
         # Check installed ROCm package architecture
         installed_suffix = None
-        for suffix in ["gfx103x_all", "gfx110x_all", "gfx120x_all"]:
-            pkg_name = f"rocm-sdk-libraries-{suffix.replace('_', '-')}"
+        if not is_cpu:
             try:
-                from importlib.metadata import version
-                version(pkg_name)
-                installed_suffix = suffix
-                break
+                import json
+                from importlib.metadata import distribution
+                dist = distribution("torch")
+                direct_url_file = dist.read_text("direct_url.json")
+                if direct_url_file:
+                    url = json.loads(direct_url_file).get("url", "")
+                    if "gfx103X" in url or "gfx103x" in url:
+                        installed_suffix = "gfx103x_all"
+                    elif "gfx110X" in url or "gfx110x" in url:
+                        installed_suffix = "gfx110x_all"
+                    elif "gfx120X" in url or "gfx120x" in url:
+                        installed_suffix = "gfx120x_all"
             except Exception:
                 pass
 
+        if not installed_suffix:
+            for suffix in ["gfx103x_all", "gfx110x_all", "gfx120x_all"]:
+                pkg_name = f"rocm-sdk-libraries-{suffix.replace('_', '-')}"
+                try:
+                    from importlib.metadata import version
+                    version(pkg_name)
+                    installed_suffix = suffix
+                    break
+                except Exception:
+                    pass
+
         needs_install = False
         warning_msg = ""
-        
-        if has_amd:
+
+        # Skip the install prompt if we were just relaunched after a successful install.
+        # This prevents an infinite loop when the lockfile-based installed_suffix detection
+        # still reads stale metadata from the previous (wrong-arch) wheel.
+        already_installed_this_session = os.environ.get("HERETIC_ROCM_INSTALLED") == "1"
+
+        if has_amd and not already_installed_this_session:
             if is_cpu:
                 needs_install = True
                 warning_msg = f"[yellow]WARNING: An AMD GPU ({generation_name}) was detected, but PyTorch CPU-only is currently active.[/]"
@@ -194,72 +217,82 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                         choice = choices[0].value
                         break
             else:
-                choice = questionary.select(
-                    "Select action:",
-                    choices=choices,
-                    style=questionary.Style([("highlighted", "reverse")]),
-                ).ask()
-                if choice is None:
-                    choice = "skip"
+                try:
+                    choice = questionary.select(
+                        "Select action:",
+                        choices=choices,
+                        style=questionary.Style([("highlighted", "reverse")]),
+                    ).ask()
+                    if choice is None:
+                        choice = "skip"
+                except Exception:
+                    print("\nSelect action:")
+                    for i, c in enumerate(choices, 1):
+                        print(f"[{i}] {c.title}")
+                    while True:
+                        try:
+                            sel = input("Enter number: ")
+                            if not sel.strip():
+                                choice = choices[0].value
+                                break
+                            idx = int(sel) - 1
+                            if 0 <= idx < len(choices):
+                                choice = choices[idx].value
+                                break
+                            print(f"Please enter a number between 1 and {len(choices)}")
+                        except ValueError:
+                            print("Invalid input. Please enter a number.")
+                        except EOFError:
+                            choice = choices[0].value
+                            break
                     
             if choice == "install":
                 print(f"\nConfiguring AMD ROCm PyTorch and SDK wheels for {generation_name}. This may take several minutes...")
-                
-                use_uv_sync = False
-                main_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                pyproject_path = os.path.join(main_dir, "pyproject.toml")
-                
+
+                # Always use direct uv pip install with architecture-specific wheel URLs.
+                # NEVER use `uv sync --extra rocm-rdnaX` here: the universal uv.lock pins torch to
+                # the RDNA3 gfx110X wheel for all Windows environments, so uv sync would
+                # reinstall the wrong wheel regardless of which extra is requested.
+                py_ver = f"{sys.version_info.major}{sys.version_info.minor}"
+                torch_wheel_url = f"https://repo.amd.com/rocm/whl/{arch_target}/torch-2.9.1%2Brocm7.13.0-cp{py_ver}-cp{py_ver}-win_amd64.whl"
+
+                has_uv = False
                 try:
                     subprocess.check_call(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    if os.path.exists(pyproject_path):
-                        use_uv_sync = True
+                    has_uv = True
                 except Exception:
                     pass
 
-                if use_uv_sync:
-                    extra_name = "rocm-rdna2"
-                    if lib_suffix == "gfx110x_all":
-                        extra_name = "rocm-rdna3"
-                    elif lib_suffix == "gfx120x_all":
-                        extra_name = "rocm-rdna4"
-                    cmd = ["uv", "sync", "--extra", extra_name]
-                    cwd = main_dir
+                if has_uv:
+                    cmd = [
+                        "uv", "pip", "install",
+                        "--python", sys.executable,
+                        "--extra-index-url", f"https://repo.amd.com/rocm/whl/{arch_target}/",
+                        "--index-strategy", "unsafe-best-match",
+                        torch_wheel_url,
+                        f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
+                        f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_libraries_{lib_suffix}-7.13.0-py3-none-win_amd64.whl",
+                    ]
                 else:
-                    py_ver = f"{sys.version_info.major}{sys.version_info.minor}"
-                    torch_wheel_url = f"https://repo.amd.com/rocm/whl/{arch_target}/torch-2.9.1%2Brocm7.13.0-cp{py_ver}-cp{py_ver}-win_amd64.whl"
                     cmd = [
                         sys.executable, "-m", "pip", "install",
                         "--extra-index-url", f"https://repo.amd.com/rocm/whl/{arch_target}/",
                         torch_wheel_url,
                         f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
-                        f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_libraries_{lib_suffix}-7.13.0-py3-none-win_amd64.whl"
+                        f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_libraries_{lib_suffix}-7.13.0-py3-none-win_amd64.whl",
                     ]
-                    cwd = None
-                    try:
-                        subprocess.check_call(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        cmd = [
-                            "uv", "pip", "install",
-                            "--python", sys.executable,
-                            "--extra-index-url", f"https://repo.amd.com/rocm/whl/{arch_target}/",
-                            "--index-strategy", "unsafe-best-match",
-                            torch_wheel_url,
-                            f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
-                            f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_libraries_{lib_suffix}-7.13.0-py3-none-win_amd64.whl"
-                        ]
-                    except Exception:
-                        pass
-                
+
                 try:
-                    subprocess.check_call(cmd, cwd=cwd)
+                    subprocess.check_call(cmd)
                     print("[green]ROCm PyTorch and SDK wheels configured successfully![/]")
-                    
+
                     # Run the patching script
                     try:
                         main_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                         script_path = os.path.join(main_dir, "scripts", "patch_bitsandbytes.py")
                         if not os.path.exists(script_path):
                             script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
-                            
+
                         if os.path.exists(script_path):
                             subprocess.check_call([sys.executable, script_path])
                         else:
@@ -268,10 +301,24 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                             subprocess.check_call([sys.executable, "-m", "scripts.patch_bitsandbytes"], env=env)
                     except Exception as pe:
                         print(f"[red]Failed to run patch script automatically: {pe}. Please run 'python scripts/patch_bitsandbytes.py' manually.[/]")
-                    
+
                     print("\n[green]ROCm environment configured. Relaunching Heretic...[/]\n")
+                    # Use `uv run --no-sync` so that uv does NOT re-sync from the lockfile
+                    # (which would reinstall the wrong RDNA3 wheel over the just-installed RDNA2 one).
+                    # Set HERETIC_ROCM_INSTALLED to prevent a relaunch loop if detection still
+                    # sees a mismatch (e.g. because installed_suffix detection reads stale metadata).
+                    relaunch_env = os.environ.copy()
+                    relaunch_env["HERETIC_ROCM_INSTALLED"] = "1"
                     try:
-                        sys.exit(subprocess.call([sys.executable] + sys.argv))
+                        if has_uv:
+                            main_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                            sys.exit(subprocess.call(
+                                ["uv", "run", "--no-sync", "heretic"] + sys.argv[1:],
+                                cwd=main_dir,
+                                env=relaunch_env,
+                            ))
+                        else:
+                            sys.exit(subprocess.call([sys.executable] + sys.argv, env=relaunch_env))
                     except Exception as re:
                         print(f"[red]Failed to relaunch automatically: {re}[/]")
                         print("Please restart Heretic manually.")

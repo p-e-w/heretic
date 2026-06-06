@@ -95,23 +95,25 @@ uv run python -c "import torch; print(torch.cuda.get_device_name(0)); print(torc
 # Expected: ['gfx1030', 'gfx1031', ...]
 ```
 
-> **Tip:** You can safely run using `uv run heretic` or `uv run python`. Thanks to the architecture-aware
-> extras in `pyproject.toml`, `uv` will respect your installed ROCm wheels and will not overwrite them.
+> **Tip:** After the first-run auto-installer completes, always use `uv run --no-sync heretic` for subsequent
+> runs. The universal `uv.lock` file pins `torch` to RDNA3 (`gfx110X`) wheels for all Windows environments,
+> so a plain `uv run` (which syncs from the lockfile) would overwrite your RDNA2 wheels on every invocation.
+> Using `--no-sync` skips that lockfile enforcement entirely.
 
 ---
 
 ## Running heretic
 
-Once installed, launch heretic using `uv run`:
+Once installed, launch heretic using `uv run --no-sync`:
 
 ```powershell
-uv run heretic --model <model-id>
+uv run --no-sync heretic --model <model-id>
 ```
 
 Example with a small test model:
 
 ```powershell
-uv run heretic --model Qwen/Qwen2.5-0.5B-Instruct
+uv run --no-sync heretic --model Qwen/Qwen2.5-0.5B-Instruct
 ```
 
 > **Important:** Always run from a proper **PowerShell** or **cmd** terminal — not from an IDE terminal or subprocess. heretic uses an interactive TUI that requires a real Windows console.

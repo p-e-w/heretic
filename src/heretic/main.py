@@ -14,6 +14,17 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+if "-h" not in sys.argv and "--help" not in sys.argv:
+    try:
+        from importlib.metadata import version
+        sys.stdout.write(f"\033[36m█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀\033[0m  v{version('heretic-llm')}\n")
+        sys.stdout.write("\033[36m█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░\033[0m\n")
+        sys.stdout.write("\033[36m▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀\033[0m  \033[4;34mhttps://github.com/p-e-w/heretic\033[0m\n\n")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
     # Windows AMD ROCm Auto-Installer wizard runs before any ML libraries are imported
     # to avoid locking PyTorch DLLs (like torch/_C.cp312-win_amd64.pyd) in memory.
     if "-h" not in sys.argv and "--help" not in sys.argv:
@@ -240,22 +251,12 @@ from pathlib import Path
 from typing import Any
 
 import huggingface_hub
-import lm_eval
 import numpy as np
-import optuna
 import questionary
 import torch
 import torch.nn.functional as F
 import transformers
 from huggingface_hub import ModelCard, ModelCardData
-from lm_eval.models.huggingface import HFLM
-from optuna import Trial, TrialPruned
-from optuna.exceptions import ExperimentalWarning
-from optuna.samplers import TPESampler
-from optuna.storages import JournalStorage
-from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
-from optuna.study import StudyDirection
-from optuna.trial import TrialState
 from pydantic import ValidationError
 from questionary import Choice, Style
 from rich.table import Table
@@ -362,14 +363,6 @@ def run():
     ):
         os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
-    # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
-    print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
-    print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
-    print(
-        "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/]"
-    )
-    print()
-
     if (
         # There is at least one argument (argv[0] is the program name).
         len(sys.argv) > 1
@@ -432,6 +425,15 @@ def run():
 
     # Another library that generates warning spam.
     logging.getLogger("lm_eval").setLevel(logging.ERROR)
+
+    import optuna
+    from optuna import Trial, TrialPruned
+    from optuna.exceptions import ExperimentalWarning
+    from optuna.samplers import TPESampler
+    from optuna.storages import JournalStorage
+    from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
+    from optuna.study import StudyDirection
+    from optuna.trial import TrialState
 
     # We do our own trial logging, so we don't need the INFO messages
     # about parameters and results.
@@ -1244,6 +1246,8 @@ def run():
                             if scope is None:
                                 continue
                             benchmark_original_model = scope == "Benchmark both models"
+                            import lm_eval
+                            from lm_eval.models.huggingface import HFLM
 
                             hflm = HFLM(
                                 pretrained=model.model,  # ty:ignore[invalid-argument-type]

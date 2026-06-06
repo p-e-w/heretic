@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
+from __future__ import annotations
 
 import getpass
 import json
@@ -11,22 +12,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, TypeVar
-
-import huggingface_hub
-import numpy as np
+from typing import Any, TypeVar, TYPE_CHECKING
 import questionary
 import tomli_w
-import torch
-from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
-from datasets.config import DATASET_STATE_JSON_FILENAME
-from datasets.download.download_manager import DownloadMode
-from datasets.utils.info_utils import VerificationMode
-from huggingface_hub.utils import validate_repo_id
-from optuna import Trial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from optuna import Trial
 
 from .config import DatasetSpecification, Settings
 from .system import (
@@ -42,6 +36,7 @@ print = Console(highlight=False).print
 
 
 def print_memory_usage():
+    import torch
     def p(label: str, size_in_bytes: int):
         print(f"[grey50]{label}: [bold]{size_in_bytes / (1024**3):.2f} GB[/][/]")
 
@@ -189,6 +184,7 @@ def is_hf_path(path: str) -> bool:
     if Path(path).exists():
         return False
 
+    from huggingface_hub.utils import validate_repo_id
     validate_repo_id(path)
     return True
 
@@ -201,6 +197,7 @@ class Prompt:
 
 def get_split_slice(split_str: str, length: int) -> tuple[int, int]:
     """Resolves a split specification into absolute (start, end) indices."""
+    from datasets import ReadInstruction
 
     # The split name is the part before the slice, e.g. "train" in "train[:400]".
     split_name = split_str.split("[")[0]
@@ -217,6 +214,11 @@ def load_prompts(
     settings: Settings,
     specification: DatasetSpecification,
 ) -> list[Prompt]:
+    from datasets import DatasetDict, load_dataset, load_from_disk
+    from datasets.config import DATASET_STATE_JSON_FILENAME
+    from datasets.download.download_manager import DownloadMode
+    from datasets.utils.info_utils import VerificationMode
+
     path = specification.dataset
     split_str = specification.split
 
@@ -380,6 +382,8 @@ def generate_requirements_txt() -> str:
 
 def set_seed(seed: int):
     """Sets the seed for all RNGs."""
+    import numpy as np
+    import torch
 
     random.seed(seed)
     np.random.seed(seed)
@@ -646,6 +650,7 @@ def create_reproduce_folder(
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
 ):
+    import huggingface_hub
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
 
@@ -719,6 +724,7 @@ def upload_reproduce_folder(
     trial: Trial,
     include_system_information: bool,
 ):
+    import huggingface_hub
     api = huggingface_hub.HfApi()
     info = api.model_info(repo_id=repo_id, files_metadata=True, token=token)
 

@@ -3,15 +3,15 @@
 # Heretic (Windows & AMD ROCm Fork)<br><br>[![Discord](https://img.shields.io/discord/1447831134212984903?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/gdXc48gSyT) [![Follow us on Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg)](https://huggingface.co/heretic-org)
 
 > [!NOTE]
-> **Windows & AMD GPU (RDNA 2/3/4) Optimized Fork**
-> This repository is a fork of the original [heretic](https://github.com/Matlan1/heretic-win-AMD) project, specifically modified to enable out-of-the-box native Windows support on AMD GPUs (RDNA2, RDNA3, and RDNA4) via ROCm/HIP.
-> 
-> **Key Additions in this Fork:**
-> - **Native Windows ROCm/HIP Support:** Designed to work natively on Windows 11 with AMD GPUs (including RDNA2 `gfx103X` architectures like RX 6700 XT, 6800, 6800 XT, and 6900 XT).
-> - **GPU Auto-Installation Wizard:** On the first run, detects your AMD GPU generation, swaps in the matching pre-generated `pyproject` + `uv.lock` pair for your architecture (RDNA2/3/4), runs `uv sync` to install the correct ROCm PyTorch and SDK wheels, patches `bitsandbytes`, and relaunches. Every subsequent `uv run heretic` is a fast no-op sync — the correct arch is locked in permanently.
-> - **Hugging Face URL Parsing:** Pass a full `https://huggingface.co/org/model` URL directly as the model argument — it is automatically stripped to the bare repo ID.
-> 
-> For full setup details, see [WINDOWS_ROCM.md](WINDOWS_ROCM.md).
+> **Windows & AMD GPU (RDNA 2/3/4) Fork**
+> This repository is a fork of the original [heretic](https://github.com/p-e-w/heretic) project, modified to run natively on **Windows 11** with **AMD RDNA2, RDNA3, and RDNA4 GPUs** via ROCm/HIP.
+>
+> **What this fork adds:**
+> - **Native Windows ROCm support** — works out of the box on RX 6000, RX 7000, and RX 9000 series GPUs.
+> - **One-time setup script** — `uv run python scripts/setup_rocm.py` detects your GPU generation, swaps in the matching pre-built `pyproject.toml` + `uv.lock` for your architecture, installs the correct ROCm PyTorch and SDK wheels, and patches `bitsandbytes`. After that, `uv run heretic` works identically to upstream — permanently.
+> - **Hugging Face URL parsing** — pass a full `https://huggingface.co/org/model` URL directly; it is automatically converted to the bare repo ID.
+>
+> See [WINDOWS_ROCM.md](WINDOWS_ROCM.md) for full setup instructions.
 
 Heretic is a tool that removes censorship (aka "safety alignment") from
 transformer-based language models without expensive post-training.
@@ -92,9 +92,7 @@ models with Heretic.
 
 ## Usage
 
-### Using `uv` (Recommended)
-
-Since this fork utilizes [uv](https://docs.astral.sh/uv/) for native dependency and platform targeting on Windows/Linux, the setup is fully automated:
+### Quick Start (Windows AMD GPU)
 
 1. Clone and enter the repository:
    ```powershell
@@ -102,37 +100,26 @@ Since this fork utilizes [uv](https://docs.astral.sh/uv/) for native dependency 
    cd heretic-win-AMD
    ```
 
-2. Sync the virtual environment:
+2. Install base dependencies:
    ```powershell
    uv sync
    ```
-   *(By default, this installs a lightweight CPU-only environment to keep the initial setup fast and clean).*
 
-3. Run Heretic:
+3. Run the one-time ROCm setup (detects your GPU, installs ROCm wheels, patches bitsandbytes):
+   ```powershell
+   uv run python scripts/setup_rocm.py
+   ```
+
+4. Run heretic — identical to upstream, no extra flags:
    ```powershell
    uv run heretic Qwen/Qwen3-4B-Instruct-2507
    ```
-   *(On first run, the ROCm Auto-Installer wizard will detect your AMD GPU, swap in the matching arch-specific `pyproject` + `uv.lock` pair, run `uv sync` to install the correct ROCm wheels permanently, patch `bitsandbytes`, and restart. All subsequent runs start immediately with no install step.)*
 
-   *(Note: Replace `Qwen/Qwen3-4B-Instruct-2507` with the Hugging Face model path or local model directory you wish to process.)*
+Setup only runs once. Every subsequent `uv run heretic` starts immediately.
+
+For prerequisites, troubleshooting, and bitsandbytes source builds, see **[WINDOWS_ROCM.md](WINDOWS_ROCM.md)**.
 
 ---
-
-### Standard Installation (Alternative)
-
-If you are not using `uv`, prepare a Python 3.10+ environment with PyTorch 2.2+ installed for your hardware. Then run:
-
-```bash
-pip install -U heretic-llm
-heretic Qwen/Qwen3-4B-Instruct-2507
-```
-
-> [!IMPORTANT]
->
-> While PyTorch 2.2 is the minimum version of PyTorch needed for Heretic to work,
-> some models and configurations might require features only found in
-> later versions. For example, loading MXFP4-quantized models like gpt-oss
-> uses `torch.accelerator`, which was added in PyTorch 2.6.
 
 The process is fully automatic and does not require configuration; however,
 Heretic has a variety of configuration parameters that can be changed for

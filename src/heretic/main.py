@@ -331,16 +331,17 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                         print(f"WARNING: Could not run patch script: {_patch_err}")
 
                     print("\nROCm environment configured. Relaunching Heretic...\n")
-                    # Replace this process with a fresh Python interpreter so that:
-                    #   - The just-installed RDNA wheels are used (no uv sync re-run).
-                    #   - There is no subprocess nesting.
-                    # os.execv on Windows is emulated (CreateProcess + exit), which
-                    # is sufficient — the key point is that uv is never invoked again.
+                    # Relaunch via the canonical entry-point so that the
+                    # just-installed RDNA wheels are picked up by a fresh process.
+                    # `python -m heretic` does NOT work (heretic has no __main__.py);
+                    # always use `uv run heretic <model>`.
+                    _model_arg = sys.argv[-1]
                     try:
-                        os.execv(sys.executable, [sys.executable, "-m", "heretic"] + sys.argv[1:])
+                        subprocess.check_call(["uv", "run", "heretic", _model_arg])
+                        sys.exit(0)
                     except OSError as _exec_err:
                         print(f"ERROR: Could not relaunch Heretic: {_exec_err}")
-                        print("Please restart Heretic manually.")
+                        print(f"Please restart Heretic manually: uv run heretic {_model_arg}")
                         sys.exit(1)
 
                 except subprocess.CalledProcessError as _inst_err:

@@ -39,7 +39,7 @@ uv sync
 Simply run `heretic` using `uv run`. Heretic will automatically detect your AMD GPU, prompt you to install the correct ROCm packages for your architecture, download and install the matching `torch` and ROCm SDK wheels directly from `repo.amd.com`, run the bitsandbytes patch script, and restart the process automatically:
 
 ```powershell
-uv run heretic --model <model-id>
+uv run heretic <model-id>
 ```
 
 When prompted, choose **Yes**. The first run may take several minutes (downloading ~3 GB of wheels). Subsequent runs are fast because the wheels are cached locally.
@@ -109,13 +109,13 @@ uv run python -c "import torch; print(torch.cuda.get_device_name(0)); print(torc
 Use the same command as upstream:
 
 ```powershell
-uv run heretic --model <model-id>
+uv run heretic <model-id>
 ```
 
 Example with a small test model:
 
 ```powershell
-uv run heretic --model Qwen/Qwen2.5-0.5B-Instruct
+uv run heretic Qwen/Qwen2.5-0.5B-Instruct
 ```
 
 > **Important:** Always run from a proper **PowerShell** or **cmd** terminal — not from an IDE terminal or subprocess. heretic uses an interactive TUI that requires a real Windows console.

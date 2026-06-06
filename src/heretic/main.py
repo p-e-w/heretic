@@ -63,24 +63,10 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                 pass
 
         # ------------------------------------------------------------------
-        # 2. If ROCm torch is active, ensure bitsandbytes is already patched.
+        # 2. bitsandbytes pre-patch placeholder.
+        # Deferred to after the needs_install decision (step 5 below) so we
+        # don't patch before we know the GPU arch is correctly configured.
         # ------------------------------------------------------------------
-        if not is_cpu:
-            import importlib.util
-            try:
-                _spec = importlib.util.find_spec("bitsandbytes")
-                if _spec is not None and _spec.submodule_search_locations:
-                    _bnb_dir  = _spec.submodule_search_locations[0]
-                    _dll_dest = os.path.join(_bnb_dir, "libbitsandbytes_rocm83.dll")
-                    if not os.path.exists(_dll_dest):
-                        _main_dir    = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                        _script_path = os.path.join(_main_dir, "scripts", "patch_bitsandbytes.py")
-                        if not os.path.exists(_script_path):
-                            _script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
-                        if os.path.exists(_script_path):
-                            subprocess.check_call([sys.executable, _script_path])
-            except Exception:
-                pass  # Non-fatal: the main installer below will also run the patch script.
 
         # ------------------------------------------------------------------
         # 3. Detect the installed GPU and its RDNA generation.
@@ -217,6 +203,27 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     f"but the currently installed ROCm packages target {curr_gen}."
                 )
 
+        # ------------------------------------------------------------------
+        # 5b. If already correctly configured and ROCm torch is active,
+        #     run the bitsandbytes pre-patch now (deferred from step 2).
+        # ------------------------------------------------------------------
+        if not needs_install and not is_cpu:
+            import importlib.util as _ilu
+            try:
+                _spec = _ilu.find_spec("bitsandbytes")
+                if _spec is not None and _spec.submodule_search_locations:
+                    _bnb_dir  = _spec.submodule_search_locations[0]
+                    _dll_dest = os.path.join(_bnb_dir, "libbitsandbytes_rocm83.dll")
+                    if not os.path.exists(_dll_dest):
+                        _main_dir    = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        _script_path = os.path.join(_main_dir, "scripts", "patch_bitsandbytes.py")
+                        if not os.path.exists(_script_path):
+                            _script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
+                        if os.path.exists(_script_path):
+                            subprocess.check_call([sys.executable, _script_path])
+            except Exception:
+                pass  # Non-fatal.
+
         if needs_install:
             import questionary
             from questionary import Choice
@@ -224,11 +231,18 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
             print(warning_msg)
             print(
                 f"Would you like Heretic to automatically configure the AMD ROCm "
-                f"packages for {generation_name} and enable 4-bit quantization support?"
+                f"packages for {generation_name}?"
             )
 
             choices = [
-                Choice(title=f"Yes, auto-configure AMD ROCm for {generation_name} & patch bitsandbytes", value="install"),
+                Choice(
+                    title=f"Yes, auto-configure AMD ROCm for {generation_name} & enable 4-bit quantization (patch bitsandbytes)",
+                    value="install",
+                ),
+                Choice(
+                    title=f"Yes, auto-configure AMD ROCm for {generation_name} without 4-bit quantization (skip bitsandbytes patch)",
+                    value="install_no_bnb",
+                ),
                 Choice(title="No, keep current configuration", value="skip"),
             ]
 
@@ -276,7 +290,7 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     # questionary requires a real TTY; fall back to plain text.
                     choice = _text_menu(choices)
 
-            if choice == "install":
+            if choice in ("install", "install_no_bnb"):
                 print(f"\nConfiguring AMD ROCm PyTorch and SDK wheels for {generation_name}.")
                 print("This may take several minutes on first run (subsequent runs use the local cache)...\n")
 
@@ -310,7 +324,11 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                         sys.exit(1)
 
                     try:
-                        subprocess.check_call(["uv", "sync"])
+                        # --frozen: use the lock exactly as-is, no re-resolution.
+                        # This prevents uv from failing on cross-platform splits
+                        # (e.g. Python 3.13 Windows triton) that don't affect the
+                        # active Python version.
+                        subprocess.check_call(["uv", "sync", "--frozen"])
                         print("ROCm PyTorch and SDK wheels configured successfully!")
                         # Write the arch marker so subsequent launches skip this prompt.
                         try:
@@ -323,27 +341,30 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                         print("Please run 'uv sync' manually, then restart Heretic.")
                         sys.exit(1)
 
-                    # Patch bitsandbytes for Windows ROCm support.
-                    try:
-                        _script_path = os.path.join(_repo_root, "scripts", "patch_bitsandbytes.py")
-                        if not os.path.exists(_script_path):
-                            _script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
-                        if os.path.exists(_script_path):
-                            subprocess.check_call([sys.executable, _script_path])
-                        else:
-                            _env = os.environ.copy()
-                            _env["PYTHONPATH"] = os.getcwd() + os.pathsep + _env.get("PYTHONPATH", "")
-                            subprocess.check_call(
-                                [sys.executable, "-m", "scripts.patch_bitsandbytes"],
-                                env=_env,
+                    # Patch bitsandbytes for Windows ROCm support (skip if user chose no-bnb).
+                    if choice == "install":
+                        try:
+                            _script_path = os.path.join(_repo_root, "scripts", "patch_bitsandbytes.py")
+                            if not os.path.exists(_script_path):
+                                _script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
+                            if os.path.exists(_script_path):
+                                subprocess.check_call([sys.executable, _script_path])
+                            else:
+                                _env = os.environ.copy()
+                                _env["PYTHONPATH"] = os.getcwd() + os.pathsep + _env.get("PYTHONPATH", "")
+                                subprocess.check_call(
+                                    [sys.executable, "-m", "scripts.patch_bitsandbytes"],
+                                    env=_env,
+                                )
+                        except subprocess.CalledProcessError as _patch_err:
+                            print(
+                                f"WARNING: Patch script failed (exit {_patch_err.returncode}). "
+                                "Run 'python scripts/patch_bitsandbytes.py' manually."
                             )
-                    except subprocess.CalledProcessError as _patch_err:
-                        print(
-                            f"WARNING: Patch script failed (exit {_patch_err.returncode}). "
-                            "Run 'python scripts/patch_bitsandbytes.py' manually."
-                        )
-                    except (FileNotFoundError, OSError) as _patch_err:
-                        print(f"WARNING: Could not run patch script: {_patch_err}")
+                        except (FileNotFoundError, OSError) as _patch_err:
+                            print(f"WARNING: Could not run patch script: {_patch_err}")
+                    else:
+                        print("Skipping bitsandbytes patch (4-bit quantization will not be available).")
 
                     print("\nROCm environment configured. Relaunching Heretic...\n")
                     # Plain `uv run heretic` — no --no-sync needed. uv will sync,

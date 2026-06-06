@@ -10,7 +10,7 @@
 > - **Native Windows ROCm/HIP Support:** Designed to work natively on Windows 11 with AMD GPUs (including RDNA2 `gfx103X` architectures like RX 6700 XT, 6800, 6800 XT, and 6900 XT).
 > - **GPU Auto-Installation Wizard:** Detects your AMD GPU on startup, automatically installs ROCm-enabled PyTorch and SDK wheels, patches `bitsandbytes` with the required ROCm DLLs, and resumes execution seamlessly.
 > - **`uv` Integration:** Pre-configured index/sources in `pyproject.toml` ensure that standard `uv sync` pulls Windows ROCm wheels directly, preventing PyPI CPU-only package overrides.
-> - **Extended Model Support:** Integrates dynamic Hugging Face mappings for Gemma 2/4 architectures, saves processors for multimodal/vision-language models, and automatically parses Hugging Face URLs to extract repo IDs.
+> - **Hugging Face URL Parsing:** Pass a full `https://huggingface.co/org/model` URL directly as the model argument — it is automatically stripped to the bare repo ID. (Gemma 4 support and multimodal processor saving are standard upstream features.)
 > 
 > For full setup details, see [WINDOWS_ROCM.md](WINDOWS_ROCM.md).
 

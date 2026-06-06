@@ -36,31 +36,33 @@ uv sync
 
 ### 3. Automatically Set Up AMD ROCm & bitsandbytes
 
-Simply run `heretic` using `uv run`. Heretic will automatically detect your AMD GPU, prompt you to install the correct ROCm packages for your architecture, and configure 4-bit bitsandbytes quantization:
+Simply run `heretic` using `uv run`. Heretic will automatically detect your AMD GPU, prompt you to install the correct ROCm packages for your architecture, download and install the matching `torch` and ROCm SDK wheels directly from `repo.amd.com`, run the bitsandbytes patch script, and restart the process automatically:
 
 ```powershell
 uv run heretic --model <model-id>
 ```
 
-When prompted, choose **Yes**. Heretic will synchronize your environment using the appropriate GPU extra (e.g. `uv sync --extra rocm-rdna3`), run the bitsandbytes patch script, and restart the process automatically.
+When prompted, choose **Yes**. The first run may take several minutes (downloading ~3 GB of wheels). Subsequent runs are fast because the wheels are cached locally.
 
 ---
 
-### Alternative: Install ROCm packages directly on first setup
+### Alternative: Install ROCm packages directly
 
-If you want to skip the first-run prompt and install the GPU packages directly, specify your GPU architecture extra during your initial sync:
+If you want to install the GPU packages manually without running heretic first, use `uv pip install` with direct wheel URLs. The `uv.lock` lockfile uses a universal resolution that pins `torch` to RDNA3 wheels for all Windows environments, so `uv sync --extra` will **not** install the correct arch-specific wheel. Always use direct URLs:
 
 ```powershell
 # For RDNA2 (Radeon RX 6000-series / gfx103X):
-uv sync --extra rocm-rdna2
+uv pip install --python .venv/Scripts/python.exe `
+  --extra-index-url https://repo.amd.com/rocm/whl/gfx103X-all/ `
+  --index-strategy unsafe-best-match `
+  "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl" `
+  "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl" `
+  "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
 
-# For RDNA3 (Radeon RX 7000-series / gfx110X):
-uv sync --extra rocm-rdna3
-
-# For RDNA4 (Radeon RX 9000-series / gfx120X):
-uv sync --extra rocm-rdna4
+# For RDNA3 (Radeon RX 7000-series / gfx110X): replace gfx103X-all with gfx110X-all and gfx103x_all with gfx110x_all
+# For RDNA4 (Radeon RX 9000-series / gfx120X): replace with gfx120X-all / gfx120x_all
 ```
-*(Once completed, you can run `uv run heretic` normally without any extra flags).*
+*(Replace `cp312` with your Python version, e.g. `cp311` for Python 3.11.)*
 
 ---
 
@@ -126,7 +128,7 @@ uv run heretic --model Qwen/Qwen2.5-0.5B-Instruct
 |---|---|---|
 | GPU inference (FP16/BF16) | ✅ Working | Full speed (gfx1030, gfx110X, gfx120X kernels supported) |
 | `--quantization NONE` | ✅ Working | Works universally |
-| `--quantization bnb_4bit` | ⚠️ RDNA2 only | The precompiled DLL targets `gfx1030` (RDNA2). RDNA3/RDNA4 users require building `bitsandbytes` from source to run 4-bit. |
+| `--quantization bnb_4bit` | ✅ Working (all) | RDNA2 uses the bundled `gfx1030` DLL natively. RDNA3/RDNA4 fall back to the same `gfx1030` DLL (functional but not architecture-optimised). Build from source for maximum RDNA3/4 performance — see below. |
 | `torchvision` / `torchaudio` | ⚠️ Not installed | Not required by heretic; install separately if needed |
 
 ---
@@ -202,5 +204,5 @@ kernels). Re-run step 3 with `--force-reinstall` appended.
 **`NoConsoleScreenBufferError`** — You are running heretic from an IDE subprocess. Open a real
 PowerShell/cmd window and run it there.
 
-**GPU not detected / `torch.cuda.is_available()` returns `False`** — Make sure you have installed the GPU package extras (e.g. `uv sync --extra rocm-rdna2`, `--extra rocm-rdna3`, or `--extra rocm-rdna4`) and not just the default CPU fallback sync.
+**`GPU not detected / torch.cuda.is_available() returns False`** — Make sure the correct arch-specific ROCm wheels are installed. Run `uv run heretic` and accept the auto-setup prompt, or install manually with `uv pip install` using direct wheel URLs as shown in the Alternative section above.
 

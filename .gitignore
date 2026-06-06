@@ -23,3 +23,7 @@ wheels/
 
 # Residual plots
 /plots/
+
+# AMD ROCm arch marker (machine-specific, written by auto-installer)
+/.heretic_rocm_arch
+

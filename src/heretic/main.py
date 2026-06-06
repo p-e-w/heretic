@@ -173,11 +173,34 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
 
         # ------------------------------------------------------------------
         # 5. Decide whether an install is needed and prompt the user.
+        #
+        # A marker file (.heretic_rocm_arch) is written after a successful
+        # install and read here to bypass the prompt on subsequent launches.
+        # The marker records the configured arch (e.g. "rdna2"); if the
+        # detected arch matches the marker, the install step is skipped.
+        # The marker is invalidated (and setup re-runs) if:
+        #   - the file is missing (fresh clone / git pull that restored defaults)
+        #   - the GPU arch changed
         # ------------------------------------------------------------------
+        _repo_root_check = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if not os.path.isfile(os.path.join(_repo_root_check, "pyproject.toml")):
+            _repo_root_check = os.getcwd()
+        _marker_path = os.path.join(_repo_root_check, ".heretic_rocm_arch")
+        _rdna_for_arch = {"gfx103x_all": "rdna2", "gfx110x_all": "rdna3", "gfx120x_all": "rdna4"}
+        _expected_marker = _rdna_for_arch.get(lib_suffix, "") if has_amd else ""
+
+        _already_configured = False
+        if _expected_marker and os.path.isfile(_marker_path):
+            try:
+                with open(_marker_path, "r", encoding="utf-8") as _mf:
+                    _already_configured = _mf.read().strip() == _expected_marker
+            except OSError:
+                pass
+
         needs_install = False
         warning_msg   = ""
 
-        if has_amd:
+        if has_amd and not _already_configured:
             if is_cpu:
                 needs_install = True
                 warning_msg = (
@@ -289,6 +312,12 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     try:
                         subprocess.check_call(["uv", "sync"])
                         print("ROCm PyTorch and SDK wheels configured successfully!")
+                        # Write the arch marker so subsequent launches skip this prompt.
+                        try:
+                            with open(_marker_path, "w", encoding="utf-8") as _mf:
+                                _mf.write(_rdna)
+                        except OSError:
+                            pass  # Non-fatal; worst case: prompt fires once more.
                     except subprocess.CalledProcessError as _sync_err:
                         print(f"ERROR: uv sync failed (exit {_sync_err.returncode}).")
                         print("Please run 'uv sync' manually, then restart Heretic.")
@@ -374,6 +403,13 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     try:
                         subprocess.check_call(install_cmd)
                         print("ROCm PyTorch and SDK wheels configured successfully!")
+                        # Write the arch marker so subsequent launches skip this prompt.
+                        try:
+                            with open(os.path.join(_repo_root, ".heretic_rocm_arch"), "w", encoding="utf-8") as _mf:
+                                _mf.write(_rdna)
+                        except OSError:
+                            pass  # Non-fatal; worst case: prompt fires once more.
+
 
                         # Patch bitsandbytes.
                         try:

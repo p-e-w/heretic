@@ -43,7 +43,10 @@ dependencies = [
     "tomli-w~=1.2",
     "tqdm~=4.67",
     "transformers[kernels]~=5.6",
-    # RDNA3 (gfx110X) — AMD Windows GPU packages, activated by heretic auto-installer
+    # RDNA3 (gfx110X) — AMD Windows GPU packages, activated by heretic auto-installer.
+    # torch is declared as a direct dep so [tool.uv.sources] index override is applied
+    # during `uv lock` (uv only honours source overrides for direct deps when locking).
+    "torch>=2.9; sys_platform == 'win32'",
     "rocm; sys_platform == 'win32'",
     "rocm-sdk-core; sys_platform == 'win32'",
     "rocm-sdk-libraries-gfx110x-all; sys_platform == 'win32'",
@@ -100,22 +103,20 @@ url = "https://repo.amd.com/rocm/whl/gfx120X-all/"
 explicit = true
 
 [tool.uv.sources]
-# RDNA3 (gfx110X) — no extra required; this is the default for this machine config.
-# On Linux, torch resolves from PyPI.
+# torch: use the RDNA3-specific index on Windows so the lock pins the ROCm wheel.
+# Using `index` form (not `url`) ensures this override applies during `uv lock`
+# even when torch is pulled in transitively by accelerate.
 torch = [
-  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torch-2.9.1%2Brocm7.13.0-cp310-cp310-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.10'" },
-  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torch-2.9.1%2Brocm7.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11'" },
-  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12'" },
-  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torch-2.9.1%2Brocm7.13.0-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13'" },
+  { index = "rocm-gfx1100", marker = "sys_platform == 'win32'" },
 ]
 rocm = [
-  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/rocm-7.13.0.tar.gz", marker = "sys_platform == 'win32'" },
+  { index = "rocm-gfx1100", marker = "sys_platform == 'win32'" },
 ]
 rocm-sdk-core = [
-  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32'" },
+  { index = "rocm-gfx1100", marker = "sys_platform == 'win32'" },
 ]
 rocm-sdk-libraries-gfx110x-all = [
-  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/rocm_sdk_libraries_gfx110x_all-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32'" },
+  { index = "rocm-gfx1100", marker = "sys_platform == 'win32'" },
 ]
 
 [tool.uv.build-backend]

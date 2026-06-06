@@ -32,16 +32,35 @@ cd heretic-win-AMD
 ```powershell
 uv sync
 ```
+*(Note: By default, this installs a lightweight CPU-only environment to keep the initial setup fast and prevent downloading incorrect GPU libraries).*
 
 ### 3. Automatically Set Up AMD ROCm & bitsandbytes
 
-Simply run `heretic` once. Heretic will detect your AMD GPU, prompt you to install the ROCm PyTorch wheels automatically, download them, and configure 4-bit bitsandbytes quantization:
+Simply run `heretic` using `uv run`. Heretic will automatically detect your AMD GPU, prompt you to install the correct ROCm packages for your architecture, and configure 4-bit bitsandbytes quantization:
 
 ```powershell
-.venv\Scripts\heretic --model <model-id>
+uv run heretic --model <model-id>
 ```
 
-When prompted, choose **Yes** to automatically install the ROCm PyTorch and SDK wheels, copy the required Windows ROCm DLL, and patch the environment.
+When prompted, choose **Yes**. Heretic will synchronize your environment using the appropriate GPU extra (e.g. `uv sync --extra rocm-rdna3`), run the bitsandbytes patch script, and restart the process automatically.
+
+---
+
+### Alternative: Install ROCm packages directly on first setup
+
+If you want to skip the first-run prompt and install the GPU packages directly, specify your GPU architecture extra during your initial sync:
+
+```powershell
+# For RDNA2 (Radeon RX 6000-series / gfx103X):
+uv sync --extra rocm-rdna2
+
+# For RDNA3 (Radeon RX 7000-series / gfx110X):
+uv sync --extra rocm-rdna3
+
+# For RDNA4 (Radeon RX 9000-series / gfx120X):
+uv sync --extra rocm-rdna4
+```
+*(Once completed, you can run `uv run heretic` normally without any extra flags).*
 
 ---
 
@@ -76,25 +95,23 @@ Verify that the GPU is detected successfully:
 # Expected: ['gfx1030', 'gfx1031', ...]
 ```
 
-> **Why not `uv run python`?** `uv run` automatically re-syncs the virtual environment against
-> `pyproject.toml` before executing, which would overwrite the ROCm torch wheel with the standard
-> CPU-only build from PyPI. Always use `.venv\Scripts\python.exe` or `.venv\Scripts\heretic.exe`
-> directly after installing the ROCm wheels.
+> **Tip:** You can safely run using `uv run heretic` or `uv run python`. Thanks to the architecture-aware
+> extras in `pyproject.toml`, `uv` will respect your installed ROCm wheels and will not overwrite them.
 
 ---
 
 ## Running heretic
 
-Once installed, launch heretic using the virtual environment's executable directly:
+Once installed, launch heretic using `uv run`:
 
 ```powershell
-.venv\Scripts\heretic.exe --model <model-id> --quantization NONE
+uv run heretic --model <model-id> --quantization NONE
 ```
 
 Example with a small test model:
 
 ```powershell
-.venv\Scripts\heretic.exe --model Qwen/Qwen2.5-0.5B-Instruct --quantization NONE
+uv run heretic --model Qwen/Qwen2.5-0.5B-Instruct --quantization NONE
 ```
 
 > **Important:** Always run from a proper **PowerShell** or **cmd** terminal — not from an IDE terminal or subprocess. heretic uses an interactive TUI that requires a real Windows console.

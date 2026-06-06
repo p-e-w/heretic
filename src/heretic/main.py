@@ -67,10 +67,35 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
             except Exception:
                 pass
 
-        if is_cpu:
-            # Check if an AMD GPU is installed
+        # Check if an AMD GPU is installed
+        has_amd = False
+        gpu_name = ""
+        is_forced = False
+        
+        force_arch = os.environ.get("HERETIC_FORCE_ARCH", "").lower()
+        if force_arch in ["gfx1030", "gfx103x", "rdna2"]:
+            has_amd = True
+            arch_target = "gfx103X-all"
+            lib_suffix = "gfx103x_all"
+            generation_name = "RDNA2 (Radeon RX 6000-series / gfx103X)"
+            is_forced = True
+        elif force_arch in ["gfx1100", "gfx110x", "rdna3"]:
+            has_amd = True
+            arch_target = "gfx110X-all"
+            lib_suffix = "gfx110x_all"
+            generation_name = "RDNA3 (Radeon RX 7000-series / gfx110X)"
+            is_forced = True
+        elif force_arch in ["gfx1200", "gfx120x", "rdna4"]:
+            has_amd = True
+            arch_target = "gfx120X-all"
+            lib_suffix = "gfx120x_all"
+            generation_name = "RDNA4 (Radeon RX 9000-series / gfx120X)"
+            is_forced = True
+        elif force_arch == "cpu":
             has_amd = False
-            gpu_name = ""
+            is_forced = True
+
+        if not is_forced:
             try:
                 gpu_name = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True, stderr=subprocess.DEVNULL)
                 has_amd = any(brand in gpu_name for brand in ["AMD", "Radeon"])
@@ -83,9 +108,6 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     
             if has_amd:
                 import re
-                import questionary
-                from questionary import Choice
-                
                 # Detect RDNA architecture generation (RDNA2, RDNA3, or RDNA4)
                 arch_target = "gfx103X-all"
                 lib_suffix = "gfx103x_all"
@@ -102,60 +124,109 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     lib_suffix = "gfx120x_all"
                     generation_name = "RDNA4 (Radeon RX 9000-series / gfx120X)"
 
-                print(f"[yellow]WARNING: An AMD GPU ({generation_name}) was detected, but PyTorch CPU-only is currently active.[/]")
-                print(f"Would you like Heretic to automatically install the AMD ROCm PyTorch wheels for {generation_name} and enable 4-bit quantization support?")
-                choices = [
-                    Choice(title=f"Yes, auto-install AMD ROCm wheels for {generation_name} & patch bitsandbytes", value="install"),
-                    Choice(title="No, run with CPU-only mode", value="skip")
-                ]
-                
-                # Check for notebook environment
-                is_nb = False
-                if os.getenv("COLAB_GPU") or os.getenv("KAGGLE_KERNEL_RUN_TYPE"):
-                    is_nb = True
-                else:
+        # Check installed ROCm package architecture
+        installed_suffix = None
+        for suffix in ["gfx103x_all", "gfx110x_all", "gfx120x_all"]:
+            pkg_name = f"rocm-sdk-libraries-{suffix.replace('_', '-')}"
+            try:
+                from importlib.metadata import version
+                version(pkg_name)
+                installed_suffix = suffix
+                break
+            except Exception:
+                pass
+
+        needs_install = False
+        warning_msg = ""
+        
+        if has_amd:
+            if is_cpu:
+                needs_install = True
+                warning_msg = f"[yellow]WARNING: An AMD GPU ({generation_name}) was detected, but PyTorch CPU-only is currently active.[/]"
+            elif installed_suffix and installed_suffix != lib_suffix:
+                needs_install = True
+                curr_gen = "RDNA2" if "gfx103" in installed_suffix else ("RDNA3" if "gfx110" in installed_suffix else "RDNA4")
+                warning_msg = f"[yellow]WARNING: An AMD GPU ({generation_name}) was detected, but the currently installed ROCm packages target {curr_gen}.[/]"
+
+        if needs_install:
+            import questionary
+            from questionary import Choice
+            
+            print(warning_msg)
+            print(f"Would you like Heretic to automatically configure the AMD ROCm packages for {generation_name} and enable 4-bit quantization support?")
+            
+            choices = [
+                Choice(title=f"Yes, auto-configure AMD ROCm for {generation_name} & patch bitsandbytes", value="install"),
+                Choice(title="No, keep current configuration", value="skip")
+            ]
+            
+            # Check for notebook environment
+            is_nb = False
+            if os.getenv("COLAB_GPU") or os.getenv("KAGGLE_KERNEL_RUN_TYPE"):
+                is_nb = True
+            else:
+                try:
+                    from IPython import get_ipython
+                    if get_ipython() is not None:
+                        is_nb = True
+                except Exception:
+                    pass
+            
+            choice = "skip"
+            if is_nb:
+                print("\nSelect action:")
+                for i, c in enumerate(choices, 1):
+                    print(f"[{i}] {c.title}")
+                while True:
                     try:
-                        from IPython import get_ipython
-                        if get_ipython() is not None:
-                            is_nb = True
-                    except Exception:
-                        pass
-                
-                choice = "skip"
-                if is_nb:
-                    print("\nSelect action:")
-                    for i, c in enumerate(choices, 1):
-                        print(f"[{i}] {c.title}")
-                    while True:
-                        try:
-                            sel = input("Enter number: ")
-                            if not sel.strip():
-                                choice = choices[0].value
-                                break
-                            idx = int(sel) - 1
-                            if 0 <= idx < len(choices):
-                                choice = choices[idx].value
-                                break
-                            print(f"Please enter a number between 1 and {len(choices)}")
-                        except ValueError:
-                            print("Invalid input. Please enter a number.")
-                        except EOFError:
+                        sel = input("Enter number: ")
+                        if not sel.strip():
                             choice = choices[0].value
                             break
+                        idx = int(sel) - 1
+                        if 0 <= idx < len(choices):
+                            choice = choices[idx].value
+                            break
+                        print(f"Please enter a number between 1 and {len(choices)}")
+                    except ValueError:
+                        print("Invalid input. Please enter a number.")
+                    except EOFError:
+                        choice = choices[0].value
+                        break
+            else:
+                choice = questionary.select(
+                    "Select action:",
+                    choices=choices,
+                    style=questionary.Style([("highlighted", "reverse")]),
+                ).ask()
+                if choice is None:
+                    choice = "skip"
+                    
+            if choice == "install":
+                print(f"\nConfiguring AMD ROCm PyTorch and SDK wheels for {generation_name}. This may take several minutes...")
+                
+                use_uv_sync = False
+                main_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                pyproject_path = os.path.join(main_dir, "pyproject.toml")
+                
+                try:
+                    subprocess.check_call(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if os.path.exists(pyproject_path):
+                        use_uv_sync = True
+                except Exception:
+                    pass
+
+                if use_uv_sync:
+                    extra_name = "rocm-rdna2"
+                    if lib_suffix == "gfx110x_all":
+                        extra_name = "rocm-rdna3"
+                    elif lib_suffix == "gfx120x_all":
+                        extra_name = "rocm-rdna4"
+                    cmd = ["uv", "sync", "--extra", extra_name]
+                    cwd = main_dir
                 else:
-                    choice = questionary.select(
-                        "Select action:",
-                        choices=choices,
-                        style=questionary.Style([("highlighted", "reverse")]),
-                    ).ask()
-                    if choice is None:
-                        choice = "skip"
-                        
-                if choice == "install":
-                    print(f"\nInstalling AMD ROCm PyTorch and SDK wheels for {generation_name}. This may take several minutes...")
                     py_ver = f"{sys.version_info.major}{sys.version_info.minor}"
                     torch_wheel_url = f"https://repo.amd.com/rocm/whl/{arch_target}/torch-2.9.1%2Brocm7.13.0-cp{py_ver}-cp{py_ver}-win_amd64.whl"
-                    
                     cmd = [
                         sys.executable, "-m", "pip", "install",
                         "--extra-index-url", f"https://repo.amd.com/rocm/whl/{arch_target}/",
@@ -163,11 +234,11 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                         f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
                         f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_libraries_{lib_suffix}-7.13.0-py3-none-win_amd64.whl"
                     ]
-                    
+                    cwd = None
                     try:
                         subprocess.check_call(["uv", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         cmd = [
-                            "uv", "--no-config", "pip", "install",
+                            "uv", "pip", "install",
                             "--python", sys.executable,
                             "--extra-index-url", f"https://repo.amd.com/rocm/whl/{arch_target}/",
                             "--index-strategy", "unsafe-best-match",
@@ -177,37 +248,37 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                         ]
                     except Exception:
                         pass
+                
+                try:
+                    subprocess.check_call(cmd, cwd=cwd)
+                    print("[green]ROCm PyTorch and SDK wheels configured successfully![/]")
                     
+                    # Run the patching script
                     try:
-                        subprocess.check_call(cmd)
-                        print("[green]ROCm PyTorch and SDK wheels installed successfully![/]")
-                        
-                        # Run the patching script
-                        try:
-                            main_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                            script_path = os.path.join(main_dir, "scripts", "patch_bitsandbytes.py")
-                            if not os.path.exists(script_path):
-                                script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
-                                
-                            if os.path.exists(script_path):
-                                subprocess.check_call([sys.executable, script_path])
-                            else:
-                                env = os.environ.copy()
-                                env["PYTHONPATH"] = os.getcwd() + os.pathsep + env.get("PYTHONPATH", "")
-                                subprocess.check_call([sys.executable, "-m", "scripts.patch_bitsandbytes"], env=env)
-                        except Exception as pe:
-                            print(f"[red]Failed to run patch script automatically: {pe}. Please run 'python scripts/patch_bitsandbytes.py' manually.[/]")
-                        
-                        print("\n[green]ROCm environment configured. Relaunching Heretic...[/]\n")
-                        try:
-                            sys.exit(subprocess.call([sys.executable] + sys.argv))
-                        except Exception as re:
-                            print(f"[red]Failed to relaunch automatically: {re}[/]")
-                            print("Please restart Heretic manually.")
-                            sys.exit(1)
-                    except Exception as e:
-                        print(f"[red]Installation failed: {e}[/]")
-                        print("Falling back to CPU-only execution...")
+                        main_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        script_path = os.path.join(main_dir, "scripts", "patch_bitsandbytes.py")
+                        if not os.path.exists(script_path):
+                            script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
+                            
+                        if os.path.exists(script_path):
+                            subprocess.check_call([sys.executable, script_path])
+                        else:
+                            env = os.environ.copy()
+                            env["PYTHONPATH"] = os.getcwd() + os.pathsep + env.get("PYTHONPATH", "")
+                            subprocess.check_call([sys.executable, "-m", "scripts.patch_bitsandbytes"], env=env)
+                    except Exception as pe:
+                        print(f"[red]Failed to run patch script automatically: {pe}. Please run 'python scripts/patch_bitsandbytes.py' manually.[/]")
+                    
+                    print("\n[green]ROCm environment configured. Relaunching Heretic...[/]\n")
+                    try:
+                        sys.exit(subprocess.call([sys.executable] + sys.argv))
+                    except Exception as re:
+                        print(f"[red]Failed to relaunch automatically: {re}[/]")
+                        print("Please restart Heretic manually.")
+                        sys.exit(1)
+                except Exception as e:
+                    print(f"[red]Installation failed: {e}[/]")
+                    print("Falling back to CPU-only execution...")
 
 from .config import Settings
 

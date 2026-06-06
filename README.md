@@ -107,15 +107,18 @@ Since this fork utilizes [uv](https://docs.astral.sh/uv/) for native dependency 
    ```powershell
    uv sync
    ```
-   *(On Windows, this automatically pulls the AMD ROCm PyTorch and SDK wheels from `repo.amd.com` without any manual pip command overrides).*
+   *(By default, this installs a lightweight CPU-only environment to keep the initial setup fast and clean).*
 
 3. Run Heretic:
    ```powershell
    uv run heretic Qwen/Qwen3-4B-Instruct-2507
    ```
-   *(On first run, the ROCm Auto-Installer wizard will prompt you to set up bitsandbytes and automatically patch it with the required ROCm DLLs for 4-bit quantization).*
+   *(On first run, the ROCm Auto-Installer wizard will detect your AMD GPU, prompt you to install the correct ROCm packages for your architecture, run the bitsandbytes patch script, and restart the process automatically).*
 
-Replace `Qwen/Qwen3-4B-Instruct-2507` with the Hugging Face model path or local model directory you wish to process.
+   **Alternative (Skip first-run prompt):** If you want to install your specific GPU architecture wheels directly on first sync, specify your GPU extra:
+   * **RDNA2:** `uv sync --extra rocm-rdna2`
+   * **RDNA3:** `uv sync --extra rocm-rdna3`
+   * **RDNA4:** `uv sync --extra rocm-rdna4`
 
 ---
 

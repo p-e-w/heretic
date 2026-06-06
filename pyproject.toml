@@ -53,11 +53,34 @@ research = [
     "pacmap~=0.8",
     "scikit-learn~=1.7",
 ]
+rocm-rdna2 = [
+    "torch",
+    "rocm; sys_platform == 'win32'",
+    "rocm-sdk-core; sys_platform == 'win32'",
+    "rocm-sdk-libraries-gfx103x-all; sys_platform == 'win32'",
+]
+rocm-rdna3 = [
+    "torch",
+    "rocm; sys_platform == 'win32'",
+    "rocm-sdk-core; sys_platform == 'win32'",
+    "rocm-sdk-libraries-gfx110x-all; sys_platform == 'win32'",
+]
+rocm-rdna4 = [
+    "torch",
+    "rocm; sys_platform == 'win32'",
+    "rocm-sdk-core; sys_platform == 'win32'",
+    "rocm-sdk-libraries-gfx120x-all; sys_platform == 'win32'",
+]
 
 [dependency-groups]
 dev = [
     "ruff>=0.14.5",
     "ty>=0.0.5",
+]
+rocm-group = [
+    "rocm; sys_platform == 'win32'",
+    "rocm-sdk-core; sys_platform == 'win32'",
+    "rocm-sdk-libraries-gfx103x-all; sys_platform == 'win32'",
 ]
 
 [project.urls]
@@ -76,7 +99,70 @@ build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
+exclude-newer-package = { rocm = false, rocm-sdk-core = false, rocm-sdk-libraries-gfx103x-all = false, rocm-sdk-libraries-gfx103X-all = false, rocm-sdk-libraries-gfx110x-all = false, rocm-sdk-libraries-gfx120x-all = false, torch = false, triton = false }
+environments = ["sys_platform == 'win32'", "sys_platform == 'linux'"]
 default-groups = ["dev"]
+
+[[tool.uv.index]]
+name = "rocm-gfx1030"
+url = "https://repo.amd.com/rocm/whl/gfx103X-all/"
+explicit = true
+
+[[tool.uv.index]]
+name = "rocm-gfx1100"
+url = "https://repo.amd.com/rocm/whl/gfx110X-all/"
+explicit = true
+
+[[tool.uv.index]]
+name = "rocm-gfx1200"
+url = "https://repo.amd.com/rocm/whl/gfx120X-all/"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  # RDNA3
+  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torch-2.9.1%2Brocm7.13.0-cp310-cp310-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.10' and extra == 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torch-2.9.1%2Brocm7.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11' and extra == 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12' and extra == 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torch-2.9.1%2Brocm7.13.0-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13' and extra == 'rocm-rdna3'" },
+
+  # RDNA4
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp310-cp310-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.10' and extra == 'rocm-rdna4' and extra != 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11' and extra == 'rocm-rdna4' and extra != 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12' and extra == 'rocm-rdna4' and extra != 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13' and extra == 'rocm-rdna4' and extra != 'rocm-rdna3'" },
+
+  # RDNA2
+  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp310-cp310-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.10' and extra == 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11' and extra == 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12' and extra == 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13' and extra == 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" },
+
+  # CPU Fallback (Default when no extra is specified)
+  { url = "https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp310-cp310-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.10' and extra != 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" },
+  { url = "https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11' and extra != 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" },
+  { url = "https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12' and extra != 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" },
+  { url = "https://download.pytorch.org/whl/cpu/torch-2.9.1%2Bcpu-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13' and extra != 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" }
+]
+rocm = [
+  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/rocm-7.13.0.tar.gz", marker = "sys_platform == 'win32' and extra == 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/rocm-7.13.0.tar.gz", marker = "sys_platform == 'win32' and extra == 'rocm-rdna4' and extra != 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/rocm-7.13.0.tar.gz", marker = "sys_platform == 'win32' and extra == 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" }
+]
+rocm-sdk-core = [
+  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32' and extra == 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32' and extra == 'rocm-rdna4' and extra != 'rocm-rdna3'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32' and extra == 'rocm-rdna2' and extra != 'rocm-rdna3' and extra != 'rocm-rdna4'" }
+]
+rocm-sdk-libraries-gfx103x-all = [
+  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32'" }
+]
+rocm-sdk-libraries-gfx110x-all = [
+  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/rocm_sdk_libraries_gfx110x_all-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32'" }
+]
+rocm-sdk-libraries-gfx120x-all = [
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/rocm_sdk_libraries_gfx120x_all-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32'" }
+]
 
 [tool.uv.build-backend]
 module-name = "heretic"

@@ -56,8 +56,6 @@ The script will:
 
 ## Running heretic
 
-Identical to upstream — no extra flags:
-
 ```powershell
 uv run heretic <model-id>
 ```

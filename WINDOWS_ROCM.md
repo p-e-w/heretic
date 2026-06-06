@@ -32,23 +32,34 @@ cd heretic-win-AMD
 ```powershell
 uv sync
 ```
-*(Note: By default, this installs a lightweight CPU-only environment to keep the initial setup fast and prevent downloading incorrect GPU libraries).*
+*(By default, this installs a lightweight CPU-only environment to keep the initial setup fast.)*
 
-### 3. Automatically Set Up AMD ROCm & bitsandbytes
-
-Simply run `heretic` using `uv run`. Heretic will automatically detect your AMD GPU, prompt you to install the correct ROCm packages for your architecture, download and install the matching `torch` and ROCm SDK wheels directly from `repo.amd.com`, run the bitsandbytes patch script, and restart the process automatically:
+### 3. Run the AMD ROCm setup script
 
 ```powershell
-uv run heretic <model-id>
+uv run python scripts/setup_rocm.py
 ```
 
-When prompted, choose **Yes**. The first run may take several minutes (downloading ~3 GB of wheels). **Subsequent runs start immediately** — the correct arch-specific `pyproject.toml` and `uv.lock` are swapped in permanently, so `uv sync` on every future launch is an instant no-op.
+This script automatically:
+1. Detects your AMD GPU architecture (RDNA2 / RDNA3 / RDNA4)
+2. Swaps in the matching pre-generated `pyproject.rdnaX.toml` + `uv.lock.rdnaX`
+3. Runs `uv sync --frozen` to install the correct ROCm PyTorch and SDK wheels
+4. Patches `bitsandbytes` for Windows ROCm DLL support
+5. Writes a `.heretic_rocm_arch` marker so setup is skipped on future runs
+
+The first run may take several minutes (downloading ~3 GB of wheels).
+**Subsequent runs start immediately** — the setup is permanent.
+
+> **Why a separate script?** On Windows, `heretic.exe` cannot update its own dependencies
+> via `uv sync` while it is running (Windows file-lock on running executables). The pre-flight
+> script runs as plain Python — before heretic launches — avoiding this issue entirely.
 
 ---
 
 ### Alternative: Manual ROCm setup (non-git installs)
 
-The auto-installer above works by swapping in a pre-generated arch-specific `pyproject.toml` + `uv.lock` pair from the repo. If you installed heretic via `pip install heretic-llm` (not via git clone), those variant files won't be present and the installer falls back to direct wheel installation:
+If you installed heretic via `pip install heretic-llm` (not via git clone), the variant files
+won't be present. Install wheels directly:
 
 ```powershell
 # For RDNA2 (Radeon RX 6000-series / gfx103X):
@@ -64,7 +75,10 @@ uv pip install --python .venv/Scripts/python.exe `
 ```
 *(Replace `cp312` with your Python version, e.g. `cp311` for Python 3.11.)*
 
-> **Note:** Do NOT use `uv sync --extra rocm-rdnaX`. The default `uv.lock` uses a CPU-only resolution for Windows; the extras in the default `pyproject.toml` are present for reference only and do not work correctly with `uv sync`.
+Then patch bitsandbytes manually:
+```powershell
+uv run python scripts/patch_bitsandbytes.py
+```
 
 ---
 
@@ -80,7 +94,6 @@ If you prefer to install the wheels and patch bitsandbytes manually, run the fol
 uv pip install `
   --extra-index-url https://repo.amd.com/rocm/whl/gfx103X-all/ `
   --index-strategy unsafe-best-match `
-  --exclude-newer-package rocm=false `
   "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl" `
   "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl" `
   "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
@@ -99,27 +112,32 @@ uv run python -c "import torch; print(torch.cuda.get_device_name(0)); print(torc
 # Expected: ['gfx1030', 'gfx1031', ...]
 ```
 
-> **How auto-setup works:** On the first run, heretic detects your AMD GPU generation (RDNA2/3/4),
+> **How auto-setup works:** `setup_rocm.py` detects your AMD GPU generation (RDNA2/3/4),
 > copies the matching pre-generated `pyproject.rdnaX.toml` → `pyproject.toml` and `uv.lock.rdnaX` → `uv.lock`,
-> then runs `uv sync` to install the correct ROCm PyTorch and SDK wheels from the new lock.
-> After patching `bitsandbytes`, heretic relaunches via `uv run heretic`. On every subsequent launch,
-> `uv sync` finds the lock already satisfied and starts immediately — **the setup is permanent.**
+> then runs `uv sync --frozen --no-install-project` to install the correct ROCm wheels from the pre-built lock.
+> After patching `bitsandbytes`, a `.heretic_rocm_arch` marker file is written to prevent the setup from
+> running again. The setup is permanent until a `git pull` restores the default CPU lock files.
 
 ---
 
 ## Running heretic
 
-Use the same command as upstream:
+After running `setup_rocm.py`, launch heretic with:
 
 ```powershell
-uv run heretic <model-id>
+uv run --frozen heretic <model-id>
 ```
 
 Example with a small test model:
 
 ```powershell
-uv run heretic Qwen/Qwen2.5-0.5B-Instruct
+uv run --frozen heretic Qwen/Qwen2.5-0.5B-Instruct
 ```
+
+> **Why `--frozen`?** After ROCm setup, the `uv.lock` contains ROCm-specific wheels that are
+> Windows-only. Without `--frozen`, uv tries to re-resolve the lock for all supported platforms
+> (including platforms without ROCm triton wheels) and fails. `--frozen` tells uv to use the
+> lock exactly as-is and skip re-resolution.
 
 > **Important:** Always run from a proper **PowerShell** or **cmd** terminal — not from an IDE terminal or subprocess. heretic uses an interactive TUI that requires a real Windows console.
 
@@ -140,10 +158,10 @@ uv run heretic Qwen/Qwen2.5-0.5B-Instruct
 
 To ensure maximum hardware coverage on Windows, heretic uses a dynamic setup pipeline:
 
-1. **Dynamic GPU Detection:** On startup, the launcher inspects the Windows system to determine which AMD Radeon GPU generation is installed (RDNA2, RDNA3, or RDNA4).
-2. **Arch-Specific Config Swap:** The launcher copies `pyproject.rdnaX.toml` → `pyproject.toml` and `uv.lock.rdnaX` → `uv.lock` for the detected architecture. These pre-generated pairs are committed to the repository — one per arch — and each locks the correct ROCm PyTorch and SDK wheels as default (non-extra) dependencies.
-3. **`uv sync`:** With the correct lock in place, `uv sync` installs the right arch-specific wheels cleanly. Every future `uv run heretic` syncs from the same lock and is a no-op — the setup is permanent until a `git pull` restores the default CPU `pyproject.toml`/`uv.lock` (which triggers the wizard again on the next run).
-4. **bitsandbytes Patch:** `bitsandbytes` raises a `RuntimeError` at import time on Windows ROCm because standard packages do not bundle `libbitsandbytes_rocm*.dll`. heretic automatically patches `bitsandbytes` by copying a precompiled library to `libbitsandbytes_rocm83.dll` inside the package folder. The patch script dynamically detects your GPU architecture (e.g. `gfx1100` for RDNA3) and looks for a matching `libbitsandbytes_rocm_<arch>.dll` in the `bin/` directory. If a specific architecture DLL does not exist, it falls back to the RDNA2 `libbitsandbytes_rocm_gfx1030.dll`.
+1. **GPU Detection:** `setup_rocm.py` inspects the Windows system to determine which AMD Radeon GPU generation is installed (RDNA2, RDNA3, or RDNA4).
+2. **Arch-Specific Config Swap:** The script copies `pyproject.rdnaX.toml` → `pyproject.toml` and `uv.lock.rdnaX` → `uv.lock` for the detected architecture. These pre-generated pairs are committed to the repository — one per arch — and each locks the correct ROCm PyTorch and SDK wheels as default (non-extra) dependencies.
+3. **`uv sync --frozen --no-install-project`:** With the correct lock in place, uv installs the right arch-specific wheels cleanly. `--frozen` prevents re-resolution; `--no-install-project` skips reinstalling heretic itself (saving time, since project code hasn't changed). Every future `uv run --frozen heretic` starts immediately — the setup is permanent.
+4. **bitsandbytes Patch:** `bitsandbytes` raises a `RuntimeError` at import time on Windows ROCm because standard packages do not bundle `libbitsandbytes_rocm*.dll`. The patch script copies a precompiled library to `libbitsandbytes_rocm83.dll` inside the package folder. It dynamically detects your GPU architecture (e.g. `gfx1100` for RDNA3) and looks for a matching `libbitsandbytes_rocm_<arch>.dll` in the `bin/` directory. If a specific architecture DLL does not exist, it falls back to the RDNA2 `libbitsandbytes_rocm_gfx1030.dll`.
 
 ---
 
@@ -202,10 +220,11 @@ Once copied, re-run `uv run python scripts/patch_bitsandbytes.py`. The patcher w
 AMD index flags. Use the full command from the Alternative section (with `--extra-index-url`,
 `--index-strategy unsafe-best-match`).
 
-**`HIP error: invalid device function` / `hipErrorInvalidImage` / `hipErrorInvalidKernelFile`** — The wrong torch arch wheel is installed (e.g. RDNA3 wheels on an RDNA2 GPU). Run `uv run heretic <model>` and accept the auto-setup prompt — it will swap in the correct `pyproject` + `uv.lock` pair for your GPU and re-sync.
+**`No solution found when resolving dependencies`** — You ran `uv run heretic` without `--frozen` after ROCm setup. The ROCm lock is Windows-only and cannot resolve on all platforms. Use `uv run --frozen heretic <model>` instead.
+
+**`HIP error: invalid device function` / `hipErrorInvalidImage` / `hipErrorInvalidKernelFile`** — The wrong torch arch wheel is installed (e.g. RDNA3 wheels on an RDNA2 GPU). Delete `.heretic_rocm_arch` and re-run `uv run python scripts/setup_rocm.py` — it will detect the correct arch and install the right wheels.
 
 **`NoConsoleScreenBufferError`** — You are running heretic from an IDE subprocess. Open a real
 PowerShell/cmd window and run it there.
 
-**`GPU not detected / torch.cuda.is_available() returns False`** — Make sure the correct arch-specific ROCm wheels are installed. Run `uv run heretic <model>` and accept the auto-setup prompt, or install manually using direct wheel URLs as shown in the Alternative section above.
-
+**`GPU not detected / torch.cuda.is_available() returns False`** — Make sure the correct arch-specific ROCm wheels are installed. Delete `.heretic_rocm_arch` and re-run `uv run python scripts/setup_rocm.py`, or install manually using direct wheel URLs as shown in the Alternative section above.

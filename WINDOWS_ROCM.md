@@ -76,7 +76,7 @@ uv run heretic Qwen/Qwen2.5-0.5B-Instruct
 |---|---|---|
 | GPU inference (FP16/BF16) | ✅ Working | Full speed on RDNA2, RDNA3, and RDNA4 |
 | `--quantization NONE` | ✅ Working | Default — works on all GPUs |
-| `--quantization bnb_4bit` | ✅ Working | RDNA2 uses the bundled `gfx1030` DLL. RDNA3/RDNA4 fall back to the same DLL (functional, not arch-optimised). Build from source for full RDNA3/4 performance — see below. |
+| `--quantization bnb_4bit` | ✅ Working | The bundled `libbitsandbytes_rocm_gfx1030.dll` is a multi-arch build containing native compiled kernels for RDNA2 (`gfx101X`/`gfx103X`), RDNA3 (`gfx110X`/`gfx115X`), and RDNA4 (`gfx120X`/`gfx125X`) — confirmed via binary inspection of its embedded HIP fat-binary architecture list. All three generations get arch-native kernels from this one file; no source build required for performance. (Verified end-to-end on RDNA2/gfx1030 hardware; RDNA3/RDNA4 share the same DLL and code path but have not been hardware-tested by the maintainers.) |
 | `torchvision` / `torchaudio` | ⚠️ Not included | Not required by heretic; install separately if needed |
 
 ---
@@ -98,7 +98,10 @@ After setup, `uv run heretic` works identically to upstream — the pyproject an
 
 ## Compiling bitsandbytes from Source (Optional)
 
-The bundled `libbitsandbytes_rocm_gfx1030.dll` (RDNA2) works as a fallback for all architectures. For best performance on RDNA3/RDNA4, compile a native DLL:
+The bundled `libbitsandbytes_rocm_gfx1030.dll` is a multi-arch build that already contains
+native kernels for RDNA2, RDNA3, and RDNA4 (see the table above), so compiling your own is
+not required for performance. You may still want to build from source to target a newer
+ROCm/ABI version than the bundled DLL, or to debug a regression:
 
 ### Prerequisites
 - **Visual Studio 2022** with the **"Desktop development with C++"** workload

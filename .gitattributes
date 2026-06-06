@@ -1,1 +1,2 @@
 * text eol=lf
+*.dll binary -text -diff

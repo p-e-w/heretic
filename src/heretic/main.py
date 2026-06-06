@@ -328,7 +328,12 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                         # This prevents uv from failing on cross-platform splits
                         # (e.g. Python 3.13 Windows triton) that don't affect the
                         # active Python version.
-                        subprocess.check_call(["uv", "sync", "--frozen"])
+                        # --no-install-project: skip reinstalling heretic-llm itself.
+                        # The project package hasn't changed — only its dependencies
+                        # (torch, rocm-sdk-*) need updating. Without this flag, uv
+                        # tries to overwrite heretic.exe while it is the running
+                        # process, which Windows blocks with a file-lock error.
+                        subprocess.check_call(["uv", "sync", "--frozen", "--no-install-project"])
                         print("ROCm PyTorch and SDK wheels configured successfully!")
                         # Write the arch marker so subsequent launches skip this prompt.
                         try:

@@ -1,0 +1,122 @@
+[project]
+name = "heretic-llm"
+version = "1.3.0"
+description = "Fully automatic censorship removal for language models"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+authors = [
+    { name = "Philipp Emanuel Weidmann", email = "pew@worldwidemann.com" }
+]
+requires-python = ">=3.10"
+keywords = ["llm", "transformer", "abliteration"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: GPU",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "accelerate~=1.13",
+    "bitsandbytes~=0.49",
+    "datasets~=4.7",
+    "huggingface-hub~=1.7",
+    "immutabledict~=4.3",
+    "langdetect~=1.0",
+    "lm-eval[hf]~=0.4",
+    "numpy~=2.2",
+    "optuna~=4.7",
+    "peft~=0.19",
+    "psutil~=7.2",
+    "py-cpuinfo~=9.0",
+    "pydantic-settings~=2.13",
+    "questionary~=2.1",
+    "rich~=14.3",
+    "protobuf>=5.0",
+    "sentencepiece>=0.2.0",
+    "tiktoken>=0.7.0",
+    "tomli-w~=1.2",
+    "tqdm~=4.67",
+    "transformers[kernels]~=5.6",
+    # RDNA4 (gfx120X) — AMD Windows GPU packages, activated by heretic auto-installer
+    "rocm; sys_platform == 'win32'",
+    "rocm-sdk-core; sys_platform == 'win32'",
+    "rocm-sdk-libraries-gfx120x-all; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+research = [
+    "geom-median~=0.1",
+    "imageio~=2.37",
+    "matplotlib~=3.10",
+    "pacmap~=0.8",
+    "scikit-learn~=1.7",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.5",
+    "ty>=0.0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/Matlan1/heretic-win-AMD"
+Documentation = "https://github.com/Matlan1/heretic-win-AMD"
+Repository = "https://github.com/Matlan1/heretic-win-AMD.git"
+Issues = "https://github.com/Matlan1/heretic-win-AMD/issues"
+Changelog = "https://github.com/Matlan1/heretic-win-AMD/releases"
+
+[project.scripts]
+heretic = "heretic.main:main"
+
+[build-system]
+requires = ["uv_build>=0.8.11,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { rocm = false, rocm-sdk-core = false, rocm-sdk-libraries-gfx103x-all = false, rocm-sdk-libraries-gfx103X-all = false, rocm-sdk-libraries-gfx110x-all = false, rocm-sdk-libraries-gfx120x-all = false, torch = false, triton = false }
+environments = ["sys_platform == 'win32'", "sys_platform == 'linux'"]
+default-groups = ["dev"]
+
+[[tool.uv.index]]
+name = "rocm-gfx1030"
+url = "https://repo.amd.com/rocm/whl/gfx103X-all/"
+explicit = true
+
+[[tool.uv.index]]
+name = "rocm-gfx1100"
+url = "https://repo.amd.com/rocm/whl/gfx110X-all/"
+explicit = true
+
+[[tool.uv.index]]
+name = "rocm-gfx1200"
+url = "https://repo.amd.com/rocm/whl/gfx120X-all/"
+explicit = true
+
+[tool.uv.sources]
+# RDNA4 (gfx120X) — no extra required; this is the default for this machine config.
+# On Linux, torch resolves from PyPI.
+torch = [
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp310-cp310-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.10'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13'" },
+]
+rocm = [
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/rocm-7.13.0.tar.gz", marker = "sys_platform == 'win32'" },
+]
+rocm-sdk-core = [
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32'" },
+]
+rocm-sdk-libraries-gfx120x-all = [
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/rocm_sdk_libraries_gfx120x_all-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32'" },
+]
+
+[tool.uv.build-backend]
+module-name = "heretic"

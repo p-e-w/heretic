@@ -257,60 +257,46 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                 print(f"\nConfiguring AMD ROCm PyTorch and SDK wheels for {generation_name}.")
                 print("This may take several minutes on first run (subsequent runs use the local cache)...\n")
 
-                # Always use direct `uv pip install` with pinned wheel URLs.
-                # Do NOT use `uv sync --extra rocm-rdnaX`: the universal uv.lock
-                # resolves torch to a single URL (gfx110X) for all Windows envs,
-                # so uv sync would reinstall the wrong arch regardless of which
-                # extra is requested.
-                if sys.executable is None:
-                    print("ERROR: Cannot determine Python executable path. Please install manually.")
-                    sys.exit(1)
+                # --- Strategy: swap in a pre-generated arch-specific pyproject + lock pair,
+                # then let `uv sync` install the correct wheels cleanly.
+                #
+                # This permanently fixes the install: every subsequent `uv run heretic`
+                # syncs from the correct lock and installs nothing (already satisfied).
+                #
+                # Falls back to direct `uv pip install` if the variant files are not
+                # present (e.g. non-git / pip-installed heretic).
+                _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                if not os.path.isfile(os.path.join(_repo_root, "pyproject.toml")):
+                    _repo_root = os.getcwd()
 
-                _py  = f"{sys.version_info.major}{sys.version_info.minor}"
-                _base = f"{_AMD_BASE}/{arch_target}"
-                _torch_url = (
-                    f"{_base}/torch-{_TORCH_VERSION}%2B{_ROCM_TAG}"
-                    f"-cp{_py}-cp{_py}-win_amd64.whl"
-                )
-                _sdk_core_url  = f"{_base}/rocm_sdk_core-{_ROCM_VERSION}-py3-none-win_amd64.whl"
-                _sdk_libs_url  = f"{_base}/rocm_sdk_libraries_{lib_suffix}-{_ROCM_VERSION}-py3-none-win_amd64.whl"
+                _rdna_map = {"gfx103x_all": "rdna2", "gfx110x_all": "rdna3", "gfx120x_all": "rdna4"}
+                _rdna     = _rdna_map.get(lib_suffix, "rdna3")
 
-                # Prefer uv (faster, better caching); fall back to pip.
-                has_uv = False
-                try:
-                    subprocess.check_call(
-                        ["uv", "--version"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        timeout=10,
-                    )
-                    has_uv = True
-                except (FileNotFoundError, subprocess.CalledProcessError,
-                        subprocess.TimeoutExpired, OSError):
-                    pass
+                _pyproject_variant = os.path.join(_repo_root, f"pyproject.{_rdna}.toml")
+                _lock_variant      = os.path.join(_repo_root, f"uv.lock.{_rdna}")
 
-                if has_uv:
-                    install_cmd = [
-                        "uv", "pip", "install",
-                        "--python", sys.executable,
-                        "--extra-index-url", _base + "/",
-                        "--index-strategy", "unsafe-best-match",
-                        _torch_url, _sdk_core_url, _sdk_libs_url,
-                    ]
-                else:
-                    install_cmd = [
-                        sys.executable, "-m", "pip", "install",
-                        "--extra-index-url", _base + "/",
-                        _torch_url, _sdk_core_url, _sdk_libs_url,
-                    ]
+                if os.path.isfile(_pyproject_variant) and os.path.isfile(_lock_variant):
+                    # ---- Preferred path: swap pyproject + lock, then uv sync ----
+                    import shutil
+                    print(f"Activating {_rdna.upper()} configuration...")
+                    try:
+                        shutil.copy2(_pyproject_variant, os.path.join(_repo_root, "pyproject.toml"))
+                        shutil.copy2(_lock_variant,      os.path.join(_repo_root, "uv.lock"))
+                    except OSError as _copy_err:
+                        print(f"ERROR: Could not swap configuration files: {_copy_err}")
+                        sys.exit(1)
 
-                try:
-                    subprocess.check_call(install_cmd)
-                    print("ROCm PyTorch and SDK wheels configured successfully!")
+                    try:
+                        subprocess.check_call(["uv", "sync"])
+                        print("ROCm PyTorch and SDK wheels configured successfully!")
+                    except subprocess.CalledProcessError as _sync_err:
+                        print(f"ERROR: uv sync failed (exit {_sync_err.returncode}).")
+                        print("Please run 'uv sync' manually, then restart Heretic.")
+                        sys.exit(1)
 
                     # Patch bitsandbytes for Windows ROCm support.
                     try:
-                        _main_dir    = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                        _script_path = os.path.join(_main_dir, "scripts", "patch_bitsandbytes.py")
+                        _script_path = os.path.join(_repo_root, "scripts", "patch_bitsandbytes.py")
                         if not os.path.exists(_script_path):
                             _script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
                         if os.path.exists(_script_path):
@@ -331,25 +317,107 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                         print(f"WARNING: Could not run patch script: {_patch_err}")
 
                     print("\nROCm environment configured. Relaunching Heretic...\n")
-                    # Relaunch via the canonical entry-point so that the
-                    # just-installed RDNA wheels are picked up by a fresh process.
-                    # `python -m heretic` does NOT work (heretic has no __main__.py);
-                    # always use `uv run heretic <model>`.
-                    _model_arg = sys.argv[-1]
+                    # Plain `uv run heretic` — no --no-sync needed. uv will sync,
+                    # find the lock already satisfied, install nothing, and start.
+                    _relaunch_args = sys.argv[1:]
                     try:
-                        subprocess.check_call(["uv", "run", "heretic", _model_arg])
+                        subprocess.check_call(["uv", "run", "heretic"] + _relaunch_args)
                         sys.exit(0)
-                    except OSError as _exec_err:
-                        print(f"ERROR: Could not relaunch Heretic: {_exec_err}")
-                        print(f"Please restart Heretic manually: uv run heretic {_model_arg}")
+                    except (subprocess.CalledProcessError, OSError) as _err:
+                        print(f"ERROR: Could not relaunch Heretic: {_err}")
+                        print(
+                            f"Please restart manually: uv run heretic {' '.join(_relaunch_args)}"
+                        )
                         sys.exit(1)
 
-                except subprocess.CalledProcessError as _inst_err:
-                    print(f"ERROR: Installation failed (exit {_inst_err.returncode}).")
-                    print("Falling back to CPU-only execution...")
-                except OSError as _inst_err:
-                    print(f"ERROR: Installation failed: {_inst_err}")
-                    print("Falling back to CPU-only execution...")
+                else:
+                    # ---- Fallback path: direct wheel install (non-git / pip-installed) ----
+                    print("(Variant lock files not found; falling back to direct wheel install)")
+
+                    if sys.executable is None:
+                        print("ERROR: Cannot determine Python executable path. Please install manually.")
+                        sys.exit(1)
+
+                    _py       = f"{sys.version_info.major}{sys.version_info.minor}"
+                    _base     = f"{_AMD_BASE}/{arch_target}"
+                    _torch_url    = (
+                        f"{_base}/torch-{_TORCH_VERSION}%2B{_ROCM_TAG}"
+                        f"-cp{_py}-cp{_py}-win_amd64.whl"
+                    )
+                    _sdk_core_url = f"{_base}/rocm_sdk_core-{_ROCM_VERSION}-py3-none-win_amd64.whl"
+                    _sdk_libs_url = f"{_base}/rocm_sdk_libraries_{lib_suffix}-{_ROCM_VERSION}-py3-none-win_amd64.whl"
+
+                    has_uv = False
+                    try:
+                        subprocess.check_call(
+                            ["uv", "--version"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            timeout=10,
+                        )
+                        has_uv = True
+                    except (FileNotFoundError, subprocess.CalledProcessError,
+                            subprocess.TimeoutExpired, OSError):
+                        pass
+
+                    install_cmd = (
+                        ["uv", "pip", "install",
+                         "--python", sys.executable,
+                         "--extra-index-url", _base + "/",
+                         "--index-strategy", "unsafe-best-match",
+                         _torch_url, _sdk_core_url, _sdk_libs_url]
+                        if has_uv else
+                        [sys.executable, "-m", "pip", "install",
+                         "--extra-index-url", _base + "/",
+                         _torch_url, _sdk_core_url, _sdk_libs_url]
+                    )
+
+                    try:
+                        subprocess.check_call(install_cmd)
+                        print("ROCm PyTorch and SDK wheels configured successfully!")
+
+                        # Patch bitsandbytes.
+                        try:
+                            _script_path = os.path.join(_repo_root, "scripts", "patch_bitsandbytes.py")
+                            if not os.path.exists(_script_path):
+                                _script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
+                            if os.path.exists(_script_path):
+                                subprocess.check_call([sys.executable, _script_path])
+                            else:
+                                _env = os.environ.copy()
+                                _env["PYTHONPATH"] = os.getcwd() + os.pathsep + _env.get("PYTHONPATH", "")
+                                subprocess.check_call(
+                                    [sys.executable, "-m", "scripts.patch_bitsandbytes"],
+                                    env=_env,
+                                )
+                        except subprocess.CalledProcessError as _patch_err:
+                            print(
+                                f"WARNING: Patch script failed (exit {_patch_err.returncode}). "
+                                "Run 'python scripts/patch_bitsandbytes.py' manually."
+                            )
+                        except (FileNotFoundError, OSError) as _patch_err:
+                            print(f"WARNING: Could not run patch script: {_patch_err}")
+
+                        print("\nROCm environment configured. Relaunching Heretic...\n")
+                        _relaunch_args = sys.argv[1:]
+                        try:
+                            subprocess.check_call(
+                                ["uv", "run", "--no-sync", "heretic"] + _relaunch_args
+                            )
+                            sys.exit(0)
+                        except OSError as _exec_err:
+                            print(f"ERROR: Could not relaunch Heretic: {_exec_err}")
+                            print(
+                                f"Please restart manually: "
+                                f"uv run heretic {' '.join(_relaunch_args)}"
+                            )
+                            sys.exit(1)
+
+                    except subprocess.CalledProcessError as _inst_err:
+                        print(f"ERROR: Installation failed (exit {_inst_err.returncode}).")
+                        print("Falling back to CPU-only execution...")
+                    except OSError as _inst_err:
+                        print(f"ERROR: Installation failed: {_inst_err}")
+                        print("Falling back to CPU-only execution...")
 
 from .config import Settings
 

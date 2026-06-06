@@ -105,13 +105,13 @@ uv run python -c "import torch; print(torch.cuda.get_device_name(0)); print(torc
 Once installed, launch heretic using `uv run`:
 
 ```powershell
-uv run heretic --model <model-id> --quantization NONE
+uv run heretic --model <model-id>
 ```
 
 Example with a small test model:
 
 ```powershell
-uv run heretic --model Qwen/Qwen2.5-0.5B-Instruct --quantization NONE
+uv run heretic --model Qwen/Qwen2.5-0.5B-Instruct
 ```
 
 > **Important:** Always run from a proper **PowerShell** or **cmd** terminal — not from an IDE terminal or subprocess. heretic uses an interactive TUI that requires a real Windows console.

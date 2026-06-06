@@ -59,23 +59,42 @@ if sys.platform == "win32":
         if is_cpu:
             # Check if an AMD GPU is installed
             has_amd = False
+            gpu_name = ""
             try:
-                output = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True, stderr=subprocess.DEVNULL)
-                has_amd = any(brand in output for brand in ["AMD", "Radeon"])
+                gpu_name = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True, stderr=subprocess.DEVNULL)
+                has_amd = any(brand in gpu_name for brand in ["AMD", "Radeon"])
             except Exception:
                 try:
-                    output = subprocess.check_output('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', shell=True, text=True, stderr=subprocess.DEVNULL)
-                    has_amd = any(brand in output for brand in ["AMD", "Radeon"])
+                    gpu_name = subprocess.check_output('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', shell=True, text=True, stderr=subprocess.DEVNULL)
+                    has_amd = any(brand in gpu_name for brand in ["AMD", "Radeon"])
                 except Exception:
                     pass
                     
             if has_amd:
+                import re
                 import questionary
                 from questionary import Choice
-                print("[yellow]WARNING: An AMD GPU was detected, but PyTorch CPU-only is currently active.[/]")
-                print("Would you like Heretic to automatically install the AMD ROCm PyTorch wheels and enable 4-bit quantization support?")
+                
+                # Detect RDNA architecture generation (RDNA2, RDNA3, or RDNA4)
+                arch_target = "gfx103X-all"
+                lib_suffix = "gfx103x_all"
+                generation_name = "RDNA2 (Radeon RX 6000-series / gfx103X)"
+                
+                # Check for RDNA3: 7900, 7800, 7700, 7600, 780M, 760M, 740M, W7900, W7800, W7700, W7600, W7500
+                if re.search(r'\b(7900|7800|7700|7600|780M|760M|740M|W7900|W7800|W7700|W7600|W7500)\b', gpu_name, re.IGNORECASE):
+                    arch_target = "gfx110X-all"
+                    lib_suffix = "gfx110x_all"
+                    generation_name = "RDNA3 (Radeon RX 7000-series / gfx110X)"
+                # Check for RDNA4: 9000-series, 9070, 9060, R9700, W8900, W8800, W8600
+                elif re.search(r'\b(9000|9070|9060|R9700|W8900|W8800|W8600)\b', gpu_name, re.IGNORECASE):
+                    arch_target = "gfx120X-all"
+                    lib_suffix = "gfx120x_all"
+                    generation_name = "RDNA4 (Radeon RX 9000-series / gfx120X)"
+
+                print(f"[yellow]WARNING: An AMD GPU ({generation_name}) was detected, but PyTorch CPU-only is currently active.[/]")
+                print(f"Would you like Heretic to automatically install the AMD ROCm PyTorch wheels for {generation_name} and enable 4-bit quantization support?")
                 choices = [
-                    Choice(title="Yes, auto-install AMD ROCm wheels & patch bitsandbytes", value="install"),
+                    Choice(title=f"Yes, auto-install AMD ROCm wheels for {generation_name} & patch bitsandbytes", value="install"),
                     Choice(title="No, run with CPU-only mode", value="skip")
                 ]
                 
@@ -122,16 +141,16 @@ if sys.platform == "win32":
                         choice = "skip"
                         
                 if choice == "install":
-                    print("\nInstalling AMD ROCm PyTorch and SDK wheels. This may take several minutes...")
+                    print(f"\nInstalling AMD ROCm PyTorch and SDK wheels for {generation_name}. This may take several minutes...")
                     py_ver = f"{sys.version_info.major}{sys.version_info.minor}"
-                    torch_wheel_url = f"https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp{py_ver}-cp{py_ver}-win_amd64.whl"
+                    torch_wheel_url = f"https://repo.amd.com/rocm/whl/{arch_target}/torch-2.9.1%2Brocm7.13.0-cp{py_ver}-cp{py_ver}-win_amd64.whl"
                     
                     cmd = [
                         sys.executable, "-m", "pip", "install",
-                        "--extra-index-url", "https://repo.amd.com/rocm/whl/gfx103X-all/",
+                        "--extra-index-url", f"https://repo.amd.com/rocm/whl/{arch_target}/",
                         torch_wheel_url,
-                        "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
-                        "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
+                        f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
+                        f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_libraries_{lib_suffix}-7.13.0-py3-none-win_amd64.whl"
                     ]
                     
                     try:
@@ -139,11 +158,11 @@ if sys.platform == "win32":
                         cmd = [
                             "uv", "--no-config", "pip", "install",
                             "--python", sys.executable,
-                            "--extra-index-url", "https://repo.amd.com/rocm/whl/gfx103X-all/",
+                            "--extra-index-url", f"https://repo.amd.com/rocm/whl/{arch_target}/",
                             "--index-strategy", "unsafe-best-match",
                             torch_wheel_url,
-                            "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
-                            "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl"
+                            f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl",
+                            f"https://repo.amd.com/rocm/whl/{arch_target}/rocm_sdk_libraries_{lib_suffix}-7.13.0-py3-none-win_amd64.whl"
                         ]
                     except Exception:
                         pass

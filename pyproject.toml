@@ -72,11 +72,11 @@ rocm-group = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/p-e-w/heretic"
-Documentation = "https://github.com/p-e-w/heretic"
-Repository = "https://github.com/p-e-w/heretic.git"
-Issues = "https://github.com/p-e-w/heretic/issues"
-Changelog = "https://github.com/p-e-w/heretic/releases"
+Homepage = "https://github.com/Matlan1/heretic-win-AMD"
+Documentation = "https://github.com/Matlan1/heretic-win-AMD"
+Repository = "https://github.com/Matlan1/heretic-win-AMD.git"
+Issues = "https://github.com/Matlan1/heretic-win-AMD/issues"
+Changelog = "https://github.com/Matlan1/heretic-win-AMD/releases"
 
 [project.scripts]
 heretic = "heretic.main:main"

@@ -23,8 +23,8 @@ This guide covers running `heretic` natively on **Windows 11** with **AMD RDNA2 
 ### 1. Clone and enter the repository
 
 ```powershell
-git clone https://github.com/Matlan1/heretic.git
-cd heretic
+git clone https://github.com/Matlan1/heretic-win-AMD.git
+cd heretic-win-AMD
 ```
 
 ### 2. Create venv and install standard dependencies

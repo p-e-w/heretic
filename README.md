@@ -4,7 +4,7 @@
 
 > [!NOTE]
 > **Windows & AMD RDNA2 (gfx103X) Optimized Fork**
-> This repository is a fork of the original [heretic](https://github.com/p-e-w/heretic) project, specifically modified to enable out-of-the-box native Windows support on AMD GPUs (RDNA2, RDNA3, and RDNA4) via ROCm/HIP.
+> This repository is a fork of the original [heretic](https://github.com/Matlan1/heretic-win-AMD) project, specifically modified to enable out-of-the-box native Windows support on AMD GPUs (RDNA2, RDNA3, and RDNA4) via ROCm/HIP.
 > 
 > **Key Additions in this Fork:**
 > - **Native Windows ROCm/HIP Support:** Designed to work natively on Windows 11 with AMD GPUs (including RDNA2 `gfx103X` architectures like RX 6700 XT, 6800, 6800 XT, and 6900 XT).
@@ -99,8 +99,8 @@ Since this fork utilizes [uv](https://docs.astral.sh/uv/) for native dependency 
 
 1. Clone and enter the repository:
    ```powershell
-   git clone https://github.com/Matlan1/heretic-win-rdna2.git
-   cd heretic-win-rdna2
+   git clone https://github.com/Matlan1/heretic-win-AMD.git
+   cd heretic-win-AMD
    ```
 
 2. Sync the virtual environment:
@@ -314,7 +314,7 @@ If you use Heretic for your research, please cite it using the following BibTeX 
   year = {2025},
   publisher = {GitHub},
   journal = {GitHub repository},
-  howpublished = {\url{https://github.com/p-e-w/heretic}}
+  howpublished = {\url{https://github.com/Matlan1/heretic-win-AMD}}
 }
 ```
 

@@ -122,9 +122,9 @@ To ensure maximum hardware coverage on Windows, heretic uses a dynamic setup pip
 
 ---
 
-## Compiling bitsandbytes for RDNA3 or RDNA4
+## Compiling bitsandbytes for RDNA2, RDNA3, or RDNA4
 
-If you are on an RDNA3 (`gfx110X`) or RDNA4 (`gfx120X`) GPU and want to use 4-bit quantization, you can compile the ROCm backend DLL for your exact architecture using these steps:
+If you want to compile the ROCm backend DLL for your exact architecture from source, follow these steps:
 
 ### 1. Prerequisites
 * **Visual Studio 2022** with the **"Desktop development with C++"** workload installed.
@@ -144,7 +144,12 @@ set PATH=%ROCM_PATH%\bin;%ROCM_PATH%\lib;%PATH%
 git clone https://github.com/bitsandbytes-foundation/bitsandbytes.git
 cd bitsandbytes
 ```
-Run CMake with the target architecture (replace `gfx1100` with your GPU generation; e.g. `gfx1100` for RDNA3, `gfx1200` for RDNA4):
+Run CMake with the target architecture corresponding to your GPU generation:
+* For **RDNA2**: Use `-DBNB_ROCM_ARCH="gfx1030"`
+* For **RDNA3**: Use `-DBNB_ROCM_ARCH="gfx1100"`
+* For **RDNA4**: Use `-DBNB_ROCM_ARCH="gfx1200"`
+
+Example (for RDNA3):
 ```cmd
 cmake -G Ninja -B build -DCOMPUTE_BACKEND=hip -DBNB_ROCM_ARCH="gfx1100" -DCMAKE_BUILD_TYPE=Release
 ```
@@ -158,10 +163,11 @@ The compiled DLL (typically `libbitsandbytes_rocm.dll`) will be generated inside
 
 ### 5. Install the DLL
 Rename and copy the compiled DLL into your `heretic-win-AMD/bin/` folder using your architecture identifier:
-* For RDNA3: Copy to `bin/libbitsandbytes_rocm_gfx1100.dll`
-* For RDNA4: Copy to `bin/libbitsandbytes_rocm_gfx1200.dll`
+* For **RDNA2**: Copy to `bin/libbitsandbytes_rocm_gfx1030.dll`
+* For **RDNA3**: Copy to `bin/libbitsandbytes_rocm_gfx1100.dll`
+* For **RDNA4**: Copy to `bin/libbitsandbytes_rocm_gfx1200.dll`
 
-Once copied, re-run `python scripts/patch_bitsandbytes.py`. The patcher will automatically detect your GPU architecture and use the compiled DLL.
+Once copied, re-run `python scripts/patch_bitsandbytes.py`. The patcher will automatically detect your GPU architecture and use your compiled DLL.
 
 ---
 

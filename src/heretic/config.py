@@ -33,7 +33,6 @@ class RowNormalization(str, Enum):
 
 
 class ExportStrategy(str, Enum):
-    NONE = "none"
     MERGE = "merge"
     ADAPTER = "adapter"
 

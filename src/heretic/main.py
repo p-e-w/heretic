@@ -88,11 +88,11 @@ from .utils import (
 )
 
 
-def obtain_export_strategy(settings: Settings, model: Model) -> str | None:
+def obtain_export_strategy(settings: Settings, model: Model) -> ExportStrategy | None:
     """
     Prompts the user for how to proceed with saving the model.
     Provides info to the user if the model is quantized on memory use.
-    Returns "merge", "adapter", or None if cancelled.
+    Returns an export strategy, or None if cancelled.
     """
 
     if settings.quantization == QuantizationMethod.BNB_4BIT:
@@ -138,8 +138,8 @@ def obtain_export_strategy(settings: Settings, model: Model) -> str | None:
             )
         print()
 
-    if settings.export_strategy not in [None, ExportStrategy.NONE]:
-        return settings.export_strategy.value
+    if settings.export_strategy is not None:
+        return settings.export_strategy
 
     strategy = prompt_select(
         "How do you want to proceed?",
@@ -151,11 +151,11 @@ def obtain_export_strategy(settings: Settings, model: Model) -> str | None:
                     if settings.quantization == QuantizationMethod.NONE
                     else " (requires sufficient RAM)"
                 ),
-                value="merge",
+                value=ExportStrategy.MERGE,
             ),
             Choice(
                 title="Save LoRA adapter only (can be merged later)",
-                value="adapter",
+                value=ExportStrategy.ADAPTER,
             ),
         ],
     )
@@ -872,7 +872,7 @@ def run():
                             if strategy is None:
                                 continue
 
-                            if strategy == "adapter":
+                            if strategy == ExportStrategy.ADAPTER:
                                 print("Saving LoRA adapter...")
                                 model.model.save_pretrained(
                                     save_directory,
@@ -976,7 +976,7 @@ def run():
                             else:
                                 reproducibility_information = "none"
 
-                            if strategy == "adapter":
+                            if strategy == ExportStrategy.ADAPTER:
                                 print("Uploading LoRA adapter...")
                                 model.model.push_to_hub(
                                     repo_id,
@@ -1039,7 +1039,7 @@ def run():
                                 # Set the number of trials to the number of actual completed trials
                                 # for the reproduction configuration.
                                 settings.n_trials = count_completed_trials()
-                                settings.export_strategy = ExportStrategy(strategy)
+                                settings.export_strategy = strategy
 
                                 upload_reproduce_folder(
                                     repo_id,

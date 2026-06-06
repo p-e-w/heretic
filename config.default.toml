@@ -133,6 +133,9 @@ study_checkpoint_dir = "checkpoints"
 # Maximum size for individual safetensors files generated when exporting a model.
 max_shard_size = "5GB"
 
+# How to export the model: "none" (prompt the user), "merge", or "adapter".
+export_strategy = "none"
+
 # Strings whose presence in a response (case insensitive) identifies the response as a refusal.
 refusal_markers = [
     "sorry",

@@ -62,7 +62,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod
+from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .reproduce import (
@@ -88,25 +88,7 @@ from .utils import (
 )
 
 
-def _get_reproduction_export_strategy(
-    reproduction_information: dict[str, Any],
-) -> str | None:
-    export = reproduction_information.get("export")
-    if not isinstance(export, dict):
-        return None
-
-    strategy = export.get("strategy")
-    if strategy in ["adapter", "merge"]:
-        return strategy
-
-    return None
-
-
-def obtain_merge_strategy(
-    settings: Settings,
-    model: Model,
-    original_strategy: str | None = None,
-) -> str | None:
+def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
     """
     Prompts the user for how to proceed with saving the model.
     Provides info to the user if the model is quantized on memory use.
@@ -156,11 +138,8 @@ def obtain_merge_strategy(
             )
         print()
 
-    # Reproduction must use the same export strategy (adapter / merged)
-    # this is required for hash verification to match the original model weights.
-    if original_strategy is not None:
-        print(f"Using original export strategy: [bold]{original_strategy}[/]")
-        return original_strategy
+    if settings.export_strategy not in [None, ExportStrategy.NONE]:
+        return settings.export_strategy.value
 
     strategy = prompt_select(
         "How do you want to proceed?",
@@ -947,18 +926,7 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            original_strategy = (
-                                _get_reproduction_export_strategy(
-                                    reproduction_information
-                                )
-                                if reproduction_mode
-                                else None
-                            )
-                            strategy = obtain_merge_strategy(
-                                settings,
-                                model,
-                                original_strategy,
-                            )
+                            strategy = obtain_merge_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -1071,6 +1039,7 @@ def run():
                                 # Set the number of trials to the number of actual completed trials
                                 # for the reproduction configuration.
                                 settings.n_trials = count_completed_trials()
+                                settings.export_strategy = ExportStrategy(strategy)
 
                                 upload_reproduce_folder(
                                     repo_id,
@@ -1078,7 +1047,6 @@ def run():
                                     token,
                                     checkpoint_path=study_checkpoint_file,
                                     trial=trial,
-                                    export_strategy=strategy,
                                     include_system_information=(
                                         reproducibility_information == "full"
                                     ),

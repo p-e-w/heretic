@@ -7,7 +7,7 @@ license = "AGPL-3.0-or-later"
 authors = [
     { name = "Philipp Emanuel Weidmann", email = "pew@worldwidemann.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.12, <3.13"
 keywords = ["llm", "transformer", "abliteration"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -87,6 +87,9 @@ exclude-newer = "7 days"
 exclude-newer-package = { rocm = false, rocm-sdk-core = false, rocm-sdk-libraries-gfx103x-all = false, rocm-sdk-libraries-gfx103X-all = false, rocm-sdk-libraries-gfx110x-all = false, rocm-sdk-libraries-gfx120x-all = false, torch = false, triton = false }
 environments = ["sys_platform == 'win32' and python_full_version < '3.14'", "sys_platform == 'linux'"]
 default-groups = ["dev"]
+constraint-dependencies = [
+  "triton; sys_platform == 'linux'",
+]
 
 [[tool.uv.index]]
 name = "rocm-gfx1030"

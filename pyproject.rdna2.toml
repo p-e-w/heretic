@@ -7,7 +7,7 @@ license = "AGPL-3.0-or-later"
 authors = [
     { name = "Philipp Emanuel Weidmann", email = "pew@worldwidemann.com" }
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.12, <3.13"
 keywords = ["llm", "transformer", "abliteration"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -44,9 +44,9 @@ dependencies = [
     "tqdm~=4.67",
     "transformers[kernels]~=5.6",
     # RDNA2 (gfx103X) — AMD Windows GPU packages, activated by heretic auto-installer.
-    # torch is declared as a direct dep so [tool.uv.sources] index override is applied
-    # during `uv lock` (uv only honours source overrides for direct deps when locking).
-    "torch>=2.9; sys_platform == 'win32'",
+    # torch is pinned as a direct URL so uv never reads the AMD wheel's METADATA
+    # (which declares triton+rocm — a Windows-unavailable transitive dep).
+    "torch==2.9.1+rocm7.13.0; sys_platform == 'win32'",
     "rocm; sys_platform == 'win32'",
     "rocm-sdk-core; sys_platform == 'win32'",
     "rocm-sdk-libraries-gfx103x-all; sys_platform == 'win32'",
@@ -103,11 +103,10 @@ url = "https://repo.amd.com/rocm/whl/gfx120X-all/"
 explicit = true
 
 [tool.uv.sources]
-# torch: use the RDNA2-specific index on Windows so the lock pins the ROCm wheel.
-# Using `index` form (not `url`) ensures this override applies during `uv lock`
-# even when torch is pulled in transitively by accelerate.
+# torch: direct URL per Python version so uv never reads wheel METADATA
+# (AMD's METADATA declares triton+rocm which doesn't exist as a standalone package).
 torch = [
-  { index = "rocm-gfx1030", marker = "sys_platform == 'win32'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12'" },
 ]
 rocm = [
   { index = "rocm-gfx1030", marker = "sys_platform == 'win32'" },

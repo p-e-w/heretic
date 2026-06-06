@@ -241,4 +241,4 @@ try:
 except OSError:
     pass  # Non-fatal.
 
-print(f"\nSetup complete! Run heretic with:\n  uv run --frozen heretic <model-id>\n")
+print(f"\nSetup complete! Run heretic with:\n  uv run heretic <model-id>\n")

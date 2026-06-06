@@ -125,13 +125,13 @@ uv run python -c "import torch; print(torch.cuda.get_device_name(0)); print(torc
 After running `setup_rocm.py`, launch heretic with:
 
 ```powershell
-uv run --frozen heretic <model-id>
+uv run heretic <model-id>
 ```
 
 Example with a small test model:
 
 ```powershell
-uv run --frozen heretic Qwen/Qwen2.5-0.5B-Instruct
+uv run heretic Qwen/Qwen2.5-0.5B-Instruct
 ```
 
 > **Why `--frozen`?** After ROCm setup, the `uv.lock` contains ROCm-specific wheels that are
@@ -160,7 +160,7 @@ To ensure maximum hardware coverage on Windows, heretic uses a dynamic setup pip
 
 1. **GPU Detection:** `setup_rocm.py` inspects the Windows system to determine which AMD Radeon GPU generation is installed (RDNA2, RDNA3, or RDNA4).
 2. **Arch-Specific Config Swap:** The script copies `pyproject.rdnaX.toml` → `pyproject.toml` and `uv.lock.rdnaX` → `uv.lock` for the detected architecture. These pre-generated pairs are committed to the repository — one per arch — and each locks the correct ROCm PyTorch and SDK wheels as default (non-extra) dependencies.
-3. **`uv sync --frozen --no-install-project`:** With the correct lock in place, uv installs the right arch-specific wheels cleanly. `--frozen` prevents re-resolution; `--no-install-project` skips reinstalling heretic itself (saving time, since project code hasn't changed). Every future `uv run --frozen heretic` starts immediately — the setup is permanent.
+3. **`uv sync --frozen --no-install-project`:** With the correct lock in place, uv installs the right arch-specific wheels cleanly. `--frozen` prevents re-resolution; `--no-install-project` skips reinstalling heretic itself (saving time, since project code hasn't changed). Every future `uv run heretic` starts immediately — the setup is permanent.
 4. **bitsandbytes Patch:** `bitsandbytes` raises a `RuntimeError` at import time on Windows ROCm because standard packages do not bundle `libbitsandbytes_rocm*.dll`. The patch script copies a precompiled library to `libbitsandbytes_rocm83.dll` inside the package folder. It dynamically detects your GPU architecture (e.g. `gfx1100` for RDNA3) and looks for a matching `libbitsandbytes_rocm_<arch>.dll` in the `bin/` directory. If a specific architecture DLL does not exist, it falls back to the RDNA2 `libbitsandbytes_rocm_gfx1030.dll`.
 
 ---
@@ -220,7 +220,7 @@ Once copied, re-run `uv run python scripts/patch_bitsandbytes.py`. The patcher w
 AMD index flags. Use the full command from the Alternative section (with `--extra-index-url`,
 `--index-strategy unsafe-best-match`).
 
-**`No solution found when resolving dependencies`** — You ran `uv run heretic` without `--frozen` after ROCm setup. The ROCm lock is Windows-only and cannot resolve on all platforms. Use `uv run --frozen heretic <model>` instead.
+**`No solution found when resolving dependencies`** — You ran `uv run heretic` without `--frozen` after ROCm setup. The ROCm lock is Windows-only and cannot resolve on all platforms. Use `uv run heretic <model>` instead.
 
 **`HIP error: invalid device function` / `hipErrorInvalidImage` / `hipErrorInvalidKernelFile`** — The wrong torch arch wheel is installed (e.g. RDNA3 wheels on an RDNA2 GPU). Delete `.heretic_rocm_arch` and re-run `uv run python scripts/setup_rocm.py` — it will detect the correct arch and install the right wheels.
 

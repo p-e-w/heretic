@@ -91,7 +91,7 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
             print()
             print("  Then launch heretic normally:")
             print()
-            print("    uv run --frozen heretic <model-id>")
+            print("    uv run heretic <model-id>")
             print()
             sys.exit(0)
 

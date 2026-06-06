@@ -351,8 +351,10 @@ def run():
     except ValidationError as error:
         print(f"[red]Configuration contains [bold]{error.error_count()}[/] errors:[/]")
 
-        for error in error.errors():
-            print(f"[bold]{error['loc'][0]}[/]: [yellow]{error['msg']}[/]")
+        for error_detail in error.errors():
+            print(
+                f"[bold]{error_detail['loc'][0]}[/]: [yellow]{error_detail['msg']}[/]"
+            )
 
         print()
         print(
@@ -969,6 +971,8 @@ def run():
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
+                                if model.processor is not None:
+                                    model.processor.save_pretrained(save_directory)
                                 reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")
@@ -1079,6 +1083,12 @@ def run():
                                     private=private,
                                     token=token,
                                 )
+                                if model.processor is not None:
+                                    model.processor.push_to_hub(
+                                        repo_id,
+                                        private=private,
+                                        token=token,
+                                    )
                                 reset_trial_model()
 
                             if is_hf_path(settings.model):

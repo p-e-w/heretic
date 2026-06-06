@@ -3,7 +3,7 @@
 # Heretic (Windows & AMD ROCm Fork)<br><br>[![Discord](https://img.shields.io/discord/1447831134212984903?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/gdXc48gSyT) [![Follow us on Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg)](https://huggingface.co/heretic-org)
 
 > [!NOTE]
-> **Windows & AMD RDNA2 (gfx103X) Optimized Fork**
+> **Windows & AMD GPU (RDNA 2/3/4) Optimized Fork**
 > This repository is a fork of the original [heretic](https://github.com/Matlan1/heretic-win-AMD) project, specifically modified to enable out-of-the-box native Windows support on AMD GPUs (RDNA2, RDNA3, and RDNA4) via ROCm/HIP.
 > 
 > **Key Additions in this Fork:**

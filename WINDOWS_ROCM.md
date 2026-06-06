@@ -118,7 +118,50 @@ To ensure maximum hardware coverage on Windows, heretic uses a dynamic setup pip
 
 1. **Dynamic GPU Detection:** On startup, the launcher inspects the Windows system to determine which AMD Radeon GPU generation is installed (RDNA2, RDNA3, or RDNA4).
 2. **Dynamic Wheel Selection:** The launcher downloads the corresponding PyTorch and ROCm SDK wheels from `repo.amd.com/rocm/whl/`. RDNA2 gets `gfx103X-all` wheels, RDNA3 gets `gfx110X-all`, and RDNA4 gets `gfx120X-all` wheels. This ensures that the installed PyTorch has native, optimized kernels matching your exact GPU architecture.
-3. **bitsandbytes Patch:** `bitsandbytes` raises a `RuntimeError` at import time on Windows ROCm because standard packages do not bundle `libbitsandbytes_rocm*.dll`. heretic automatically patches `bitsandbytes` with a precompiled `libbitsandbytes_rocm83.dll`. Note that this bundled DLL was compiled for `gfx1030` (RDNA2), so 4-bit quantization is currently limited to RDNA2 hardware. Using FP16/BF16 (`--quantization NONE`) is fully supported and works universally on all RDNA2, RDNA3, and RDNA4 GPUs.
+3. **bitsandbytes Patch:** `bitsandbytes` raises a `RuntimeError` at import time on Windows ROCm because standard packages do not bundle `libbitsandbytes_rocm*.dll`. heretic automatically patches `bitsandbytes` by copying a precompiled library to `libbitsandbytes_rocm83.dll` inside the package folder. The patch script dynamically detects your GPU architecture (e.g. `gfx1100` for RDNA3) and looks for a matching `libbitsandbytes_rocm_<arch>.dll` in the `bin/` directory. If a specific architecture DLL does not exist, it falls back to the RDNA2 `libbitsandbytes_rocm_gfx1030.dll`.
+
+---
+
+## Compiling bitsandbytes for RDNA3 or RDNA4
+
+If you are on an RDNA3 (`gfx110X`) or RDNA4 (`gfx120X`) GPU and want to use 4-bit quantization, you can compile the ROCm backend DLL for your exact architecture using these steps:
+
+### 1. Prerequisites
+* **Visual Studio 2022** with the **"Desktop development with C++"** workload installed.
+* **AMD ROCm SDK for Windows** installed (v6.x or v7.x).
+* **CMake** and **Ninja** installed and available in your system path.
+
+### 2. Configure Build Environment
+Open the **x64 Native Tools Command Prompt for VS 2022** (do not use PowerShell or normal cmd, as MSVC compiler variables are required). Set the ROCm paths (adjust paths if your installed version differs):
+```cmd
+set ROCM_PATH=C:\Program Files\AMD\ROCm\7.13.0
+set HIP_PATH=%ROCM_PATH%
+set PATH=%ROCM_PATH%\bin;%ROCM_PATH%\lib;%PATH%
+```
+
+### 3. Clone and Configure bitsandbytes
+```cmd
+git clone https://github.com/bitsandbytes-foundation/bitsandbytes.git
+cd bitsandbytes
+```
+Run CMake with the target architecture (replace `gfx1100` with your GPU generation; e.g. `gfx1100` for RDNA3, `gfx1200` for RDNA4):
+```cmd
+cmake -G Ninja -B build -DCOMPUTE_BACKEND=hip -DBNB_ROCM_ARCH="gfx1100" -DCMAKE_BUILD_TYPE=Release
+```
+
+### 4. Build the DLL
+Compile the ROCm library DLL:
+```cmd
+cmake --build build --config Release
+```
+The compiled DLL (typically `libbitsandbytes_rocm.dll`) will be generated inside the build outputs directory. 
+
+### 5. Install the DLL
+Rename and copy the compiled DLL into your `heretic-win-AMD/bin/` folder using your architecture identifier:
+* For RDNA3: Copy to `bin/libbitsandbytes_rocm_gfx1100.dll`
+* For RDNA4: Copy to `bin/libbitsandbytes_rocm_gfx1200.dll`
+
+Once copied, re-run `python scripts/patch_bitsandbytes.py`. The patcher will automatically detect your GPU architecture and use the compiled DLL.
 
 ---
 

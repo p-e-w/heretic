@@ -13,11 +13,63 @@ def main():
     bnb_dir = spec.submodule_search_locations[0]
     print(f"Found bitsandbytes at: {bnb_dir}")
     
+    # Try to detect GPU architecture
+    arch = None
+    try:
+        import torch
+        if torch.cuda.is_available():
+            prop = torch.cuda.get_device_properties(0)
+            if hasattr(prop, "gcnArchName"):
+                arch = prop.gcnArchName.split(":")[0]
+    except Exception:
+        pass
+
+    if not arch:
+        # Fall back to wmic/powershell GPU name matching
+        gpu_name = ""
+        try:
+            import subprocess
+            gpu_name = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True, stderr=subprocess.DEVNULL)
+        except Exception:
+            try:
+                import subprocess
+                gpu_name = subprocess.check_output('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', shell=True, text=True, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        
+        if gpu_name:
+            if re.search(r'\b(7900|7800|7700|7600|780M|760M|740M|W7900|W7800|W7700|W7600|W7500)\b', gpu_name, re.IGNORECASE):
+                arch = "gfx1100"
+            elif re.search(r'\b(9000|9070|9060|R9700|W8900|W8800|W8600)\b', gpu_name, re.IGNORECASE):
+                arch = "gfx1200"
+            elif any(brand in gpu_name for brand in ["AMD", "Radeon"]):
+                arch = "gfx1030"
+
+    if arch:
+        print(f"Detected GPU architecture: {arch}")
+    else:
+        print("GPU architecture could not be determined. Defaulting to gfx1030.")
+        arch = "gfx1030"
+
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    dll_src = os.path.join(repo_dir, "bin", "libbitsandbytes_rocm83.dll")
+    
+    # Try architecture-specific DLL first
+    dll_src = os.path.join(repo_dir, "bin", f"libbitsandbytes_rocm_{arch}.dll")
     if not os.path.exists(dll_src):
-        # Fall back to current working directory
-        dll_src = os.path.join(os.getcwd(), "bin", "libbitsandbytes_rocm83.dll")
+        dll_src = os.path.join(os.getcwd(), "bin", f"libbitsandbytes_rocm_{arch}.dll")
+        
+    # Fall back to gfx1030
+    if not os.path.exists(dll_src):
+        print(f"Architecture-specific DLL for {arch} not found. Falling back to gfx1030...")
+        dll_src = os.path.join(repo_dir, "bin", "libbitsandbytes_rocm_gfx1030.dll")
+        if not os.path.exists(dll_src):
+            dll_src = os.path.join(os.getcwd(), "bin", "libbitsandbytes_rocm_gfx1030.dll")
+
+    # Fall back to original libbitsandbytes_rocm83.dll
+    if not os.path.exists(dll_src):
+        dll_src = os.path.join(repo_dir, "bin", "libbitsandbytes_rocm83.dll")
+        if not os.path.exists(dll_src):
+            dll_src = os.path.join(os.getcwd(), "bin", "libbitsandbytes_rocm83.dll")
         
     dll_dest = os.path.join(bnb_dir, "libbitsandbytes_rocm83.dll")
     
@@ -25,7 +77,7 @@ def main():
         print(f"Error: Precompiled DLL not found at: {dll_src}")
         return
     
-    print(f"Copying precompiled ROCm DLL to: {dll_dest}")
+    print(f"Copying precompiled ROCm DLL ({os.path.basename(dll_src)}) to: {dll_dest}")
     shutil.copyfile(dll_src, dll_dest)
     
     # 1. Patch cuda_specs.py

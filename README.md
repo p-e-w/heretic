@@ -8,8 +8,7 @@
 > 
 > **Key Additions in this Fork:**
 > - **Native Windows ROCm/HIP Support:** Designed to work natively on Windows 11 with AMD GPUs (including RDNA2 `gfx103X` architectures like RX 6700 XT, 6800, 6800 XT, and 6900 XT).
-> - **GPU Auto-Installation Wizard:** Detects your AMD GPU on startup, automatically installs ROCm-enabled PyTorch and SDK wheels, patches `bitsandbytes` with the required ROCm DLLs, and resumes execution seamlessly.
-> - **`uv` Integration:** Pre-configured index/sources in `pyproject.toml` ensure that standard `uv sync` pulls Windows ROCm wheels directly, preventing PyPI CPU-only package overrides.
+> - **GPU Auto-Installation Wizard:** On the first run, detects your AMD GPU generation, swaps in the matching pre-generated `pyproject` + `uv.lock` pair for your architecture (RDNA2/3/4), runs `uv sync` to install the correct ROCm PyTorch and SDK wheels, patches `bitsandbytes`, and relaunches. Every subsequent `uv run heretic` is a fast no-op sync — the correct arch is locked in permanently.
 > - **Hugging Face URL Parsing:** Pass a full `https://huggingface.co/org/model` URL directly as the model argument — it is automatically stripped to the bare repo ID.
 > 
 > For full setup details, see [WINDOWS_ROCM.md](WINDOWS_ROCM.md).
@@ -113,14 +112,9 @@ Since this fork utilizes [uv](https://docs.astral.sh/uv/) for native dependency 
    ```powershell
    uv run heretic Qwen/Qwen3-4B-Instruct-2507
    ```
-   *(On first run, the ROCm Auto-Installer wizard will detect your AMD GPU, prompt you to install the correct ROCm packages for your architecture, run the bitsandbytes patch script, and restart the process automatically).*
+   *(On first run, the ROCm Auto-Installer wizard will detect your AMD GPU, swap in the matching arch-specific `pyproject` + `uv.lock` pair, run `uv sync` to install the correct ROCm wheels permanently, patch `bitsandbytes`, and restart. All subsequent runs start immediately with no install step.)*
 
-   *(Note: Replace `Qwen/Qwen3-4B-Instruct-2507` with the Hugging Face model path or local model directory you wish to process).*
-
-   **Alternative (Skip first-run prompt):** If you want to install your specific GPU architecture wheels directly on first sync, specify your GPU extra:
-   * **RDNA2:** `uv sync --extra rocm-rdna2`
-   * **RDNA3:** `uv sync --extra rocm-rdna3`
-   * **RDNA4:** `uv sync --extra rocm-rdna4`
+   *(Note: Replace `Qwen/Qwen3-4B-Instruct-2507` with the Hugging Face model path or local model directory you wish to process.)*
 
 ---
 

@@ -88,11 +88,11 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
+def obtain_export_strategy(settings: Settings, model: Model) -> str | None:
     """
     Prompts the user for how to proceed with saving the model.
     Provides info to the user if the model is quantized on memory use.
-    Returns "merge", "adapter", or None (if cancelled/invalid).
+    Returns "merge", "adapter", or None if cancelled.
     """
 
     if settings.quantization == QuantizationMethod.BNB_4BIT:
@@ -868,7 +868,7 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_merge_strategy(settings, model)
+                            strategy = obtain_export_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -926,7 +926,7 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings, model)
+                            strategy = obtain_export_strategy(settings, model)
                             if strategy is None:
                                 continue
 

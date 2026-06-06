@@ -8,7 +8,7 @@
 >
 > **What this fork adds:**
 > - **Native Windows ROCm support** — works out of the box on RX 6000, RX 7000, and RX 9000 series GPUs.
-> - **One-time setup script** — `uv run python scripts/setup_rocm.py` detects your GPU generation, swaps in the matching pre-built `pyproject.toml` + `uv.lock` for your architecture, installs the correct ROCm PyTorch and SDK wheels, and patches `bitsandbytes`. After that, `uv run heretic` works identically to upstream — permanently.
+> - **One-time setup script** — `uv run python scripts/setup_rocm.py` detects your GPU generation, swaps in the matching pre-built `pyproject.toml` + `uv.lock` for your architecture, installs the correct ROCm PyTorch and SDK wheels, and patches `bitsandbytes`. After that, `uv run heretic` works identically to upstream.
 > - **Hugging Face URL parsing** — pass a full `https://huggingface.co/org/model` URL directly; it is automatically converted to the bare repo ID.
 >
 > See [WINDOWS_ROCM.md](WINDOWS_ROCM.md) for full setup instructions.

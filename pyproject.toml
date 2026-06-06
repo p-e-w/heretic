@@ -53,22 +53,11 @@ research = [
     "pacmap~=0.8",
     "scikit-learn~=1.7",
 ]
-rocm = [
-    "torch",
-    "rocm; sys_platform == 'win32'",
-    "rocm-sdk-core; sys_platform == 'win32'",
-    "rocm-sdk-libraries-gfx103x-all; sys_platform == 'win32'",
-]
 
 [dependency-groups]
 dev = [
     "ruff>=0.14.5",
     "ty>=0.0.5",
-]
-rocm-group = [
-    "rocm; sys_platform == 'win32'",
-    "rocm-sdk-core; sys_platform == 'win32'",
-    "rocm-sdk-libraries-gfx103x-all; sys_platform == 'win32'",
 ]
 
 [project.urls]
@@ -87,31 +76,7 @@ build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { rocm = false, rocm-sdk-core = false, rocm-sdk-libraries-gfx103x-all = false, rocm-sdk-libraries-gfx103X-all = false, torch = false, triton = false }
-environments = ["sys_platform == 'win32'", "sys_platform == 'linux'"]
-default-groups = ["dev", "rocm-group"]
-
-[[tool.uv.index]]
-name = "rocm"
-url = "https://repo.amd.com/rocm/whl/gfx103X-all/"
-explicit = true
-
-[tool.uv.sources]
-torch = [
-  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp310-cp310-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.10'" },
-  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11'" },
-  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12'" },
-  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13'" }
-]
-rocm = [
-  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/rocm-7.13.0.tar.gz", marker = "sys_platform == 'win32'" }
-]
-rocm-sdk-core = [
-  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_core-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32'" }
-]
-rocm-sdk-libraries-gfx103x-all = [
-  { url = "https://repo.amd.com/rocm/whl/gfx103X-all/rocm_sdk_libraries_gfx103x_all-7.13.0-py3-none-win_amd64.whl", marker = "sys_platform == 'win32'" }
-]
+default-groups = ["dev"]
 
 [tool.uv.build-backend]
 module-name = "heretic"

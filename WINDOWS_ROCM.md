@@ -85,12 +85,12 @@ uv pip install `
 
 #### B. Patch bitsandbytes for 4-bit quantization support
 ```powershell
-.venv\Scripts\python.exe scripts/patch_bitsandbytes.py
+uv run python scripts/patch_bitsandbytes.py
 ```
 
 Verify that the GPU is detected successfully:
 ```powershell
-.venv\Scripts\python.exe -c "import torch; print(torch.cuda.get_device_name(0)); print(torch.cuda.get_arch_list())"
+uv run python -c "import torch; print(torch.cuda.get_device_name(0)); print(torch.cuda.get_arch_list())"
 # Expected: AMD Radeon RX 6900 XT
 # Expected: ['gfx1030', 'gfx1031', ...]
 ```
@@ -184,7 +184,7 @@ Rename and copy the compiled DLL into your `heretic-win-AMD/bin/` folder using y
 * For **RDNA3**: Copy to `bin/libbitsandbytes_rocm_gfx1100.dll`
 * For **RDNA4**: Copy to `bin/libbitsandbytes_rocm_gfx1200.dll`
 
-Once copied, re-run `python scripts/patch_bitsandbytes.py`. The patcher will automatically detect your GPU architecture and use your compiled DLL.
+Once copied, re-run `uv run python scripts/patch_bitsandbytes.py`. The patcher will automatically detect your GPU architecture and use your compiled DLL.
 
 ---
 
@@ -200,7 +200,5 @@ kernels). Re-run step 3 with `--force-reinstall` appended.
 **`NoConsoleScreenBufferError`** — You are running heretic from an IDE subprocess. Open a real
 PowerShell/cmd window and run it there.
 
-**GPU not detected / `torch.cuda.is_available()` returns `False`** — You ran the verify step with
-`uv run python` instead of `.venv\Scripts\python.exe`. `uv run` re-syncs the venv and overwrites
-the ROCm wheels with the CPU-only PyPI build. Re-run step 3 to reinstall the ROCm wheels, then
-verify with `.venv\Scripts\python.exe` directly.
+**GPU not detected / `torch.cuda.is_available()` returns `False`** — Make sure you have installed the GPU package extras (e.g. `uv sync --extra rocm-rdna2`, `--extra rocm-rdna3`, or `--extra rocm-rdna4`) and not just the default CPU fallback sync.
+

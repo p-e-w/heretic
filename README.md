@@ -115,6 +115,8 @@ Since this fork utilizes [uv](https://docs.astral.sh/uv/) for native dependency 
    ```
    *(On first run, the ROCm Auto-Installer wizard will detect your AMD GPU, prompt you to install the correct ROCm packages for your architecture, run the bitsandbytes patch script, and restart the process automatically).*
 
+   *(Note: Replace `Qwen/Qwen3-4B-Instruct-2507` with the Hugging Face model path or local model directory you wish to process).*
+
    **Alternative (Skip first-run prompt):** If you want to install your specific GPU architecture wheels directly on first sync, specify your GPU extra:
    * **RDNA2:** `uv sync --extra rocm-rdna2`
    * **RDNA3:** `uv sync --extra rocm-rdna3`

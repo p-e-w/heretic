@@ -83,16 +83,26 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
         # 4. If setup is needed: prompt and exit.
         # ------------------------------------------------------------------
         if has_amd and not _already_configured and is_cpu:
-            print(f"WARNING: An AMD GPU was detected, but ROCm is not configured.")
-            print()
-            print("  Run the one-time setup script first:")
-            print()
-            print("    uv run python scripts/setup_rocm.py")
-            print()
-            print("  Then launch heretic normally:")
-            print()
-            print("    uv run heretic <model-id>")
-            print()
+            sys.stdout.write("AMD GPU detected — ROCm isn't configured yet.\n\n")
+            sys.stdout.write("  [Y] Run first-time setup now\n")
+            sys.stdout.write("  [N] I'll handle it myself\n\n")
+            sys.stdout.write("Choice [Y/n]: ")
+            sys.stdout.flush()
+            try:
+                answer = input().strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = "n"
+            if answer in ("", "y", "yes"):
+                _setup_script = os.path.join(_repo_root, "scripts", "setup_rocm.py")
+                if not os.path.exists(_setup_script):
+                    _setup_script = os.path.join(os.getcwd(), "scripts", "setup_rocm.py")
+                import shutil as _shutil
+                _uv = _shutil.which("uv") or "uv"
+                _rc = subprocess.call([_uv, "run", "python", _setup_script])
+                if _rc == 0:
+                    sys.stdout.write("\nSetup complete — relaunching heretic...\n\n")
+                    sys.stdout.flush()
+                    subprocess.call([_uv, "run", "heretic"] + sys.argv[1:])
             sys.exit(0)
 
         # ------------------------------------------------------------------

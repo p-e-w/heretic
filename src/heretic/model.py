@@ -150,7 +150,10 @@ class Model:
             except Exception as error:
                 self.model = None  # ty:ignore[invalid-assignment]
                 empty_cache()
-                print(f"* [red]Failed[/] ({error})")
+                error_message = str(error)
+                if any(k in error_message.lower() for k in ["triton", "mxfp4"]):
+                    error_message += " (Hint: MXFP4 quantized models may require Triton >= 3.5 and PyTorch >= 2.6 on older GPUs.)"
+                print(f"* [red]Failed[/] ({error_message})")
                 continue
 
             if settings.quantization == QuantizationMethod.BNB_4BIT:

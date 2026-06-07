@@ -125,6 +125,11 @@ def _determine_batch_size(
     good_prompts: list[Prompt],
     max_batch_size: int,
 ) -> int:
+    if not good_prompts:
+        raise ValueError("The list of good prompts must not be empty.")
+    if max_batch_size < 1:
+        raise ValueError("max_batch_size must be at least 1.")
+
     print()
     print("Determining optimal batch size...")
 

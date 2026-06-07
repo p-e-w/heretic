@@ -68,6 +68,7 @@ from .model import AbliterationParameters, Model, get_model_class
 from .reproduce import collect_reproducibles
 from .system import empty_cache, get_accelerator_info
 from .utils import (
+    Prompt,
     format_duration,
     get_readme_intro,
     get_trial_parameters,
@@ -82,6 +83,102 @@ from .utils import (
     set_seed,
     upload_reproduce_folder,
 )
+
+BATCH_SIZE_REFINEMENT_THRESHOLD = 8
+
+
+def _is_oom_error(error: Exception) -> bool:
+    if isinstance(error, torch.cuda.OutOfMemoryError):
+        return True
+    if isinstance(error, RuntimeError) and "out of memory" in str(error).lower():
+        return True
+    return False
+
+
+def _benchmark_batch_size(
+    model: Model,
+    good_prompts: list[Prompt],
+    batch_size: int,
+) -> float:
+    print(f"* Trying batch size [bold]{batch_size}[/]... ", end="")
+
+    prompts = good_prompts * math.ceil(batch_size / len(good_prompts))
+    prompts = prompts[:batch_size]
+
+    # Warmup run to build the computation graph so that part isn't benchmarked.
+    model.get_responses(prompts)
+
+    start_time = time.perf_counter()
+    responses = model.get_responses(prompts)
+    end_time = time.perf_counter()
+
+    response_lengths = [len(model.tokenizer.encode(response)) for response in responses]
+    performance = sum(response_lengths) / (end_time - start_time)
+
+    print(f"[green]Ok[/] ([bold]{performance:.0f}[/] tokens/s)")
+
+    return performance
+
+
+def _determine_batch_size(
+    model: Model,
+    good_prompts: list[Prompt],
+    max_batch_size: int,
+) -> int:
+    print()
+    print("Determining optimal batch size...")
+
+    batch_size = 1
+    best_batch_size = -1
+    best_performance = -1.0
+    last_successful_batch_size = 0
+    failed_batch_size: int | None = None
+
+    while batch_size <= max_batch_size:
+        try:
+            performance = _benchmark_batch_size(model, good_prompts, batch_size)
+        except Exception as error:
+            if batch_size == 1:
+                # Even a batch size of 1 already fails.
+                # We cannot recover from this.
+                raise
+
+            print(f"[red]Failed[/] ({error})")
+            if _is_oom_error(error):
+                failed_batch_size = batch_size
+                empty_cache()
+            break
+
+        if performance > best_performance:
+            best_batch_size = batch_size
+            best_performance = performance
+
+        last_successful_batch_size = batch_size
+        batch_size *= 2
+
+    if failed_batch_size is not None:
+        low = last_successful_batch_size
+        high = failed_batch_size
+
+        while high - low > BATCH_SIZE_REFINEMENT_THRESHOLD:
+            mid = (low + high) // 2
+            try:
+                performance = _benchmark_batch_size(model, good_prompts, mid)
+            except Exception as error:
+                if not _is_oom_error(error):
+                    raise
+
+                print(f"[red]Failed[/] ({error})")
+                empty_cache()
+                high = mid
+                continue
+
+            if performance > best_performance:
+                best_batch_size = mid
+                best_performance = performance
+            low = mid
+
+    return best_batch_size
 
 
 def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
@@ -338,49 +435,9 @@ def run():
     print(f"* [bold]{len(bad_prompts)}[/] prompts loaded")
 
     if settings.batch_size == 0:
-        print()
-        print("Determining optimal batch size...")
-
-        batch_size = 1
-        best_batch_size = -1
-        best_performance = -1
-
-        while batch_size <= settings.max_batch_size:
-            print(f"* Trying batch size [bold]{batch_size}[/]... ", end="")
-
-            prompts = good_prompts * math.ceil(batch_size / len(good_prompts))
-            prompts = prompts[:batch_size]
-
-            try:
-                # Warmup run to build the computation graph so that part isn't benchmarked.
-                model.get_responses(prompts)
-
-                start_time = time.perf_counter()
-                responses = model.get_responses(prompts)
-                end_time = time.perf_counter()
-            except Exception as error:
-                if batch_size == 1:
-                    # Even a batch size of 1 already fails.
-                    # We cannot recover from this.
-                    raise
-
-                print(f"[red]Failed[/] ({error})")
-                break
-
-            response_lengths = [
-                len(model.tokenizer.encode(response)) for response in responses
-            ]
-            performance = sum(response_lengths) / (end_time - start_time)
-
-            print(f"[green]Ok[/] ([bold]{performance:.0f}[/] tokens/s)")
-
-            if performance > best_performance:
-                best_batch_size = batch_size
-                best_performance = performance
-
-            batch_size *= 2
-
-        settings.batch_size = best_batch_size
+        settings.batch_size = _determine_batch_size(
+            model, good_prompts, settings.max_batch_size
+        )
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
     if settings.response_prefix is None:

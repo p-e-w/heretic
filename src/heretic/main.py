@@ -364,7 +364,7 @@ def run():
                     # We cannot recover from this.
                     raise
 
-                print(f"[red]Failed[/] ({error})")
+                print(f"[red]Failed[/] ({str(error).strip() or type(error).__name__})")
                 break
 
             response_lengths = [
@@ -1120,7 +1120,9 @@ def run():
                                 print(table)
 
                 except Exception as error:
-                    print(f"[red]Error: {error}[/]")
+                    print(
+                        f"[red]Error: {str(error).strip() or type(error).__name__}[/]"
+                    )
 
 
 def main():

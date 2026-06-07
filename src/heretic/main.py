@@ -91,7 +91,6 @@ from .utils import (
 def obtain_export_strategy(
     settings: Settings,
     model: Model,
-    original_export_strategy: ExportStrategy | None = None,
 ) -> ExportStrategy | None:
     """
     Gets the export strategy from settings or prompts the user.
@@ -144,12 +143,6 @@ def obtain_export_strategy(
                 "[yellow]Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
             )
         print()
-
-    if original_export_strategy is not None:
-        print(
-            f"Original export strategy was [bold]{original_export_strategy.value}[/]; "
-            "choose it for proper hash verification."
-        )
 
     strategy = prompt_select(
         "How do you want to proceed?",
@@ -231,7 +224,6 @@ def run():
         return
 
     reproduction_mode = settings.reproduce is not None
-    original_export_strategy: ExportStrategy | None = None
 
     if settings.reproduce is not None:
         print(f"Loading reproduction information from [bold]{settings.reproduce}[/]...")
@@ -253,8 +245,6 @@ def run():
         print()
 
         settings = Settings.model_validate(reproduction_information["settings"])
-        original_export_strategy = settings.export_strategy
-        settings.export_strategy = None
 
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
@@ -881,11 +871,7 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_export_strategy(
-                                settings,
-                                model,
-                                original_export_strategy,
-                            )
+                            strategy = obtain_export_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -943,11 +929,7 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            strategy = obtain_export_strategy(
-                                settings,
-                                model,
-                                original_export_strategy,
-                            )
+                            strategy = obtain_export_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -1063,17 +1045,19 @@ def run():
                                 current_export_strategy = settings.export_strategy
                                 settings.export_strategy = strategy
 
-                                upload_reproduce_folder(
-                                    repo_id,
-                                    settings,
-                                    token,
-                                    checkpoint_path=study_checkpoint_file,
-                                    trial=trial,
-                                    include_system_information=(
-                                        reproducibility_information == "full"
-                                    ),
-                                )
-                                settings.export_strategy = current_export_strategy
+                                try:
+                                    upload_reproduce_folder(
+                                        repo_id,
+                                        settings,
+                                        token,
+                                        checkpoint_path=study_checkpoint_file,
+                                        trial=trial,
+                                        include_system_information=(
+                                            reproducibility_information == "full"
+                                        ),
+                                    )
+                                finally:
+                                    settings.export_strategy = current_export_strategy
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 

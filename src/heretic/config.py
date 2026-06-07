@@ -419,7 +419,7 @@ class Settings(BaseSettings):
 
     export_strategy: ExportStrategy | None = Field(
         default=None,
-        description='How to export the model: "none" (prompt the user), "merge", or "adapter".',
+        description='How to export the model: "merge", "adapter", or unset to prompt the user.',
     )
 
     refusal_markers: list[str] = Field(

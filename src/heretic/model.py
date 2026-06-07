@@ -69,6 +69,17 @@ class Model:
     processor: ProcessorMixin | None
     peft_config: LoraConfig
 
+    @staticmethod
+    def _is_gguf_repo(model: str) -> bool:
+        """
+        Heuristically detect GGUF-only repos that lack HuggingFace tokenizer files.
+        Checks the model name (ends in -gguf or _gguf).
+        """
+        import re
+        if re.search(r'[-_]gguf$', model, re.IGNORECASE):
+            return True
+        return False
+
     def __init__(self, settings: Settings):
         self.settings = settings
         self.needs_reload = False
@@ -79,6 +90,16 @@ class Model:
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
+
+        # Guard: GGUF repos contain no HuggingFace tokenizer files and cannot be
+        # loaded by Transformers. Detect this early to avoid a cryptic error.
+        if self._is_gguf_repo(settings.model):
+            raise ValueError(
+                f"Model '{settings.model}' appears to be a GGUF repository. "
+                "Heretic requires models in HuggingFace safetensors format, not GGUF. "
+                "To abliterate this model, use its unquantized base model instead. "
+                "For example: 'google/gemma-4-12B-it-qat-q4_0-unquantized'"
+            )
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             settings.model,

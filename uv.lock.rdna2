@@ -15,13 +15,15 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
-torch = false
+torchvision = false
 rocm-sdk-libraries-gfx103x-all = false
+torch = false
+transformers = false
+triton = false
 rocm-sdk-core = false
 rocm-sdk-libraries-gfx110x-all = false
 rocm = false
 rocm-sdk-libraries-gfx120x-all = false
-triton = false
 
 [[package]]
 name = "absl-py"
@@ -460,6 +462,7 @@ dependencies = [
     { name = "numpy", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "optuna", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "peft", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "pillow", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "protobuf", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "psutil", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "py-cpuinfo", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
@@ -473,6 +476,7 @@ dependencies = [
     { name = "tiktoken", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "tomli-w", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "torch", version = "2.9.1+rocm7.13.0", source = { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
+    { name = "torchvision", marker = "sys_platform == 'win32'" },
     { name = "tqdm", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "transformers", extra = ["kernels"], marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
@@ -508,6 +512,7 @@ requires-dist = [
     { name = "optuna", specifier = "~=4.7" },
     { name = "pacmap", marker = "extra == 'research'", specifier = "~=0.8" },
     { name = "peft", specifier = "~=0.19" },
+    { name = "pillow", specifier = ">=11.0" },
     { name = "protobuf", specifier = ">=5.0" },
     { name = "psutil", specifier = "~=7.2" },
     { name = "py-cpuinfo", specifier = "~=9.0" },
@@ -523,8 +528,10 @@ requires-dist = [
     { name = "tomli-w", specifier = "~=1.2" },
     { name = "torch", marker = "python_full_version != '3.12.*' and sys_platform == 'win32'", specifier = "==2.9.1+rocm7.13.0" },
     { name = "torch", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl" },
+    { name = "torchvision", marker = "python_full_version != '3.12.*' and sys_platform == 'win32'", specifier = "==0.24.0+rocm7.13.0" },
+    { name = "torchvision", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", url = "https://repo.amd.com/rocm/whl/gfx103X-all/torchvision-0.24.0%2Brocm7.13.0-cp312-cp312-win_amd64.whl" },
     { name = "tqdm", specifier = "~=4.67" },
-    { name = "transformers", extras = ["kernels"], specifier = "~=5.6" },
+    { name = "transformers", extras = ["kernels"], specifier = "~=5.10" },
 ]
 provides-extras = ["research"]
 
@@ -1891,6 +1898,29 @@ requires-dist = [
 provides-extras = ["optree", "opt-einsum", "pyyaml"]
 
 [[package]]
+name = "torchvision"
+version = "0.24.0+rocm7.13.0"
+source = { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torchvision-0.24.0%2Brocm7.13.0-cp312-cp312-win_amd64.whl" }
+dependencies = [
+    { name = "numpy", marker = "sys_platform == 'win32'" },
+    { name = "pillow", marker = "sys_platform == 'win32'" },
+    { name = "torch", version = "2.9.1+rocm7.13.0", source = { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
+]
+wheels = [
+    { url = "https://repo.amd.com/rocm/whl/gfx103X-all/torchvision-0.24.0%2Brocm7.13.0-cp312-cp312-win_amd64.whl", hash = "sha256:5c3b9c9dcc4fff27a1ab28c5a92e47237b80101e66381c309e513b3e9ab71f6b" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "gdown", marker = "extra == 'gdown'", specifier = ">=4.7.3" },
+    { name = "numpy" },
+    { name = "pillow", specifier = ">=5.3.0,!=8.3.*" },
+    { name = "scipy", marker = "extra == 'scipy'" },
+    { name = "torch" },
+]
+provides-extras = ["gdown", "scipy"]
+
+[[package]]
 name = "tqdm"
 version = "4.67.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1904,7 +1934,7 @@ wheels = [
 
 [[package]]
 name = "transformers"
-version = "5.6.2"
+version = "5.10.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
@@ -1917,9 +1947,9 @@ dependencies = [
     { name = "tqdm", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "typer", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/e9/c6c80a07690142a7d05444271f47b9f3c8aac7dea01d52e1137ee480ad78/transformers-5.6.2.tar.gz", hash = "sha256:e657134c3e5a6bc00a3c35f4e2674bb51adfcd89898495b788a18552bac2b91a", size = 8311867, upload-time = "2026-04-23T18:33:29.332Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8d/38/d5f978bd5091019e89aef29b9a831f5cd70f2598963a3ead8b9570cab592/transformers-5.10.2.tar.gz", hash = "sha256:f9a44b9c8ca9ab1156b467f574d832ea066284299c2fd0ed84641ccb592751fc", size = 8799687, upload-time = "2026-06-04T18:43:49.119Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/95/0b0218149b0d6f14df35f5b8f676fa83df4f19ed253c3cc447107ef86eca/transformers-5.6.2-py3-none-any.whl", hash = "sha256:f8d3a1bb96778fed9b8aabfd0dd6e19843e4b0f2bb6b59f32b8a92051b0f348f", size = 10364898, upload-time = "2026-04-23T18:33:26.081Z" },
+    { url = "https://files.pythonhosted.org/packages/73/6f/e1564b0cc182afa05e219a8e09a8e770ffaab879b6b824b56c819bd221da/transformers-5.10.2-py3-none-any.whl", hash = "sha256:8a669db546f82c7c3618cb46ceb0f0afd89292bc70f319c058f8332ec63e268d", size = 11003830, upload-time = "2026-06-04T18:43:45.303Z" },
 ]
 
 [package.optional-dependencies]

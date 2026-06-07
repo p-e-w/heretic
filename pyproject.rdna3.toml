@@ -32,6 +32,7 @@ dependencies = [
     "numpy~=2.2",
     "optuna~=4.7",
     "peft~=0.19",
+    "pillow>=11.0",
     "psutil~=7.2",
     "py-cpuinfo~=9.0",
     "pydantic-settings~=2.13",
@@ -42,11 +43,12 @@ dependencies = [
     "tiktoken>=0.7.0",
     "tomli-w~=1.2",
     "tqdm~=4.67",
-    "transformers[kernels]~=5.6",
+    "transformers[kernels]~=5.10",
     # RDNA3 (gfx110X) — AMD Windows GPU packages, activated by heretic auto-installer.
     # torch is pinned as a direct URL so uv never reads the AMD wheel's METADATA
     # (which declares triton+rocm — a Windows-unavailable transitive dep).
     "torch==2.9.1+rocm7.13.0; sys_platform == 'win32'",
+    "torchvision==0.24.0+rocm7.13.0; sys_platform == 'win32'",
     "rocm; sys_platform == 'win32'",
     "rocm-sdk-core; sys_platform == 'win32'",
     "rocm-sdk-libraries-gfx110x-all; sys_platform == 'win32'",
@@ -83,7 +85,7 @@ build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { rocm = false, rocm-sdk-core = false, rocm-sdk-libraries-gfx103x-all = false, rocm-sdk-libraries-gfx103X-all = false, rocm-sdk-libraries-gfx110x-all = false, rocm-sdk-libraries-gfx120x-all = false, torch = false, triton = false }
+exclude-newer-package = { rocm = false, rocm-sdk-core = false, rocm-sdk-libraries-gfx103x-all = false, rocm-sdk-libraries-gfx103X-all = false, rocm-sdk-libraries-gfx110x-all = false, rocm-sdk-libraries-gfx120x-all = false, torch = false, torchvision = false, transformers = false, triton = false }
 environments = ["sys_platform == 'win32'", "sys_platform == 'linux'"]
 default-groups = ["dev"]
 
@@ -107,6 +109,9 @@ explicit = true
 # (AMD's METADATA declares triton+rocm which doesn't exist as a standalone package).
 torch = [
   { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12'" },
+]
+torchvision = [
+  { url = "https://repo.amd.com/rocm/whl/gfx110X-all/torchvision-0.24.0%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12'" },
 ]
 rocm = [
   { index = "rocm-gfx1100", marker = "sys_platform == 'win32'" },

@@ -32,6 +32,7 @@ dependencies = [
     "numpy~=2.2",
     "optuna~=4.7",
     "peft~=0.19",
+    "pillow>=11.0",
     "psutil~=7.2",
     "py-cpuinfo~=9.0",
     "pydantic-settings~=2.13",
@@ -42,12 +43,13 @@ dependencies = [
     "tiktoken>=0.7.0",
     "tomli-w~=1.2",
     "tqdm~=4.67",
-    "transformers[kernels]~=5.6",
+    "transformers[kernels]~=5.10",
     # RDNA4 (gfx120X) — AMD Windows GPU packages, activated by heretic auto-installer.
     # torch is declared as a direct dep so [tool.uv.sources] URL override is applied
     # during `uv lock`. AMD has not published Windows pytorch-triton-rocm for gfx120X,
     # so we pin torch as a direct URL to bypass transitive triton resolution on Windows.
     "torch==2.9.1+rocm7.13.0; sys_platform == 'win32'",
+    "torchvision==0.24.0+rocm7.13.0; sys_platform == 'win32'",
     "rocm; sys_platform == 'win32'",
     "rocm-sdk-core; sys_platform == 'win32'",
     "rocm-sdk-libraries-gfx120x-all; sys_platform == 'win32'",
@@ -84,7 +86,7 @@ build-backend = "uv_build"
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { rocm = false, rocm-sdk-core = false, rocm-sdk-libraries-gfx103x-all = false, rocm-sdk-libraries-gfx103X-all = false, rocm-sdk-libraries-gfx110x-all = false, rocm-sdk-libraries-gfx120x-all = false, torch = false, triton = false }
+exclude-newer-package = { rocm = false, rocm-sdk-core = false, rocm-sdk-libraries-gfx103x-all = false, rocm-sdk-libraries-gfx103X-all = false, rocm-sdk-libraries-gfx110x-all = false, rocm-sdk-libraries-gfx120x-all = false, torch = false, torchvision = false, transformers = false, triton = false }
 environments = ["sys_platform == 'win32' and python_full_version < '3.14'", "sys_platform == 'linux'"]
 default-groups = ["dev"]
 constraint-dependencies = [
@@ -115,6 +117,12 @@ torch = [
   { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11'" },
   { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12'" },
   { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torch-2.9.1%2Brocm7.13.0-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13'" },
+]
+torchvision = [
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torchvision-0.24.0%2Brocm7.13.0-cp310-cp310-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.10'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torchvision-0.24.0%2Brocm7.13.0-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torchvision-0.24.0%2Brocm7.13.0-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12'" },
+  { url = "https://repo.amd.com/rocm/whl/gfx120X-all/torchvision-0.24.0%2Brocm7.13.0-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13'" },
 ]
 rocm = [
   { index = "rocm-gfx1200", marker = "sys_platform == 'win32'" },

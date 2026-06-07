@@ -27,3 +27,6 @@ wheels/
 # AMD ROCm arch marker (machine-specific, written by auto-installer)
 /.heretic_rocm_arch
 
+# Handover reports
+/handover_bnb_safetensors_fix.md
+

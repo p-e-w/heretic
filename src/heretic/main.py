@@ -180,6 +180,70 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
             except Exception:
                 pass  # Non-fatal.
 
+            # ------------------------------------------------------------------
+            # 6. Windows ROCm: patch safetensors to avoid get_slice() crash.
+            # ------------------------------------------------------------------
+            # safetensors' Rust backend crashes with 0xC0000005 (access violation)
+            # when PySafeSlice objects are sliced during model loading with
+            # device_map or quantization_config (the get_slice path).
+            # get_tensor() on the same file is safe and returns identical data.
+            #
+            # We shim safe_open so get_slice() returns a pure-Python wrapper
+            # backed by get_tensor(), bypassing the crashing Rust slicer entirely.
+            # This must happen before transformers/accelerate import safetensors.
+            try:
+                import safetensors as _st_mod
+
+                _orig_safe_open = _st_mod.safe_open
+
+                _TORCH_DTYPE_TO_ST = {
+                    "torch.float32":  "F32",  "torch.float16": "F16",
+                    "torch.bfloat16": "BF16", "torch.float64": "F64",
+                    "torch.int64":    "I64",  "torch.int32":   "I32",
+                    "torch.int16":    "I16",  "torch.int8":    "I8",
+                    "torch.uint8":    "U8",   "torch.bool":    "BOOL",
+                }
+
+                class _SafeSliceShim:
+                    """Wraps a full CPU tensor to look like PySafeSlice without crashing."""
+                    __slots__ = ("_t",)
+                    def __init__(self, tensor):
+                        self._t = tensor
+                    def __getitem__(self, slices):
+                        return self._t[slices]
+                    def get_shape(self):
+                        return list(self._t.shape)
+                    @property
+                    def dtype(self):
+                        return _TORCH_DTYPE_TO_ST.get(str(self._t.dtype), "F32")
+
+                class _PatchedSafeOpen:
+                    """safe_open replacement: backs all get_slice() calls via get_tensor()."""
+                    def __init__(self, filename, framework, device="cpu"):
+                        # Always open on CPU — get_tensor() on CPU never crashes.
+                        self._f = _orig_safe_open(filename, framework=framework, device="cpu")
+                        self._dev = device
+                    def keys(self):
+                        return self._f.keys()
+                    def metadata(self):
+                        return self._f.metadata()
+                    def get_tensor(self, name):
+                        t = self._f.get_tensor(name)
+                        if self._dev and self._dev != "cpu":
+                            t = t.to(self._dev)
+                        return t
+                    def get_slice(self, name):
+                        # Load the full tensor via the safe path, wrap it for slicing.
+                        return _SafeSliceShim(self._f.get_tensor(name))
+
+                _st_mod.safe_open = _PatchedSafeOpen
+                for _sub in ("torch", "flax", "numpy"):
+                    if hasattr(_st_mod, _sub):
+                        setattr(getattr(_st_mod, _sub), "safe_open", _PatchedSafeOpen)
+
+            except Exception:
+                pass  # Non-fatal; safetensors may not be installed yet.
+
 
 from .config import Settings
 

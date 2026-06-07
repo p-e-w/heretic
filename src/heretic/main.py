@@ -98,38 +98,65 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     _setup_script = os.path.join(os.getcwd(), "scripts", "setup_rocm.py")
                 import shutil as _shutil
                 import tempfile
+                import ctypes as _ctypes
                 _uv = _shutil.which("uv") or "uv"
 
-                # Heretic.exe is locked while this process runs, so we can't
-                # call setup directly — uv sync would fail trying to overwrite it.
-                # We need heretic to exit first, but that returns stdin to
-                # PowerShell and breaks questionary's arrow-key input. The only
-                # clean solution is CREATE_NEW_CONSOLE: setup gets its own
-                # interactive window, heretic exits and releases the lock, and
-                # the new window relaunches heretic when done.
-                def _bat_quote(s):
-                    return f'"{s}"' if any(c in s for c in (' ', '&', '(', ')')) else s
+                # Capture the original console HWND before spawning the setup
+                # window. After setup finishes, the PS1 script uses
+                # SetForegroundWindow + SendKeys to focus this terminal and type
+                # the relaunch command into it — so heretic restarts here.
+                _orig_hwnd = _ctypes.windll.kernel32.GetConsoleWindow()
 
-                _args_str = " ".join(_bat_quote(a) for a in sys.argv[1:])
-                _bat_fd, _bat_path = tempfile.mkstemp(suffix=".bat", prefix="heretic_setup_")
-                os.close(_bat_fd)
-                with open(_bat_path, "w") as _f:
-                    _f.write("@echo off\n")
-                    _f.write(f'cd /d "{_repo_root}"\n')
-                    _f.write("timeout /t 1 /nobreak > nul\n")
-                    _f.write(f'"{_uv}" run python "{_setup_script}"\n')
-                    _f.write("if %errorlevel% neq 0 goto :done\n")
-                    _f.write("echo.\n")
-                    _f.write("echo Setup complete - relaunching heretic...\n")
-                    _f.write("echo.\n")
-                    _f.write(f'"{_uv}" run heretic {_args_str}\n')
-                    _f.write(":done\n")
-                    _f.write('del "%~f0"\n')
+                def _sk_escape(s):
+                    return "".join("{" + c + "}" if c in "+^%~(){}" else c for c in s)
 
-                sys.stdout.write("\nSetup is opening in a new window — heretic will relaunch there automatically.\n\n")
+                def _ps_sq(s):
+                    return s.replace("'", "''")
+
+                _relaunch_cmd = "uv run heretic " + " ".join(
+                    f'"{a}"' if any(c in a for c in (' ', '&', '(', ')')) else a
+                    for a in sys.argv[1:]
+                )
+
+                _ps1_fd, _ps1_path = tempfile.mkstemp(suffix=".ps1", prefix="heretic_setup_")
+                os.close(_ps1_fd)
+                with open(_ps1_path, "w", encoding="utf-8") as _f:
+                    _f.write(f"Set-Location '{_ps_sq(_repo_root)}'\n")
+                    _f.write( "Start-Sleep -Seconds 1\n")
+                    _f.write(f"& '{_ps_sq(_uv)}' run python '{_ps_sq(_setup_script)}'\n")
+                    _f.write( "if ($LASTEXITCODE -ne 0) {\n")
+                    _f.write( "    Write-Host ''\n")
+                    _f.write( "    Write-Host 'Setup failed. Please run setup manually.'\n")
+                    _f.write( "    Read-Host 'Press Enter to close'\n")
+                    _f.write(f"    Remove-Item '{_ps_sq(_ps1_path)}' -ErrorAction SilentlyContinue\n")
+                    _f.write( "    exit 1\n")
+                    _f.write( "}\n")
+                    _f.write( "Write-Host ''\n")
+                    _f.write( "Write-Host 'Setup complete - relaunching heretic in your terminal...'\n")
+                    _f.write( "Write-Host ''\n")
+                    _f.write( "Add-Type @'\n")
+                    _f.write( "using System;\n")
+                    _f.write( "using System.Runtime.InteropServices;\n")
+                    _f.write( "public class HereticW32 {\n")
+                    _f.write( '    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);\n')
+                    _f.write( '    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);\n')
+                    _f.write( "}\n")
+                    _f.write( "'@\n")
+                    _f.write(f"$hwnd = [IntPtr]{_orig_hwnd}\n")
+                    _f.write( "[HereticW32]::ShowWindow($hwnd, 9) | Out-Null\n")
+                    _f.write( "Start-Sleep -Milliseconds 300\n")
+                    _f.write( "[HereticW32]::SetForegroundWindow($hwnd) | Out-Null\n")
+                    _f.write( "Start-Sleep -Milliseconds 500\n")
+                    _f.write( "Add-Type -AssemblyName System.Windows.Forms\n")
+                    _f.write(f"[System.Windows.Forms.SendKeys]::SendWait('{_sk_escape(_relaunch_cmd)}')\n")
+                    _f.write( "[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')\n")
+                    _f.write( "Start-Sleep -Milliseconds 200\n")
+                    _f.write(f"Remove-Item '{_ps_sq(_ps1_path)}' -ErrorAction SilentlyContinue\n")
+
+                sys.stdout.write("\nSetup is opening in a new window — heretic will relaunch here when done.\n\n")
                 sys.stdout.flush()
                 subprocess.Popen(
-                    ["cmd", "/c", _bat_path],
+                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", _ps1_path],
                     creationflags=subprocess.CREATE_NEW_CONSOLE,
                 )
             sys.exit(0)

@@ -102,9 +102,11 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
 
                 # Heretic.exe is locked while this process runs, so we can't
                 # call setup directly — uv sync would fail trying to overwrite it.
-                # Instead, write a trampoline batch script, spawn it (inheriting
-                # this console), then exit immediately so the lock is released
-                # before setup begins.
+                # We need heretic to exit first, but that returns stdin to
+                # PowerShell and breaks questionary's arrow-key input. The only
+                # clean solution is CREATE_NEW_CONSOLE: setup gets its own
+                # interactive window, heretic exits and releases the lock, and
+                # the new window relaunches heretic when done.
                 def _bat_quote(s):
                     return f'"{s}"' if any(c in s for c in (' ', '&', '(', ')')) else s
 
@@ -124,9 +126,12 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     _f.write(":done\n")
                     _f.write('del "%~f0"\n')
 
-                sys.stdout.write("\nStarting setup — heretic will relaunch automatically when done.\n\n")
+                sys.stdout.write("\nSetup is opening in a new window — heretic will relaunch there automatically.\n\n")
                 sys.stdout.flush()
-                subprocess.Popen(["cmd", "/c", _bat_path])
+                subprocess.Popen(
+                    ["cmd", "/c", _bat_path],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
             sys.exit(0)
 
         # ------------------------------------------------------------------

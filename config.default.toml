@@ -37,7 +37,7 @@ offload_outputs_to_cpu = true
 batch_size = 0  # auto
 
 # Maximum batch size to try when automatically determining the optimal batch size.
-max_batch_size = 128
+max_batch_size = 1024
 
 # Maximum number of tokens to generate for each response.
 max_response_length = 100

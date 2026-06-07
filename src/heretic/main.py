@@ -88,7 +88,7 @@ BATCH_SIZE_REFINEMENT_THRESHOLD = 8
 
 
 def _is_oom_error(error: Exception) -> bool:
-    if isinstance(error, torch.cuda.OutOfMemoryError):
+    if isinstance(error, torch.OutOfMemoryError):
         return True
     if isinstance(error, RuntimeError) and "out of memory" in str(error).lower():
         return True

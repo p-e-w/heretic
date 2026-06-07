@@ -35,13 +35,23 @@ uv sync
 
 This installs a lightweight CPU-only environment (~200 MB). Fast, no GPU packages yet.
 
-### 3. Run the one-time ROCm setup
+### 3. Run ROCm setup
+
+**Option A — Automatic (recommended):** just run heretic. On first launch it detects your AMD GPU and asks whether to run setup:
+
+```powershell
+uv run heretic <model-id>
+```
+
+Press **Y** when prompted. A setup window opens, runs the setup script, then relaunches heretic in your original terminal automatically when done.
+
+**Option B — Manual:** run the setup script directly:
 
 ```powershell
 uv run python scripts/setup_rocm.py
 ```
 
-The script will:
+Either way, the setup script will:
 1. Detect your AMD GPU generation (RDNA2 / RDNA3 / RDNA4) automatically
 2. Ask for confirmation before downloading anything
 3. Swap in the pre-generated `pyproject.toml` + `uv.lock` for your architecture
@@ -160,7 +170,7 @@ uv run python scripts/patch_bitsandbytes.py
 
 **`HIP error: invalid device function` / `hipErrorInvalidImage`** — The wrong arch wheels are installed (e.g. RDNA3 wheels on an RDNA2 GPU). Delete `.heretic_rocm_arch` and re-run `uv run python scripts/setup_rocm.py`.
 
-**`WARNING: An AMD GPU was detected, but ROCm is not configured`** — Setup has not been run yet, or `.heretic_rocm_arch` was deleted. Run `uv run python scripts/setup_rocm.py`.
+**`AMD GPU detected — ROCm isn't configured yet`** (interactive prompt) — Setup has not been run yet, or `.heretic_rocm_arch` was deleted. Press **Y** to run setup automatically, or run `uv run python scripts/setup_rocm.py` manually.
 
 **`GPU not detected / torch.cuda.is_available() returns False`** — Verify your AMD Adrenalin driver is 24.x or later. Then delete `.heretic_rocm_arch` and re-run setup.
 

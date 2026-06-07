@@ -97,12 +97,36 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                 if not os.path.exists(_setup_script):
                     _setup_script = os.path.join(os.getcwd(), "scripts", "setup_rocm.py")
                 import shutil as _shutil
+                import tempfile
                 _uv = _shutil.which("uv") or "uv"
-                _rc = subprocess.call([_uv, "run", "python", _setup_script])
-                if _rc == 0:
-                    sys.stdout.write("\nSetup complete — relaunching heretic...\n\n")
-                    sys.stdout.flush()
-                    subprocess.call([_uv, "run", "heretic"] + sys.argv[1:])
+
+                # Heretic.exe is locked while this process runs, so we can't
+                # call setup directly — uv sync would fail trying to overwrite it.
+                # Instead, write a trampoline batch script, spawn it (inheriting
+                # this console), then exit immediately so the lock is released
+                # before setup begins.
+                def _bat_quote(s):
+                    return f'"{s}"' if any(c in s for c in (' ', '&', '(', ')')) else s
+
+                _args_str = " ".join(_bat_quote(a) for a in sys.argv[1:])
+                _bat_fd, _bat_path = tempfile.mkstemp(suffix=".bat", prefix="heretic_setup_")
+                os.close(_bat_fd)
+                with open(_bat_path, "w") as _f:
+                    _f.write("@echo off\n")
+                    _f.write(f'cd /d "{_repo_root}"\n')
+                    _f.write("timeout /t 1 /nobreak > nul\n")
+                    _f.write(f'"{_uv}" run python "{_setup_script}"\n')
+                    _f.write("if %errorlevel% neq 0 goto :done\n")
+                    _f.write("echo.\n")
+                    _f.write("echo Setup complete - relaunching heretic...\n")
+                    _f.write("echo.\n")
+                    _f.write(f'"{_uv}" run heretic {_args_str}\n')
+                    _f.write(":done\n")
+                    _f.write('del "%~f0"\n')
+
+                sys.stdout.write("\nStarting setup — heretic will relaunch automatically when done.\n\n")
+                sys.stdout.flush()
+                subprocess.Popen(["cmd", "/c", _bat_path])
             sys.exit(0)
 
         # ------------------------------------------------------------------

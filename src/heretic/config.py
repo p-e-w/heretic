@@ -180,7 +180,7 @@ class Settings(BaseSettings):
     )
 
     max_batch_size: int = Field(
-        default=128,
+        default=1024,
         description="Maximum batch size to try when automatically determining the optimal batch size.",
         # When storing a settings object, the batch size is already fixed,
         # either determined by the automatic mechanism or by explicit user choice.

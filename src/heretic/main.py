@@ -181,65 +181,165 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                 pass  # Non-fatal.
 
             # ------------------------------------------------------------------
-            # 6. Windows ROCm: patch safetensors to avoid get_slice() crash.
+            # 6. Windows ROCm: replace safetensors safe_open with a
+            #    pure-Python reader to avoid 0xC0000005 crash.
             # ------------------------------------------------------------------
-            # safetensors' Rust backend crashes with 0xC0000005 (access violation)
-            # when PySafeSlice objects are sliced during model loading with
-            # device_map or quantization_config (the get_slice path).
-            # get_tensor() on the same file is safe and returns identical data.
+            # The Rust backend (_safetensors_rust.pyd) crashes with access
+            # violation 0xC0000005 on Windows ROCm when any tensor is read
+            # via the PySafeSlice path *or* via get_tensor() when the Rust
+            # code tries to create a PyTorch tensor through the Rust→C++ bridge.
             #
-            # We shim safe_open so get_slice() returns a pure-Python wrapper
-            # backed by get_tensor(), bypassing the crashing Rust slicer entirely.
-            # This must happen before transformers/accelerate import safetensors.
+            # Root cause: the Rust code calls back into Python's
+            # legacy_tensor_ctor which invokes _local_scalar_dense_cpu and
+            # crashes.  The only safe fix is to never call _safetensors_rust
+            # at all and instead read the binary file format directly in
+            # Python, constructing tensors with torch.frombuffer() which does
+            # not go through the Rust bridge.
+            #
+            # This patch installs _PurePySafeOpen as safetensors.safe_open
+            # before transformers/accelerate are imported.  Both libraries do
+            # `from safetensors import safe_open` at their import time, so
+            # they pick up the pure-Python version automatically.
             try:
                 import safetensors as _st_mod
-
-                _orig_safe_open = _st_mod.safe_open
-
-                _TORCH_DTYPE_TO_ST = {
-                    "torch.float32":  "F32",  "torch.float16": "F16",
-                    "torch.bfloat16": "BF16", "torch.float64": "F64",
-                    "torch.int64":    "I64",  "torch.int32":   "I32",
-                    "torch.int16":    "I16",  "torch.int8":    "I8",
-                    "torch.uint8":    "U8",   "torch.bool":    "BOOL",
-                }
+                import struct   as _st_struct
+                import json     as _st_json
 
                 class _SafeSliceShim:
-                    """Wraps a full CPU tensor to look like PySafeSlice without crashing."""
+                    """CPU tensor wrapper that looks like PySafeSlice — no Rust."""
                     __slots__ = ("_t",)
-                    def __init__(self, tensor):
-                        self._t = tensor
-                    def __getitem__(self, slices):
-                        return self._t[slices]
-                    def get_shape(self):
-                        return list(self._t.shape)
+                    def __init__(self, tensor):       self._t = tensor
+                    def __getitem__(self, slices):    return self._t[slices]
+                    def get_shape(self):              return list(self._t.shape)
                     @property
                     def dtype(self):
-                        return _TORCH_DTYPE_TO_ST.get(str(self._t.dtype), "F32")
+                        _TO_ST = {
+                            "torch.float32": "F32",  "torch.float16": "F16",
+                            "torch.bfloat16": "BF16","torch.float64": "F64",
+                            "torch.int64": "I64",    "torch.int32": "I32",
+                            "torch.int16": "I16",    "torch.int8": "I8",
+                            "torch.uint8": "U8",     "torch.bool": "BOOL",
+                        }
+                        return _TO_ST.get(str(self._t.dtype), "F32")
 
-                class _PatchedSafeOpen:
-                    """safe_open replacement: backs all get_slice() calls via get_tensor()."""
+                class _PurePySafeOpen:
+                    """
+                    Pure-Python safetensors reader — zero calls to
+                    _safetensors_rust.pyd.
+
+                    Reads the safetensors binary format with struct+json,
+                    builds tensors with torch.frombuffer().  Supports the
+                    full API expected by accelerate and
+                    safetensors.torch.load_file:
+
+                        context manager (__enter__ / __exit__)
+                        keys() / offset_keys() / metadata()
+                        get_tensor() / get_slice()
+                    """
+                    # safetensors dtype tag → torch dtype name
+                    _DTYPES = {
+                        "F32":  "float32",
+                        "F16":  "float16",
+                        "BF16": None,        # special: read as int16, view as bfloat16
+                        "F64":  "float64",
+                        "I64":  "int64",
+                        "I32":  "int32",
+                        "I16":  "int16",
+                        "I8":   "int8",
+                        "U8":   "uint8",
+                        "BOOL": "bool",
+                    }
+
                     def __init__(self, filename, framework, device="cpu"):
-                        # Always open on CPU — get_tensor() on CPU never crashes.
-                        self._f = _orig_safe_open(filename, framework=framework, device="cpu")
-                        self._dev = device
-                    def keys(self):
-                        return self._f.keys()
-                    def metadata(self):
-                        return self._f.metadata()
-                    def get_tensor(self, name):
-                        t = self._f.get_tensor(name)
-                        if self._dev and self._dev != "cpu":
-                            t = t.to(self._dev)
-                        return t
-                    def get_slice(self, name):
-                        # Load the full tensor via the safe path, wrap it for slicing.
-                        return _SafeSliceShim(self._f.get_tensor(name))
+                        self._filename  = str(filename)
+                        self._device    = str(device) if device else "cpu"
+                        self._file      = open(self._filename, "rb")
+                        try:
+                            header_len  = _st_struct.unpack("<Q", self._file.read(8))[0]
+                            full_hdr    = _st_json.loads(self._file.read(header_len))
+                        except Exception:
+                            self._file.close()
+                            raise
+                        self._metadata  = full_hdr.pop("__metadata__", {})
+                        self._header    = full_hdr          # {name: {dtype, shape, data_offsets}}
+                        self._data_off  = 8 + header_len    # byte offset of tensor data region
 
-                _st_mod.safe_open = _PatchedSafeOpen
-                for _sub in ("torch", "flax", "numpy"):
-                    if hasattr(_st_mod, _sub):
-                        setattr(getattr(_st_mod, _sub), "safe_open", _PatchedSafeOpen)
+                    # ---- context manager ----------------------------------------
+                    def __enter__(self):
+                        return self
+
+                    def __exit__(self, *args):
+                        self._close()
+
+                    def __del__(self):
+                        self._close()
+
+                    def _close(self):
+                        try:
+                            if not self._file.closed:
+                                self._file.close()
+                        except Exception:
+                            pass
+
+                    # ---- public API ---------------------------------------------
+                    def keys(self):
+                        return list(self._header.keys())
+
+                    def offset_keys(self):
+                        """safetensors.torch.load_file calls offset_keys(), not keys()."""
+                        return self.keys()
+
+                    def metadata(self):
+                        return self._metadata
+
+                    def get_tensor(self, name):
+                        t = self._load_cpu(name)
+                        if self._device != "cpu":
+                            t = t.to(self._device)
+                        return t
+
+                    def get_slice(self, name):
+                        return _SafeSliceShim(self._load_cpu(name))
+
+                    # ---- internal -----------------------------------------------
+                    def _load_cpu(self, name):
+                        """Read one tensor from disk into a CPU torch.Tensor."""
+                        import torch
+                        info            = self._header[name]
+                        dtype_str       = info["dtype"]
+                        shape           = info["shape"]
+                        start, end      = info["data_offsets"]
+                        n_bytes         = end - start
+
+                        # Empty tensor (zero-size dimension)
+                        if n_bytes == 0:
+                            tname = self._DTYPES.get(dtype_str) or "bfloat16"
+                            return torch.empty(shape, dtype=getattr(torch, tname))
+
+                        self._file.seek(self._data_off + start)
+                        raw = bytearray(self._file.read(n_bytes))   # mutable → frombuffer works
+
+                        if dtype_str == "BF16":
+                            # bfloat16 isn't a native numpy dtype; read bytes as
+                            # int16 (same width), then reinterpret bits as bfloat16.
+                            t = torch.frombuffer(raw, dtype=torch.int16).view(torch.bfloat16)
+                        else:
+                            tname = self._DTYPES.get(dtype_str)
+                            if tname is None:
+                                raise ValueError(f"Unsupported safetensors dtype: {dtype_str!r}")
+                            t = torch.frombuffer(raw, dtype=getattr(torch, tname))
+
+                        if shape:
+                            t = t.reshape(shape)
+                        # Clone so the tensor owns its memory;
+                        # raw (and the file seek) can then be reused freely.
+                        return t.clone()
+
+                # Install the pure-Python reader as safetensors.safe_open.
+                # Submodules (safetensors.torch, etc.) are imported later as
+                # part of transformers; they do `from safetensors import safe_open`
+                # at their module level, so they automatically get _PurePySafeOpen.
+                _st_mod.safe_open = _PurePySafeOpen
 
             except Exception:
                 pass  # Non-fatal; safetensors may not be installed yet.

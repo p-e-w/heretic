@@ -32,6 +32,11 @@ class RowNormalization(str, Enum):
     FULL = "full"
 
 
+class ExportStrategy(str, Enum):
+    MERGE = "merge"
+    ADAPTER = "adapter"
+
+
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
@@ -410,6 +415,11 @@ class Settings(BaseSettings):
     max_shard_size: int | str = Field(
         default="5GB",
         description="Maximum size for individual safetensors files generated when exporting a model.",
+    )
+
+    export_strategy: ExportStrategy | None = Field(
+        default=None,
+        description='How to export the model: "merge", "adapter", or unset to prompt the user.',
     )
 
     refusal_markers: list[str] = Field(

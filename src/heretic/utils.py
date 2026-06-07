@@ -547,7 +547,7 @@ def generate_reproduce_json(
     version_info = get_heretic_version_info()
 
     data = {
-        "version": "1",  # Version number of the reproduce.json file format, to allow for future changes.
+        "version": "2",  # Version number of the reproduce.json file format, to allow for future changes.
         "timestamp": timestamp,
         "system": None,  # Defined here to preserve insertion order.
         "environment": {

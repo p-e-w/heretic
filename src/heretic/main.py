@@ -62,7 +62,7 @@ from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod
+from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .reproduce import (
@@ -88,12 +88,18 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
+def obtain_export_strategy(
+    settings: Settings,
+    model: Model,
+) -> ExportStrategy | None:
     """
-    Prompts the user for how to proceed with saving the model.
+    Gets the export strategy from settings or prompts the user.
     Provides info to the user if the model is quantized on memory use.
-    Returns "merge", "adapter", or None (if cancelled/invalid).
+    Returns an export strategy, or None if cancelled.
     """
+
+    if settings.export_strategy is not None:
+        return settings.export_strategy
 
     if settings.quantization == QuantizationMethod.BNB_4BIT:
         print()
@@ -148,11 +154,11 @@ def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
                     if settings.quantization == QuantizationMethod.NONE
                     else " (requires sufficient RAM)"
                 ),
-                value="merge",
+                value=ExportStrategy.MERGE,
             ),
             Choice(
                 title="Save LoRA adapter only (can be merged later)",
-                value="adapter",
+                value=ExportStrategy.ADAPTER,
             ),
         ],
     )
@@ -224,7 +230,7 @@ def run():
         # FIXME: "Reproduction"/"reproducibility" name inconsistency!
         reproduction_information = load_reproduction_information(settings.reproduce)
 
-        if reproduction_information["version"] not in ["1"]:
+        if reproduction_information["version"] not in ["1", "2"]:
             print(
                 (
                     f"[red]Unsupported file format version: [bold]{reproduction_information['version']}[/].[/] "
@@ -865,11 +871,11 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_merge_strategy(settings, model)
+                            strategy = obtain_export_strategy(settings, model)
                             if strategy is None:
                                 continue
 
-                            if strategy == "adapter":
+                            if strategy == ExportStrategy.ADAPTER:
                                 print("Saving LoRA adapter...")
                                 model.model.save_pretrained(
                                     save_directory,
@@ -923,7 +929,7 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings, model)
+                            strategy = obtain_export_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -973,7 +979,7 @@ def run():
                             else:
                                 reproducibility_information = "none"
 
-                            if strategy == "adapter":
+                            if strategy == ExportStrategy.ADAPTER:
                                 print("Uploading LoRA adapter...")
                                 model.model.push_to_hub(
                                     repo_id,
@@ -1036,17 +1042,22 @@ def run():
                                 # Set the number of trials to the number of actual completed trials
                                 # for the reproduction configuration.
                                 settings.n_trials = count_completed_trials()
+                                current_export_strategy = settings.export_strategy
+                                settings.export_strategy = strategy
 
-                                upload_reproduce_folder(
-                                    repo_id,
-                                    settings,
-                                    token,
-                                    checkpoint_path=study_checkpoint_file,
-                                    trial=trial,
-                                    include_system_information=(
-                                        reproducibility_information == "full"
-                                    ),
-                                )
+                                try:
+                                    upload_reproduce_folder(
+                                        repo_id,
+                                        settings,
+                                        token,
+                                        checkpoint_path=study_checkpoint_file,
+                                        trial=trial,
+                                        include_system_information=(
+                                            reproducibility_information == "full"
+                                        ),
+                                    )
+                                finally:
+                                    settings.export_strategy = current_export_strategy
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 

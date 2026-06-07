@@ -14,7 +14,11 @@ from urllib.request import urlopen
 import cpuinfo
 import torch
 from huggingface_hub import HfApi, hf_hub_download
-from huggingface_hub.utils import disable_progress_bars, enable_progress_bars
+from huggingface_hub.utils import (
+    GatedRepoError,
+    disable_progress_bars,
+    enable_progress_bars,
+)
 from questionary import Choice
 from rich.table import Table
 
@@ -37,6 +41,7 @@ def collect_reproducibles(path: str):
     models = api.list_models(
         filter=["heretic", "reproducible"],
         sort="created_at",
+        expand=["gated", "tags"],
     )
 
     found = 0
@@ -50,6 +55,12 @@ def collect_reproducibles(path: str):
             # Ignore repositories containing quantizations.
             if model.tags is not None and "gguf" in model.tags:
                 continue
+
+            if model.gated:
+                try:
+                    api.auth_check(model.id, repo_type="model")
+                except GatedRepoError:
+                    continue
 
             print(f"[bold]{model.id}[/]...", end="")
 

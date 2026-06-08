@@ -150,7 +150,11 @@ class Model:
             except Exception as error:
                 self.model = None  # ty:ignore[invalid-assignment]
                 empty_cache()
-                print(f"* [red]Failed[/] ({format_exception(error)})")
+                formatted = format_exception(error)
+                if "\n" in formatted:
+                    print(f"* [red]Failed[/]:{formatted}")
+                else:
+                    print(f"* [red]Failed[/] ({formatted})")
                 continue
 
             if settings.quantization == QuantizationMethod.BNB_4BIT:

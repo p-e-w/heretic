@@ -750,24 +750,13 @@ def upload_reproduce_folder(
 
 
 def format_exception(error: Exception) -> str:
-    message = str(error).strip()
-    if message:
-        return message
-
     # Walk causal chain to find a non-empty message.
     current = error
     while current is not None:
-        msg = str(current).strip()
-        if msg:
-            return msg
+        message = str(current).strip()
+        if message:
+            return message
         current = current.__cause__ or current.__context__
 
-    # Fall back to type and traceback location info.
-    error_type = type(error).__name__
-    tb = error.__traceback__
-    if tb:
-        summary = traceback.extract_tb(tb)[-1]
-        filename = os.path.basename(summary.filename)
-        return f"{error_type} at {filename}:{summary.lineno}"
-
-    return error_type
+    # If there is no message in the entire causal chain, fall back to the complete traceback.
+    return "\n" + traceback.format_exc().strip()

@@ -365,7 +365,11 @@ def run():
                     # We cannot recover from this.
                     raise
 
-                print(f"[red]Failed[/] ({format_exception(error)})")
+                formatted = format_exception(error)
+                if "\n" in formatted:
+                    print(f"[red]Failed[/]:{formatted}")
+                else:
+                    print(f"[red]Failed[/] ({formatted})")
                 break
 
             response_lengths = [

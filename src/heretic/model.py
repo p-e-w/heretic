@@ -76,7 +76,8 @@ class Model:
         Checks the model name (ends in -gguf or _gguf).
         """
         import re
-        if re.search(r'[-_]gguf$', model, re.IGNORECASE):
+
+        if re.search(r"[-_]gguf$", model, re.IGNORECASE):
             return True
         return False
 

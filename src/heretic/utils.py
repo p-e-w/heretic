@@ -37,6 +37,7 @@ print = Console(highlight=False).print
 
 def print_memory_usage():
     import torch
+
     def p(label: str, size_in_bytes: int):
         print(f"[grey50]{label}: [bold]{size_in_bytes / (1024**3):.2f} GB[/][/]")
 
@@ -185,6 +186,7 @@ def is_hf_path(path: str) -> bool:
         return False
 
     from huggingface_hub.utils import validate_repo_id
+
     validate_repo_id(path)
     return True
 
@@ -413,6 +415,7 @@ def generate_reproduce_readme(
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a README.md for the reproduce/ folder."""
+    import torch
 
     heterogeneous_warning = ""
 
@@ -584,6 +587,7 @@ def generate_reproduce_json(
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a reproduce.json file for the reproduce/ folder."""
+    import torch
 
     version_info = get_heretic_version_info()
 
@@ -651,6 +655,7 @@ def create_reproduce_folder(
     include_system_information: bool,
 ):
     import huggingface_hub
+
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
 
@@ -725,6 +730,7 @@ def upload_reproduce_folder(
     include_system_information: bool,
 ):
     import huggingface_hub
+
     api = huggingface_hub.HfApi()
     info = api.model_info(repo_id=repo_id, files_metadata=True, token=token)
 

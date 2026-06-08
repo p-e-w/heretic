@@ -3,20 +3,22 @@ import shutil
 import importlib.util
 import re
 
+
 def main():
     print("Locating bitsandbytes package...")
     spec = importlib.util.find_spec("bitsandbytes")
     if spec is None or spec.submodule_search_locations is None:
         print("Error: bitsandbytes is not installed in this environment.")
         return
-    
+
     bnb_dir = spec.submodule_search_locations[0]
     print(f"Found bitsandbytes at: {bnb_dir}")
-    
+
     # Try to detect GPU architecture
     arch = None
     try:
         import torch
+
         if torch.cuda.is_available():
             prop = torch.cuda.get_device_properties(0)
             if hasattr(prop, "gcnArchName"):
@@ -29,18 +31,36 @@ def main():
         gpu_name = ""
         try:
             import subprocess
-            gpu_name = subprocess.check_output("wmic path win32_VideoController get name", shell=True, text=True, stderr=subprocess.DEVNULL)
+
+            gpu_name = subprocess.check_output(
+                "wmic path win32_VideoController get name",
+                shell=True,
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
         except Exception:
             try:
                 import subprocess
-                gpu_name = subprocess.check_output('powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"', shell=True, text=True, stderr=subprocess.DEVNULL)
+
+                gpu_name = subprocess.check_output(
+                    'powershell -Command "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"',
+                    shell=True,
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
             except Exception:
                 pass
-        
+
         if gpu_name:
-            if re.search(r'\b(7900|7800|7700|7600|780M|760M|740M|W7900|W7800|W7700|W7600|W7500)\b', gpu_name, re.IGNORECASE):
+            if re.search(
+                r"\b(7900|7800|7700|7600|780M|760M|740M|W7900|W7800|W7700|W7600|W7500)\b",
+                gpu_name,
+                re.IGNORECASE,
+            ):
                 arch = "gfx1100"
-            elif re.search(r'\b(9000|9070|9060|R9700|W8900|W8800|W8600)\b', gpu_name, re.IGNORECASE):
+            elif re.search(
+                r"\b(9000|9070|9060|R9700|W8900|W8800|W8600)\b", gpu_name, re.IGNORECASE
+            ):
                 arch = "gfx1200"
             elif any(brand in gpu_name for brand in ["AMD", "Radeon"]):
                 arch = "gfx1030"
@@ -52,41 +72,45 @@ def main():
         arch = "gfx1030"
 
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    
+
     # Try architecture-specific DLL first
     dll_src = os.path.join(repo_dir, "bin", f"libbitsandbytes_rocm_{arch}.dll")
     if not os.path.exists(dll_src):
         dll_src = os.path.join(os.getcwd(), "bin", f"libbitsandbytes_rocm_{arch}.dll")
-        
+
     # Fall back to gfx1030
     if not os.path.exists(dll_src):
-        print(f"Architecture-specific DLL for {arch} not found. Falling back to gfx1030...")
+        print(
+            f"Architecture-specific DLL for {arch} not found. Falling back to gfx1030..."
+        )
         dll_src = os.path.join(repo_dir, "bin", "libbitsandbytes_rocm_gfx1030.dll")
         if not os.path.exists(dll_src):
-            dll_src = os.path.join(os.getcwd(), "bin", "libbitsandbytes_rocm_gfx1030.dll")
+            dll_src = os.path.join(
+                os.getcwd(), "bin", "libbitsandbytes_rocm_gfx1030.dll"
+            )
 
     # Fall back to original libbitsandbytes_rocm83.dll
     if not os.path.exists(dll_src):
         dll_src = os.path.join(repo_dir, "bin", "libbitsandbytes_rocm83.dll")
         if not os.path.exists(dll_src):
             dll_src = os.path.join(os.getcwd(), "bin", "libbitsandbytes_rocm83.dll")
-        
+
     dll_dest = os.path.join(bnb_dir, "libbitsandbytes_rocm83.dll")
-    
+
     if not os.path.exists(dll_src):
         print(f"Error: Precompiled DLL not found at: {dll_src}")
         return
-    
+
     print(f"Copying precompiled ROCm DLL ({os.path.basename(dll_src)}) to: {dll_dest}")
     shutil.copyfile(dll_src, dll_dest)
-    
+
     # 1. Patch cuda_specs.py
     cuda_specs_path = os.path.join(bnb_dir, "cuda_specs.py")
     if os.path.exists(cuda_specs_path):
         print(f"Patching: {cuda_specs_path}")
         with open(cuda_specs_path, "r", encoding="utf-8") as f:
             content = f.read()
-        
+
         # Patch get_rocm_gpu_arch
         old_arch = """def get_rocm_gpu_arch() -> str:
     \"\"\"Get ROCm GPU architecture.\"\"\"
@@ -94,7 +118,7 @@ def main():
     try:
         if torch.version.hip:
             result = subprocess.run(["rocminfo"], capture_output=True, text=True)"""
-        
+
         new_arch = """def get_rocm_gpu_arch() -> str:
     \"\"\"Get ROCm GPU architecture.\"\"\"
     logger = logging.getLogger(__name__)
@@ -107,7 +131,7 @@ def main():
                     if arch.startswith("gfx"):
                         return arch
             result = subprocess.run(["rocminfo"], capture_output=True, text=True)"""
-        
+
         # Patch get_rocm_warpsize
         old_warp = """def get_rocm_warpsize() -> int:
     \"\"\"Get ROCm warp size.\"\"\"
@@ -115,7 +139,7 @@ def main():
     try:
         if torch.version.hip:
             result = subprocess.run(["rocminfo"], capture_output=True, text=True)"""
-        
+
         new_warp = """def get_rocm_warpsize() -> int:
     \"\"\"Get ROCm warp size.\"\"\"
     logger = logging.getLogger(__name__)
@@ -126,12 +150,12 @@ def main():
                 if hasattr(prop, "warp_size"):
                     return prop.warp_size
             result = subprocess.run(["rocminfo"], capture_output=True, text=True)"""
-        
+
         if old_arch in content:
             content = content.replace(old_arch, new_arch)
         if old_warp in content:
             content = content.replace(old_warp, new_warp)
-        
+
         with open(cuda_specs_path, "w", encoding="utf-8") as f:
             f.write(content)
         print("Successfully patched cuda_specs.py")
@@ -144,21 +168,21 @@ def main():
         print(f"Patching: {cextension_path}")
         with open(cextension_path, "r", encoding="utf-8") as f:
             content = f.read()
-        
+
         # Patch get_cusparse
         if 'if hasattr(lib, "get_cusparse")' not in content:
             old_cusparse = "lib.get_cusparse.restype = ct.c_void_p"
             new_cusparse = """if hasattr(lib, "get_cusparse"):
             lib.get_cusparse.restype = ct.c_void_p"""
-            
+
             if old_cusparse in content:
                 content = content.replace(old_cusparse, new_cusparse)
-        
+
         # Patch DLL directory loading inside get_native_library()
         if "os.add_dll_directory" not in content:
             old_load = """    # Try to load the library - any errors will propagate up
     dll = ct.cdll.LoadLibrary(str(binary_path))"""
-            
+
             new_load = """    if os.name == "nt" and torch.version.hip:
         # Try to locate the ROCm SDK DLLs and add them to the DLL search directories
         rocm_path = os.environ.get("ROCM_PATH")
@@ -189,10 +213,10 @@ def main():
 
     # Try to load the library - any errors will propagate up
     dll = ct.cdll.LoadLibrary(str(binary_path))"""
-            
+
             if old_load in content:
                 content = content.replace(old_load, new_load)
-            
+
         with open(cextension_path, "w", encoding="utf-8") as f:
             f.write(content)
         print("Successfully patched cextension.py")
@@ -200,6 +224,7 @@ def main():
         print(f"Warning: {cextension_path} not found.")
 
     print("\nPatching complete! bitsandbytes ROCm support is now enabled on Windows.")
+
 
 if __name__ == "__main__":
     main()

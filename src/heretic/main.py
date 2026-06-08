@@ -17,9 +17,14 @@ if sys.platform == "win32":
 if "-h" not in sys.argv and "--help" not in sys.argv:
     try:
         from importlib.metadata import version
-        sys.stdout.write(f"\033[36m█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀\033[0m  v{version('heretic-llm')}\n")
+
+        sys.stdout.write(
+            f"\033[36m█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀\033[0m  v{version('heretic-llm')}\n"
+        )
         sys.stdout.write("\033[36m█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░\033[0m\n")
-        sys.stdout.write("\033[36m▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀\033[0m  \033[4;34mhttps://github.com/p-e-w/heretic\033[0m\n\n")
+        sys.stdout.write(
+            "\033[36m▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀\033[0m  \033[4;34mhttps://github.com/p-e-w/heretic\033[0m\n\n"
+        )
         sys.stdout.flush()
     except Exception:
         pass
@@ -44,15 +49,22 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
         try:
             gpu_out = subprocess.check_output(
                 ["wmic", "path", "win32_VideoController", "get", "name"],
-                text=True, stderr=subprocess.DEVNULL, timeout=10,
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
             )
             has_amd = any(b in gpu_out for b in ("AMD", "Radeon"))
         except Exception:
             try:
                 gpu_out = subprocess.check_output(
-                    ["powershell", "-Command",
-                     "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
-                    text=True, stderr=subprocess.DEVNULL, timeout=10,
+                    [
+                        "powershell",
+                        "-Command",
+                        "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
+                    ],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
                 )
                 has_amd = any(b in gpu_out for b in ("AMD", "Radeon"))
             except Exception:
@@ -64,6 +76,7 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
         is_cpu = True
         try:
             from importlib.metadata import version as _pkg_version
+
             _torch_ver = _pkg_version("torch")
             if "+rocm" in _torch_ver or "+cu" in _torch_ver:
                 is_cpu = False
@@ -73,7 +86,9 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
         # ------------------------------------------------------------------
         # 3. Check for marker file to skip setup if already configured.
         # ------------------------------------------------------------------
-        _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        _repo_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
         if not os.path.isfile(os.path.join(_repo_root, "pyproject.toml")):
             _repo_root = os.getcwd()
         _marker_path = os.path.join(_repo_root, ".heretic_rocm_arch")
@@ -95,10 +110,13 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
             if answer in ("", "y", "yes"):
                 _setup_script = os.path.join(_repo_root, "scripts", "setup_rocm.py")
                 if not os.path.exists(_setup_script):
-                    _setup_script = os.path.join(os.getcwd(), "scripts", "setup_rocm.py")
+                    _setup_script = os.path.join(
+                        os.getcwd(), "scripts", "setup_rocm.py"
+                    )
                 import shutil as _shutil
                 import tempfile
                 import ctypes as _ctypes
+
                 _uv = _shutil.which("uv") or "uv"
 
                 # Capture the original console HWND before spawning the setup
@@ -114,49 +132,76 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     return s.replace("'", "''")
 
                 _relaunch_cmd = "uv run heretic " + " ".join(
-                    f'"{a}"' if any(c in a for c in (' ', '&', '(', ')')) else a
+                    f'"{a}"' if any(c in a for c in (" ", "&", "(", ")")) else a
                     for a in sys.argv[1:]
                 )
 
-                _ps1_fd, _ps1_path = tempfile.mkstemp(suffix=".ps1", prefix="heretic_setup_")
+                _ps1_fd, _ps1_path = tempfile.mkstemp(
+                    suffix=".ps1", prefix="heretic_setup_"
+                )
                 os.close(_ps1_fd)
                 with open(_ps1_path, "w", encoding="utf-8") as _f:
                     _f.write(f"Set-Location '{_ps_sq(_repo_root)}'\n")
-                    _f.write( "Start-Sleep -Seconds 1\n")
-                    _f.write(f"& '{_ps_sq(_uv)}' run python '{_ps_sq(_setup_script)}'\n")
-                    _f.write( "if ($LASTEXITCODE -ne 0) {\n")
-                    _f.write( "    Write-Host ''\n")
-                    _f.write( "    Write-Host 'Setup failed. Please run setup manually.'\n")
-                    _f.write( "    Read-Host 'Press Enter to close'\n")
-                    _f.write(f"    Remove-Item '{_ps_sq(_ps1_path)}' -ErrorAction SilentlyContinue\n")
-                    _f.write( "    exit 1\n")
-                    _f.write( "}\n")
-                    _f.write( "Write-Host ''\n")
-                    _f.write( "Write-Host 'Setup complete - relaunching heretic in your terminal...'\n")
-                    _f.write( "Write-Host ''\n")
-                    _f.write( "Add-Type @'\n")
-                    _f.write( "using System;\n")
-                    _f.write( "using System.Runtime.InteropServices;\n")
-                    _f.write( "public class HereticW32 {\n")
-                    _f.write( '    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);\n')
-                    _f.write( '    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);\n')
-                    _f.write( "}\n")
-                    _f.write( "'@\n")
+                    _f.write("Start-Sleep -Seconds 1\n")
+                    _f.write(
+                        f"& '{_ps_sq(_uv)}' run python '{_ps_sq(_setup_script)}'\n"
+                    )
+                    _f.write("if ($LASTEXITCODE -ne 0) {\n")
+                    _f.write("    Write-Host ''\n")
+                    _f.write(
+                        "    Write-Host 'Setup failed. Please run setup manually.'\n"
+                    )
+                    _f.write("    Read-Host 'Press Enter to close'\n")
+                    _f.write(
+                        f"    Remove-Item '{_ps_sq(_ps1_path)}' -ErrorAction SilentlyContinue\n"
+                    )
+                    _f.write("    exit 1\n")
+                    _f.write("}\n")
+                    _f.write("Write-Host ''\n")
+                    _f.write(
+                        "Write-Host 'Setup complete - relaunching heretic in your terminal...'\n"
+                    )
+                    _f.write("Write-Host ''\n")
+                    _f.write("Add-Type @'\n")
+                    _f.write("using System;\n")
+                    _f.write("using System.Runtime.InteropServices;\n")
+                    _f.write("public class HereticW32 {\n")
+                    _f.write(
+                        '    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);\n'
+                    )
+                    _f.write(
+                        '    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);\n'
+                    )
+                    _f.write("}\n")
+                    _f.write("'@\n")
                     _f.write(f"$hwnd = [IntPtr]{_orig_hwnd}\n")
-                    _f.write( "[HereticW32]::ShowWindow($hwnd, 9) | Out-Null\n")
-                    _f.write( "Start-Sleep -Milliseconds 300\n")
-                    _f.write( "[HereticW32]::SetForegroundWindow($hwnd) | Out-Null\n")
-                    _f.write( "Start-Sleep -Milliseconds 500\n")
-                    _f.write( "Add-Type -AssemblyName System.Windows.Forms\n")
-                    _f.write(f"[System.Windows.Forms.SendKeys]::SendWait('{_sk_escape(_relaunch_cmd)}')\n")
-                    _f.write( "[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')\n")
-                    _f.write( "Start-Sleep -Milliseconds 200\n")
-                    _f.write(f"Remove-Item '{_ps_sq(_ps1_path)}' -ErrorAction SilentlyContinue\n")
+                    _f.write("[HereticW32]::ShowWindow($hwnd, 9) | Out-Null\n")
+                    _f.write("Start-Sleep -Milliseconds 300\n")
+                    _f.write("[HereticW32]::SetForegroundWindow($hwnd) | Out-Null\n")
+                    _f.write("Start-Sleep -Milliseconds 500\n")
+                    _f.write("Add-Type -AssemblyName System.Windows.Forms\n")
+                    _f.write(
+                        f"[System.Windows.Forms.SendKeys]::SendWait('{_sk_escape(_relaunch_cmd)}')\n"
+                    )
+                    _f.write("[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')\n")
+                    _f.write("Start-Sleep -Milliseconds 200\n")
+                    _f.write(
+                        f"Remove-Item '{_ps_sq(_ps1_path)}' -ErrorAction SilentlyContinue\n"
+                    )
 
-                sys.stdout.write("\nSetup is opening in a new window — heretic will relaunch here when done.\n\n")
+                sys.stdout.write(
+                    "\nSetup is opening in a new window — heretic will relaunch here when done.\n\n"
+                )
                 sys.stdout.flush()
                 subprocess.Popen(
-                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", _ps1_path],
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                        _ps1_path,
+                    ],
                     creationflags=subprocess.CREATE_NEW_CONSOLE,
                 )
             sys.exit(0)
@@ -166,15 +211,20 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
         # ------------------------------------------------------------------
         if not is_cpu:
             import importlib.util as _ilu
+
             try:
                 _spec = _ilu.find_spec("bitsandbytes")
                 if _spec is not None and _spec.submodule_search_locations:
-                    _bnb_dir  = _spec.submodule_search_locations[0]
+                    _bnb_dir = _spec.submodule_search_locations[0]
                     _dll_dest = os.path.join(_bnb_dir, "libbitsandbytes_rocm83.dll")
                     if not os.path.exists(_dll_dest):
-                        _script_path = os.path.join(_repo_root, "scripts", "patch_bitsandbytes.py")
+                        _script_path = os.path.join(
+                            _repo_root, "scripts", "patch_bitsandbytes.py"
+                        )
                         if not os.path.exists(_script_path):
-                            _script_path = os.path.join(os.getcwd(), "scripts", "patch_bitsandbytes.py")
+                            _script_path = os.path.join(
+                                os.getcwd(), "scripts", "patch_bitsandbytes.py"
+                            )
                         if os.path.exists(_script_path):
                             subprocess.check_call([sys.executable, _script_path])
             except Exception:
@@ -202,23 +252,36 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
             # they pick up the pure-Python version automatically.
             try:
                 import safetensors as _st_mod
-                import struct   as _st_struct
-                import json     as _st_json
+                import struct as _st_struct
+                import json as _st_json
 
                 class _SafeSliceShim:
                     """CPU tensor wrapper that looks like PySafeSlice — no Rust."""
+
                     __slots__ = ("_t",)
-                    def __init__(self, tensor):       self._t = tensor
-                    def __getitem__(self, slices):    return self._t[slices]
-                    def get_shape(self):              return list(self._t.shape)
+
+                    def __init__(self, tensor):
+                        self._t = tensor
+
+                    def __getitem__(self, slices):
+                        return self._t[slices]
+
+                    def get_shape(self):
+                        return list(self._t.shape)
+
                     @property
                     def dtype(self):
                         _TO_ST = {
-                            "torch.float32": "F32",  "torch.float16": "F16",
-                            "torch.bfloat16": "BF16","torch.float64": "F64",
-                            "torch.int64": "I64",    "torch.int32": "I32",
-                            "torch.int16": "I16",    "torch.int8": "I8",
-                            "torch.uint8": "U8",     "torch.bool": "BOOL",
+                            "torch.float32": "F32",
+                            "torch.float16": "F16",
+                            "torch.bfloat16": "BF16",
+                            "torch.float64": "F64",
+                            "torch.int64": "I64",
+                            "torch.int32": "I32",
+                            "torch.int16": "I16",
+                            "torch.int8": "I8",
+                            "torch.uint8": "U8",
+                            "torch.bool": "BOOL",
                         }
                         return _TO_ST.get(str(self._t.dtype), "F32")
 
@@ -236,33 +299,36 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                         keys() / offset_keys() / metadata()
                         get_tensor() / get_slice()
                     """
+
                     # safetensors dtype tag → torch dtype name
                     _DTYPES = {
-                        "F32":  "float32",
-                        "F16":  "float16",
-                        "BF16": None,        # special: read as int16, view as bfloat16
-                        "F64":  "float64",
-                        "I64":  "int64",
-                        "I32":  "int32",
-                        "I16":  "int16",
-                        "I8":   "int8",
-                        "U8":   "uint8",
+                        "F32": "float32",
+                        "F16": "float16",
+                        "BF16": None,  # special: read as int16, view as bfloat16
+                        "F64": "float64",
+                        "I64": "int64",
+                        "I32": "int32",
+                        "I16": "int16",
+                        "I8": "int8",
+                        "U8": "uint8",
                         "BOOL": "bool",
                     }
 
                     def __init__(self, filename, framework, device="cpu"):
-                        self._filename  = str(filename)
-                        self._device    = str(device) if device else "cpu"
-                        self._file      = open(self._filename, "rb")
+                        self._filename = str(filename)
+                        self._device = str(device) if device else "cpu"
+                        self._file = open(self._filename, "rb")
                         try:
-                            header_len  = _st_struct.unpack("<Q", self._file.read(8))[0]
-                            full_hdr    = _st_json.loads(self._file.read(header_len))
+                            header_len = _st_struct.unpack("<Q", self._file.read(8))[0]
+                            full_hdr = _st_json.loads(self._file.read(header_len))
                         except Exception:
                             self._file.close()
                             raise
-                        self._metadata  = full_hdr.pop("__metadata__", {})
-                        self._header    = full_hdr          # {name: {dtype, shape, data_offsets}}
-                        self._data_off  = 8 + header_len    # byte offset of tensor data region
+                        self._metadata = full_hdr.pop("__metadata__", {})
+                        self._header = full_hdr  # {name: {dtype, shape, data_offsets}}
+                        self._data_off = (
+                            8 + header_len
+                        )  # byte offset of tensor data region
 
                     # ---- context manager ----------------------------------------
                     def __enter__(self):
@@ -305,11 +371,12 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     def _load_cpu(self, name):
                         """Read one tensor from disk into a CPU torch.Tensor."""
                         import torch
-                        info            = self._header[name]
-                        dtype_str       = info["dtype"]
-                        shape           = info["shape"]
-                        start, end      = info["data_offsets"]
-                        n_bytes         = end - start
+
+                        info = self._header[name]
+                        dtype_str = info["dtype"]
+                        shape = info["shape"]
+                        start, end = info["data_offsets"]
+                        n_bytes = end - start
 
                         # Empty tensor (zero-size dimension)
                         if n_bytes == 0:
@@ -317,16 +384,22 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                             return torch.empty(shape, dtype=getattr(torch, tname))
 
                         self._file.seek(self._data_off + start)
-                        raw = bytearray(self._file.read(n_bytes))   # mutable → frombuffer works
+                        raw = bytearray(
+                            self._file.read(n_bytes)
+                        )  # mutable → frombuffer works
 
                         if dtype_str == "BF16":
                             # bfloat16 isn't a native numpy dtype; read bytes as
                             # int16 (same width), then reinterpret bits as bfloat16.
-                            t = torch.frombuffer(raw, dtype=torch.int16).view(torch.bfloat16)
+                            t = torch.frombuffer(raw, dtype=torch.int16).view(
+                                torch.bfloat16
+                            )
                         else:
                             tname = self._DTYPES.get(dtype_str)
                             if tname is None:
-                                raise ValueError(f"Unsupported safetensors dtype: {dtype_str!r}")
+                                raise ValueError(
+                                    f"Unsupported safetensors dtype: {dtype_str!r}"
+                                )
                             t = torch.frombuffer(raw, dtype=getattr(torch, tname))
 
                         if shape:

@@ -367,7 +367,7 @@ def run():
 
                 formatted = format_exception(error)
                 if "\n" in formatted:
-                    print(f"[red]Failed[/]:{formatted}")
+                    print(f"[red]Failed[/]:\n{formatted}")
                 else:
                     print(f"[red]Failed[/] ({formatted})")
                 break
@@ -1125,7 +1125,11 @@ def run():
                                 print(table)
 
                 except Exception as error:
-                    print(f"[red]Error: {format_exception(error)}[/]")
+                    formatted = format_exception(error)
+                    if "\n" in formatted:
+                        print(f"[red]Error:[/]\n{formatted}")
+                    else:
+                        print(f"[red]Error: {formatted}[/]")
 
 
 def main():

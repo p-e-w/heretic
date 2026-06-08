@@ -152,7 +152,7 @@ class Model:
                 empty_cache()
                 formatted = format_exception(error)
                 if "\n" in formatted:
-                    print(f"* [red]Failed[/]:{formatted}")
+                    print(f"* [red]Failed[/]:\n{formatted}")
                 else:
                     print(f"* [red]Failed[/] ({formatted})")
                 continue

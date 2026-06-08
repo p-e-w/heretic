@@ -759,4 +759,4 @@ def format_exception(error: Exception) -> str:
         current = current.__cause__ or current.__context__
 
     # If there is no message in the entire causal chain, fall back to the complete traceback.
-    return "\n" + traceback.format_exc().strip()
+    return traceback.format_exc().strip()

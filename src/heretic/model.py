@@ -82,11 +82,17 @@ class Model:
         # Multimodal models have a processor we'll want to save.
         self.processor = None
         if get_model_class(settings.model) == AutoModelForImageTextToText:
-            self.processor = AutoProcessor.from_pretrained(
-                settings.model,
-                trust_remote_code=settings.trust_remote_code,
-                **self.revision_kwargs,
-            )
+            try:
+                self.processor = AutoProcessor.from_pretrained(
+                    settings.model,
+                    trust_remote_code=settings.trust_remote_code,
+                    **self.revision_kwargs,
+                )
+            except Exception as error:
+                print(
+                    f"* [yellow]Warning[/]: Could not load processor ({error}). "
+                    f"Multimodal saving/pushing may be incomplete."
+                )
 
         # Fallback for tokenizers that don't declare a special pad token.
         if self.tokenizer.pad_token is None:

@@ -88,7 +88,7 @@ class Model:
                     trust_remote_code=settings.trust_remote_code,
                     **self.revision_kwargs,
                 )
-            except Exception as error:
+            except (ImportError, OSError, ValueError, KeyError) as error:
                 print(
                     f"* [yellow]Warning[/]: Could not load processor ({error}). "
                     f"Multimodal saving/pushing may be incomplete."

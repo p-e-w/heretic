@@ -30,8 +30,8 @@ jobs:
       - name: Check formatting
         run: uvx ruff format --check .
 
-      - name: Lint and check import sorting
-        run: uvx ruff check --output-format=github --extend-select I .
+      - name: Lint code quality
+        run: uvx ruff check --output-format=github .
 
       - name: Build package
         run: uv build

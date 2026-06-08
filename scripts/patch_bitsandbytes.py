@@ -1,7 +1,7 @@
-import os
-import shutil
 import importlib.util
+import os
 import re
+import shutil
 
 
 def main():

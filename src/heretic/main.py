@@ -3,8 +3,8 @@
 
 # ruff: noqa: E402
 
-import sys
 import os
+import sys
 
 if sys.platform == "win32":
     # Reconfigure stdout/stderr to UTF-8 for Windows terminals that default to cp1252.
@@ -113,9 +113,9 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
                     _setup_script = os.path.join(
                         os.getcwd(), "scripts", "setup_rocm.py"
                     )
+                import ctypes as _ctypes
                 import shutil as _shutil
                 import tempfile
-                import ctypes as _ctypes
 
                 _uv = _shutil.which("uv") or "uv"
 
@@ -251,9 +251,10 @@ if "-h" not in sys.argv and "--help" not in sys.argv:
             # `from safetensors import safe_open` at their import time, so
             # they pick up the pure-Python version automatically.
             try:
-                import safetensors as _st_mod
-                import struct as _st_struct
                 import json as _st_json
+                import struct as _st_struct
+
+                import safetensors as _st_mod
 
                 class _SafeSliceShim:
                     """CPU tensor wrapper that looks like PySafeSlice — no Rust."""

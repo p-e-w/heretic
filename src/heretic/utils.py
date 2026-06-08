@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypeVar
+
 import questionary
 import tomli_w
 from psutil import Process

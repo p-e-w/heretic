@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Dict, Any
+from typing import Any, Dict
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (

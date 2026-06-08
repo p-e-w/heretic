@@ -1,0 +1,41 @@
+name: Feature Request
+description: Suggest an improvement or new feature
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests for Windows AMD ROCm improvements are welcome.
+        For features that would benefit all platforms, consider opening the request
+        in the [upstream repo](https://github.com/p-e-w/heretic/issues) too.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: A clear description of the limitation or gap.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Windows ROCm specific
+        - Would benefit upstream too
+        - Documentation / setup UX
+    validations:
+      required: true

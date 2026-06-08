@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Upstream heretic (non-Windows issues)
+    url: https://github.com/p-e-w/heretic/issues
+    about: For issues not specific to Windows or AMD GPUs, please report them in the upstream repo.
+  - name: Discord
+    url: https://discord.gg/gdXc48gSyT
+    about: Questions and community support.

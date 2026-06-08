@@ -1,0 +1,77 @@
+name: Bug Report
+description: Report a crash, error, or unexpected behaviour
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The more detail you provide, the faster we can help.
+        For issues that are **not** Windows/AMD-specific, please open them in the
+        [upstream repo](https://github.com/p-e-w/heretic/issues) instead.
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU model
+      placeholder: "e.g. AMD Radeon RX 7900 XTX (gfx1100 / RDNA3)"
+    validations:
+      required: true
+
+  - type: input
+    id: driver
+    attributes:
+      label: AMD Adrenalin driver version
+      placeholder: "e.g. 24.12.1"
+    validations:
+      required: true
+
+  - type: input
+    id: rocm
+    attributes:
+      label: ROCm / HIP version
+      description: "Run `hipconfig --version` (or check `.heretic_rocm_arch`)"
+      placeholder: "e.g. 7.13.0"
+
+  - type: input
+    id: model
+    attributes:
+      label: Model (if the crash is model-specific)
+      placeholder: "e.g. google/gemma-3-12b-it"
+
+  - type: input
+    id: quantization
+    attributes:
+      label: Quantization setting
+      placeholder: "e.g. none / bnb_4bit"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you were trying to do.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `uv run heretic <model>`
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Full error output / stack trace
+      description: Paste the complete terminal output including any crash dump.
+      render: shell

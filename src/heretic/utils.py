@@ -7,6 +7,7 @@ import os
 import platform
 import random
 import tempfile
+import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
@@ -746,3 +747,16 @@ def upload_reproduce_folder(
                     repo_id=repo_id,
                     token=token,
                 )
+
+
+def format_exception(error: Exception) -> str:
+    # Walk causal chain to find a non-empty message.
+    current = error
+    while current is not None:
+        message = str(current).strip()
+        if message:
+            return message
+        current = current.__cause__ or current.__context__
+
+    # If there is no message in the entire causal chain, fall back to the complete traceback.
+    return traceback.format_exc().strip()

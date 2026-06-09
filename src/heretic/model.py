@@ -33,7 +33,7 @@ from transformers.generation import (
 
 from .config import QuantizationMethod, RowNormalization, Settings
 from .system import empty_cache
-from .utils import Prompt, batchify, print
+from .utils import Prompt, batchify, format_exception, print
 
 
 def get_model_class(
@@ -150,7 +150,11 @@ class Model:
             except Exception as error:
                 self.model = None  # ty:ignore[invalid-assignment]
                 empty_cache()
-                print(f"* [red]Failed[/] ({error})")
+                formatted = format_exception(error)
+                if "\n" in formatted:
+                    print(f"* [red]Failed[/]:\n{formatted}")
+                else:
+                    print(f"* [red]Failed[/] ({formatted})")
                 continue
 
             if settings.quantization == QuantizationMethod.BNB_4BIT:

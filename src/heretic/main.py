@@ -69,6 +69,7 @@ from .reproduce import collect_reproducibles
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
+    format_exception,
     get_readme_intro,
     get_trial_parameters,
     is_hf_path,
@@ -364,7 +365,11 @@ def run():
                     # We cannot recover from this.
                     raise
 
-                print(f"[red]Failed[/] ({error})")
+                formatted = format_exception(error)
+                if "\n" in formatted:
+                    print(f"[red]Failed[/]:\n{formatted}")
+                else:
+                    print(f"[red]Failed[/] ({formatted})")
                 break
 
             response_lengths = [
@@ -1120,7 +1125,11 @@ def run():
                                 print(table)
 
                 except Exception as error:
-                    print(f"[red]Error: {error}[/]")
+                    formatted = format_exception(error)
+                    if "\n" in formatted:
+                        print(f"[red]Error:[/]\n{formatted}")
+                    else:
+                        print(f"[red]Error: {formatted}[/]")
 
 
 def main():

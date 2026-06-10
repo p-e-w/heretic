@@ -61,10 +61,12 @@ class Model:
     # Set for multimodal models, None for text-only ones.
     processor: ProcessorMixin | None
     peft_config: LoraConfig
+    dtype: torch.dtype | str | None
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self.needs_reload = False
+        self.dtype = None
 
         self.revision_kwargs = {}
         if settings.model_commit is not None:
@@ -129,6 +131,8 @@ class Model:
                     **self.revision_kwargs,
                     **extra_kwargs,
                 )
+                if self.model is not None:
+                    self.dtype = self.model.dtype
 
                 # If we reach this point and the model requires trust_remote_code,
                 # either the user accepted, or settings.trust_remote_code is True.
@@ -317,15 +321,24 @@ class Model:
         - Slow path: If switching models or after merge_and_unload(),
           performs full model reload with quantization config.
         """
-        current_model = getattr(self.model.config, "name_or_path", None)
+        current_model = (
+            getattr(self.model.config, "name_or_path", None)
+            if self.model is not None
+            else None
+        )
         if current_model == self.settings.model and not self.needs_reload:
             # Reset LoRA adapters to zero (identity transformation)
+            assert self.model is not None
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
                     torch.nn.init.zeros_(module.weight)
             return
 
-        dtype = self.model.dtype
+        if self.model is not None:
+            dtype = self.model.dtype
+            self.dtype = dtype
+        else:
+            dtype = self.dtype or "auto"
 
         # Purge existing model object from memory to make space.
         self.model = None  # ty:ignore[invalid-assignment]
@@ -347,6 +360,8 @@ class Model:
             **self.revision_kwargs,
             **extra_kwargs,
         )
+        if self.model is not None:
+            self.dtype = self.model.dtype
 
         self._apply_lora()
 

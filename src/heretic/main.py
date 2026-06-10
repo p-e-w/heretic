@@ -186,6 +186,19 @@ def run():
         )
         return
 
+    if settings.use_ara and settings.quantization == QuantizationMethod.BNB_4BIT:
+        # ARA optimizes weight matrices in place, which requires trainable
+        # floating-point weights. bitsandbytes stores weights as packed
+        # integer tensors, so the optimization would fail partway through.
+        print(
+            '[red]ARA does not support bitsandbytes quantization ([bold]quantization = "bnb_4bit"[/]).[/]'
+        )
+        print(
+            "Either load the model without quantization, or set [bold]use_ara = false[/] "
+            "to use traditional directional ablation, which supports quantized models."
+        )
+        return
+
     # Adapted from https://github.com/huggingface/accelerate/blob/main/src/accelerate/commands/env.py
     if torch.cuda.is_available():
         count = torch.cuda.device_count()

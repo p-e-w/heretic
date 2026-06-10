@@ -831,17 +831,46 @@ def run():
                             token = huggingface_token or huggingface_hub.get_token()
                             if not token:
                                 token = prompt_password("Hugging Face access token:")
-                            if not token:
-                                continue
+                                if not token:
+                                    continue
 
-                            huggingface_token = None
-                            user = huggingface_hub.whoami(token)
-                            fullname = user.get(
-                                "fullname",
-                                user.get("name", "unknown user"),
-                            )
-                            email = user.get("email", "no email found")
-                            print(f"Logged in as [bold]{fullname} ({email})[/]")
+                            authenticated = False
+                            while not authenticated:
+                                try:
+                                    user = huggingface_hub.whoami(token)
+                                    fullname = user.get(
+                                        "fullname",
+                                        user.get("name", "unknown user"),
+                                    )
+                                    email = user.get("email", "no email found")
+                                    print(f"Logged in as [bold]{fullname} ({email})[/]")
+
+                                    choice = prompt_select(
+                                        "Do you want to proceed with this account or switch?",
+                                        [
+                                            "Proceed",
+                                            "Switch account",
+                                        ],
+                                    )
+                                    if choice is None:
+                                        break
+
+                                    if choice == "Switch account":
+                                        token = prompt_password("Hugging Face access token:")
+                                        if not token:
+                                            break
+                                        continue
+
+                                    authenticated = True
+                                    huggingface_token = token
+                                except Exception as e:
+                                    print(f"[bold red]Authentication failed:[/] {e}")
+                                    token = prompt_password("Please enter a valid Hugging Face access token:")
+                                    if not token:
+                                        break
+
+                            if not authenticated:
+                                continue
 
                             repo_id = prompt_text(
                                 "Name of repository:",

@@ -73,6 +73,7 @@ from .reproduce import (
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
+    get_file_sha256,
     get_readme_intro,
     get_trial_parameters,
     is_hf_path,
@@ -243,6 +244,8 @@ def run():
             return
 
         print()
+
+        verify_hashes = reproduction_information["version"] != "1"
 
         settings = Settings.model_validate(reproduction_information["settings"])
 
@@ -895,6 +898,31 @@ def run():
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
+                            if reproduction_mode and verify_hashes:
+                                print("Verifying hashes of weight files...")
+
+                                for (
+                                    filename,
+                                    original_sha256,
+                                ) in reproduction_information["hashes"].items():
+                                    file_path = Path(save_directory) / filename
+
+                                    if file_path.exists():
+                                        sha256 = get_file_sha256(file_path)
+
+                                        if sha256.lower() == original_sha256.lower():
+                                            print(
+                                                f"[bold]{filename}:[/] [green]Hash matches[/]"
+                                            )
+                                        else:
+                                            print(
+                                                f"[bold]{filename}:[/] [yellow]Hash doesn't match[/]"
+                                            )
+                                    else:
+                                        print(
+                                            f"[bold]{filename}:[/] [red]File not found[/]"
+                                        )
+
                         case "Upload the model to Hugging Face":
                             # We don't use huggingface_hub.login() because that stores the token on disk,
                             # and since this program will often be run on rented or shared GPU servers,
@@ -1061,7 +1089,7 @@ def run():
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 
-                            if reproduction_mode:
+                            if reproduction_mode and verify_hashes:
                                 print("Verifying hashes of weight files...")
 
                                 api = HfApi()
@@ -1092,7 +1120,10 @@ def run():
                                                     "Could not fetch uploaded model hashes."
                                                 )
 
-                                            if sha256 == original_sha256:
+                                            if (
+                                                sha256.lower()
+                                                == original_sha256.lower()
+                                            ):
                                                 print(
                                                     f"[bold]{filename}:[/] [green]Hash matches[/]"
                                                 )

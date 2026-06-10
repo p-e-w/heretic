@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import getpass
+import hashlib
 import json
 import os
 import platform
@@ -599,6 +600,18 @@ def generate_sha256sums(hashes: dict[str, str]) -> str:
         lines.append(f"{sha256} *{filename}")
 
     return "\n".join(lines) + "\n"
+
+
+# TODO: Replace this with hashlib.file_digest when we drop support for Python 3.10.
+def get_file_sha256(file_path: str | Path) -> str:
+    hash = hashlib.sha256()
+
+    with open(file_path, "rb") as file:
+        # Read the file in 64 kB blocks.
+        for block in iter(lambda: file.read(65536), b""):
+            hash.update(block)
+
+    return hash.hexdigest()
 
 
 def create_reproduce_folder(

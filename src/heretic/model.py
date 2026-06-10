@@ -66,7 +66,6 @@ class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.needs_reload = False
-        self.dtype = None
 
         self.revision_kwargs = {}
         if settings.model_commit is not None:
@@ -327,21 +326,18 @@ class Model:
 
         if current_model == self.settings.model and not self.needs_reload:
             # Reset LoRA adapters to zero (identity transformation).
-            assert self.model is not None
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
                     torch.nn.init.zeros_(module.weight)
             return
 
-        # self.dtype is populated on successful load in __init__ or reload,
-        # providing a safe fallback if the model object is currently None.
-        dtype = self.dtype
-
         # Purge existing model object from memory to make space.
         self.model = None  # ty:ignore[invalid-assignment]
         empty_cache()
 
-        quantization_config = self._get_quantization_config(str(dtype).split(".")[-1])
+        quantization_config = self._get_quantization_config(
+            str(self.dtype).split(".")[-1]
+        )
 
         # Build kwargs, only include quantization_config if it's not None.
         extra_kwargs = {}
@@ -350,14 +346,13 @@ class Model:
 
         self.model = get_model_class(self.settings.model).from_pretrained(
             self.settings.model,
-            dtype=dtype,
+            dtype=self.dtype,
             device_map=self.settings.device_map,
             max_memory=self.max_memory,
             trust_remote_code=self.trusted_models.get(self.settings.model),
             **self.revision_kwargs,
             **extra_kwargs,
         )
-        self.dtype = self.model.dtype
 
         self._apply_lora()
 

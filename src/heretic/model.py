@@ -321,24 +321,24 @@ class Model:
         - Slow path: If switching models or after merge_and_unload(),
           performs full model reload with quantization config.
         """
-        current_model = (
-            getattr(self.model.config, "name_or_path", None)
-            if self.model is not None
-            else None
-        )
+        # If a prior model load was interrupted/cancelled mid-process, self.model will be None.
+        current_model = None
+        if self.model is not None:
+            current_model = getattr(self.model.config, "name_or_path", None)
+
         if current_model == self.settings.model and not self.needs_reload:
-            # Reset LoRA adapters to zero (identity transformation)
+            # Reset LoRA adapters to zero (identity transformation).
             assert self.model is not None
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
                     torch.nn.init.zeros_(module.weight)
             return
 
-        if self.model is not None:
-            dtype = self.model.dtype
-            self.dtype = dtype
-        else:
-            dtype = self.dtype or "auto"
+        # self.dtype is populated on successful load in __init__ or reload,
+        # providing a safe fallback if the model object is currently None.
+        dtype = self.dtype or (
+            self.settings.dtypes[0] if self.settings.dtypes else "auto"
+        )
 
         # Purge existing model object from memory to make space.
         self.model = None  # ty:ignore[invalid-assignment]
@@ -346,7 +346,7 @@ class Model:
 
         quantization_config = self._get_quantization_config(str(dtype).split(".")[-1])
 
-        # Build kwargs, only include quantization_config if it's not None
+        # Build kwargs, only include quantization_config if it's not None.
         extra_kwargs = {}
         if quantization_config is not None:
             extra_kwargs["quantization_config"] = quantization_config

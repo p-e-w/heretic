@@ -639,6 +639,8 @@ def run():
     if len(study.trials) == settings.n_trials:
         study.set_user_attr("finished", True)
 
+    huggingface_token: str | None = None
+
     while True:
         # If no trials at all have been evaluated, the study must have been stopped
         # by pressing Ctrl+C while the first trial was running. In this case, we just
@@ -826,13 +828,14 @@ def run():
                             # We don't use huggingface_hub.login() because that stores the token on disk,
                             # and since this program will often be run on rented or shared GPU servers,
                             # it's better to not persist credentials.
-                            token = huggingface_hub.get_token()
+                            token = huggingface_token or huggingface_hub.get_token()
                             if not token:
                                 token = prompt_password("Hugging Face access token:")
                             if not token:
                                 continue
 
                             user = huggingface_hub.whoami(token)
+                            huggingface_token = token
                             fullname = user.get(
                                 "fullname",
                                 user.get("name", "unknown user"),

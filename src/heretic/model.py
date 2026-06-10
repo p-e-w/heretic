@@ -131,8 +131,7 @@ class Model:
                     **self.revision_kwargs,
                     **extra_kwargs,
                 )
-                if self.model is not None:
-                    self.dtype = self.model.dtype
+                self.dtype = self.model.dtype
 
                 # If we reach this point and the model requires trust_remote_code,
                 # either the user accepted, or settings.trust_remote_code is True.
@@ -336,9 +335,7 @@ class Model:
 
         # self.dtype is populated on successful load in __init__ or reload,
         # providing a safe fallback if the model object is currently None.
-        dtype = self.dtype or (
-            self.settings.dtypes[0] if self.settings.dtypes else "auto"
-        )
+        dtype = self.dtype
 
         # Purge existing model object from memory to make space.
         self.model = None  # ty:ignore[invalid-assignment]
@@ -360,8 +357,7 @@ class Model:
             **self.revision_kwargs,
             **extra_kwargs,
         )
-        if self.model is not None:
-            self.dtype = self.model.dtype
+        self.dtype = self.model.dtype
 
         self._apply_lora()
 

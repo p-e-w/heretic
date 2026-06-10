@@ -834,8 +834,8 @@ def run():
                             if not token:
                                 continue
 
+                            huggingface_token = None
                             user = huggingface_hub.whoami(token)
-                            huggingface_token = token
                             fullname = user.get(
                                 "fullname",
                                 user.get("name", "unknown user"),
@@ -989,6 +989,7 @@ def run():
                                 )
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
+                            huggingface_token = token
 
                         case "Chat with the model":
                             print()

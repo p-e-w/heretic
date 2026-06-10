@@ -856,7 +856,9 @@ def run():
                                         break
 
                                     if choice == "Switch account":
-                                        token = prompt_password("Hugging Face access token:")
+                                        token = prompt_password(
+                                            "Hugging Face access token:"
+                                        )
                                         if not token:
                                             break
                                         continue
@@ -865,7 +867,9 @@ def run():
                                     huggingface_token = token
                                 except Exception as e:
                                     print(f"[bold red]Authentication failed:[/] {e}")
-                                    token = prompt_password("Please enter a valid Hugging Face access token:")
+                                    token = prompt_password(
+                                        "Please enter a valid Hugging Face access token:"
+                                    )
                                     if not token:
                                         break
 

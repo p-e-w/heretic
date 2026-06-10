@@ -73,11 +73,32 @@ class Model:
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        # Load configuration dictionary to verify model type.
+        # This prevents tokenizers configured with incorrect classes in upstream
+        # config metadata from generating corrupted/space-stripped tokens.
+        config_dict, _ = PretrainedConfig.get_config_dict(
             settings.model,
             trust_remote_code=settings.trust_remote_code,
             **self.revision_kwargs,
         )
+
+        tokenizer_kwargs = {
+            "trust_remote_code": settings.trust_remote_code,
+            **self.revision_kwargs,
+        }
+
+        if config_dict.get("model_type") == "qwen2":
+            from transformers import Qwen2TokenizerFast  # ty:ignore[unresolved-import]
+
+            self.tokenizer = Qwen2TokenizerFast.from_pretrained(
+                settings.model,
+                **tokenizer_kwargs,
+            )
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                settings.model,
+                **tokenizer_kwargs,
+            )
 
         # Multimodal models have a processor we'll want to save.
         self.processor = None

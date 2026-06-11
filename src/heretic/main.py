@@ -73,6 +73,7 @@ from .reproduce import (
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
+    format_exception,
     get_file_sha256,
     get_readme_intro,
     get_trial_parameters,
@@ -211,8 +212,10 @@ def run():
     except ValidationError as error:
         print(f"[red]Configuration contains [bold]{error.error_count()}[/] errors:[/]")
 
-        for error in error.errors():
-            print(f"[bold]{error['loc'][0]}[/]: [yellow]{error['msg']}[/]")
+        for error_detail in error.errors():
+            print(
+                f"[bold]{error_detail['loc'][0]}[/]: [yellow]{error_detail['msg']}[/]"
+            )
 
         print()
         print(
@@ -407,7 +410,11 @@ def run():
                     # We cannot recover from this.
                     raise
 
-                print(f"[red]Failed[/] ({error})")
+                formatted = format_exception(error)
+                if "\n" in formatted:
+                    print(f"[red]Failed[/]:\n{formatted}")
+                else:
+                    print(f"[red]Failed[/] ({formatted})")
                 break
 
             response_lengths = [
@@ -659,13 +666,7 @@ def run():
         study.set_user_attr("settings", settings.model_dump_json())
         study.set_user_attr("finished", False)
 
-        def count_completed_trials() -> int:
-            # Count number of complete trials to compute trials to run.
-            return sum(
-                [(1 if t.state == TrialState.COMPLETE else 0) for t in study.trials]
-            )
-
-        start_index = trial_index = count_completed_trials()
+        start_index = trial_index = len(study.trials)
         if start_index > 0:
             print()
             print("Resuming existing study.")
@@ -673,7 +674,7 @@ def run():
         try:
             study.optimize(
                 objective_wrapper,
-                n_trials=settings.n_trials - count_completed_trials(),
+                n_trials=settings.n_trials - len(study.trials),
             )
         except KeyboardInterrupt:
             # This additional handler takes care of the small chance that KeyboardInterrupt
@@ -681,7 +682,7 @@ def run():
             # defined in objective_wrapper above.
             pass
 
-        if count_completed_trials() == settings.n_trials:
+        if len(study.trials) == settings.n_trials:
             study.set_user_attr("finished", True)
 
     while True:
@@ -804,12 +805,12 @@ def run():
                     try:
                         study.optimize(
                             objective_wrapper,
-                            n_trials=settings.n_trials - count_completed_trials(),
+                            n_trials=settings.n_trials - len(study.trials),
                         )
                     except KeyboardInterrupt:
                         pass
 
-                    if count_completed_trials() == settings.n_trials:
+                    if len(study.trials) == settings.n_trials:
                         study.set_user_attr("finished", True)
 
                     break
@@ -894,6 +895,8 @@ def run():
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
+                                if model.processor is not None:
+                                    model.processor.save_pretrained(save_directory)
                                 reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")
@@ -1031,6 +1034,12 @@ def run():
                                     private=private,
                                     token=token,
                                 )
+                                if model.processor is not None:
+                                    model.processor.push_to_hub(
+                                        repo_id,
+                                        private=private,
+                                        token=token,
+                                    )
                                 reset_trial_model()
 
                             if is_hf_path(settings.model):
@@ -1069,7 +1078,7 @@ def run():
                             if reproducibility_information != "none":
                                 # Set the number of trials to the number of actual completed trials
                                 # for the reproduction configuration.
-                                settings.n_trials = count_completed_trials()
+                                settings.n_trials = len(study.trials)
                                 current_export_strategy = settings.export_strategy
                                 settings.export_strategy = strategy
 
@@ -1278,7 +1287,11 @@ def run():
                                 print(table)
 
                 except Exception as error:
-                    print(f"[red]Error: {error}[/]")
+                    formatted = format_exception(error)
+                    if "\n" in formatted:
+                        print(f"[red]Error:[/]\n{formatted}")
+                    else:
+                        print(f"[red]Error: {formatted}[/]")
 
 
 def main():

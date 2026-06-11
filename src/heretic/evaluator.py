@@ -99,9 +99,7 @@ class Evaluator:
                 else scorer.score_name
             )
             self._scorer_entries.append(
-                ScorerEntry(
-                    scorer=scorer, config=config, name=scorer_instance_name
-                )
+                ScorerEntry(scorer=scorer, config=config, name=scorer_instance_name)
             )
 
         # Run scorer init hooks.
@@ -181,7 +179,8 @@ class Evaluator:
         return [
             entry.name
             for entry in self._scorer_entries
-            if parse_study_direction(entry.config.optimization) != StudyDirection.NOT_SET
+            if parse_study_direction(entry.config.optimization)
+            != StudyDirection.NOT_SET
         ]
 
     def get_objective_values(
@@ -196,5 +195,6 @@ class Evaluator:
         return [
             parse_study_direction(entry.config.optimization)
             for entry in self._scorer_entries
-            if parse_study_direction(entry.config.optimization) != StudyDirection.NOT_SET
+            if parse_study_direction(entry.config.optimization)
+            != StudyDirection.NOT_SET
         ]

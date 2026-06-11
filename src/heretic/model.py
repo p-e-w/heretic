@@ -297,11 +297,13 @@ class Model:
             # Merge and unload
             print("* Merging LoRA adapters into base model...")
             merged_model = peft_model.merge_and_unload()
+            merged_model._hf_peft_config_loaded = False
             return merged_model
         else:
             # Non-quantized model - can merge directly
             print("* Merging LoRA adapters into base model...")
             merged_model = self.model.merge_and_unload()
+            merged_model._hf_peft_config_loaded = False
             # merge_and_unload() modifies self.model in-place, destroying LoRA adapters.
             # Mark for full reload if user switches trials later.
             self.needs_reload = True

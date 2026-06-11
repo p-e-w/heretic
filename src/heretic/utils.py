@@ -549,13 +549,18 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## How to reproduce
 
+> [!TIP]
+> You can automate this process, including all verification steps, by downloading the `reproduce.json` file and running
+> `heretic --reproduce reproduce.json`.
+
 {system_instructions}1. Install the exact version of Heretic indicated in the **Environment** section above, from its original source.
 1. Install the packages listed in `requirements.txt`: `pip install -r requirements.txt`
 1. Install the correct version of PyTorch: `{pytorch_install_command}`
 1. Place the provided `config.toml` in your working directory.
 1. Run Heretic without any additional arguments: `heretic`
 1. Wait for the run to finish, then select trial **{trial.user_attrs["index"]}** and export the model.
-1. Verify that the weight files have been exactly reproduced by comparing their SHA-256 hashes against those in `SHA256SUMS`: `sha256sum -c SHA256SUMS` (or look at the hashes online if you uploaded to Hugging Face)
+1. Verify that the weight files have been exactly reproduced by comparing their SHA-256 hashes against those in `SHA256SUMS`:
+   `sha256sum -c SHA256SUMS` (or look at the hashes online if you uploaded to Hugging Face)
 
 > [!TIP]
 > To use the included Optuna study journal `{checkpoint_filename}`, place it in the checkpoints directory (usually `checkpoints/`) before running Heretic.

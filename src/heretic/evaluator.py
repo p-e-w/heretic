@@ -56,16 +56,16 @@ class Evaluator:
         scorer_keys: set[str] = set()
 
         # Resolve plugin classes from names and validate.
-        for scorer_config in scorer_configs:
-            scorer_cls = load_plugin(name=scorer_config.plugin, base_class=Scorer)
+        for config in scorer_configs:
+            scorer_cls = load_plugin(name=config.plugin, base_class=Scorer)
             scorer_cls.validate_contract()
 
             print(
-                f"* Loaded: [bold]{scorer_cls.__name__} {'- ' + scorer_config.instance_name if scorer_config.instance_name else ''}[/bold]"
+                f"* Loaded: [bold]{scorer_cls.__name__} {'- ' + config.instance_name if config.instance_name else ''}[/bold]"
             )
 
             # Instantiate scorers.
-            instance_name = scorer_config.instance_name or None
+            instance_name = config.instance_name or None
 
             raw_settings = self._get_scorer_settings_raw(
                 scorer_cls=scorer_cls, instance_name=instance_name
@@ -100,7 +100,7 @@ class Evaluator:
             )
             self._scorer_entries.append(
                 ScorerEntry(
-                    scorer=scorer, config=scorer_config, name=scorer_instance_name
+                    scorer=scorer, config=config, name=scorer_instance_name
                 )
             )
 

@@ -61,7 +61,7 @@ class Model:
     # Set for multimodal models, None for text-only ones.
     processor: ProcessorMixin | None
     peft_config: LoraConfig
-    dtype: torch.dtype | str | None
+    dtype: torch.dtype
 
     def __init__(self, settings: Settings):
         self.settings = settings

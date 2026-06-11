@@ -266,6 +266,10 @@ def load_prompts(
             raise ValueError(f'The "column" field is required for datasets: {path}')
 
         if is_hf_path(path):
+            # Pin to the latest commit if not already set, so the exact dataset
+            # version is recorded for reproducibility.
+            if specification.commit is None:
+                specification.commit = huggingface_hub.dataset_info(path).sha
             dataset = load_dataset(
                 path,
                 revision=specification.commit,
@@ -722,16 +726,6 @@ def create_reproduce_folder(
 
     # Fetch commit hash for the base model.
     settings.model_commit = huggingface_hub.model_info(settings.model).sha
-
-    # Fetch commit hashes for all HF datasets to ensure reproducibility.
-    # Plugin-specific dataset commits are the plugin author's responsibility:
-    # plugins that want reproducibility should pin their own datasets via their
-    # settings schema.
-    for spec in [
-        settings.good_prompts,
-        settings.bad_prompts,
-    ]:
-        spec.commit = huggingface_hub.dataset_info(spec.dataset).sha
 
     # Strip microseconds and timezone for a clean format.
     timestamp = (

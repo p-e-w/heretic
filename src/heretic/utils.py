@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import getpass
+import hashlib
 import json
 import os
 import platform
@@ -25,6 +26,7 @@ from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
 from huggingface_hub.utils import validate_repo_id
 from optuna import Trial
+from optuna.trial import FrozenTrial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
@@ -286,7 +288,7 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
 
-def get_trial_parameters(trial: Trial) -> dict[str, str]:
+def get_trial_parameters(trial: Trial | FrozenTrial) -> dict[str, str]:
     params = {}
 
     direction_index = trial.user_attrs["direction_index"]
@@ -303,7 +305,7 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
 
 def get_readme_intro(
     settings: Settings,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     contains_reproducibility_information: bool,
 ) -> str:
     if is_hf_path(settings.model):
@@ -395,7 +397,7 @@ def format_hf_link(
 def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a README.md for the reproduce/ folder."""
@@ -547,13 +549,18 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## How to reproduce
 
+> [!TIP]
+> You can automate this process, including all verification steps, by downloading the `reproduce.json` file and running
+> `heretic --reproduce reproduce.json`.
+
 {system_instructions}1. Install the exact version of Heretic indicated in the **Environment** section above, from its original source.
 1. Install the packages listed in `requirements.txt`: `pip install -r requirements.txt`
 1. Install the correct version of PyTorch: `{pytorch_install_command}`
 1. Place the provided `config.toml` in your working directory.
 1. Run Heretic without any additional arguments: `heretic`
 1. Wait for the run to finish, then select trial **{trial.user_attrs["index"]}** and export the model.
-1. Verify that the weight files have been exactly reproduced by comparing their SHA-256 hashes against those in `SHA256SUMS`: `sha256sum -c SHA256SUMS` (or look at the hashes online if you uploaded to Hugging Face)
+1. Verify that the weight files have been exactly reproduced by comparing their SHA-256 hashes against those in `SHA256SUMS`:
+   `sha256sum -c SHA256SUMS` (or look at the hashes online if you uploaded to Hugging Face)
 
 > [!TIP]
 > To use the included Optuna study journal `{checkpoint_filename}`, place it in the checkpoints directory (usually `checkpoints/`) before running Heretic.
@@ -564,7 +571,7 @@ This directory contains the necessary information and assets to reproduce the re
 
 def generate_reproduce_json(
     settings: Settings,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     timestamp: str,
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
@@ -574,7 +581,7 @@ def generate_reproduce_json(
     version_info = get_heretic_version_info()
 
     data = {
-        "version": "1",  # Version number of the reproduce.json file format, to allow for future changes.
+        "version": "2",  # Version number of the reproduce.json file format, to allow for future changes.
         "timestamp": timestamp,
         "system": None,  # Defined here to preserve insertion order.
         "environment": {
@@ -628,11 +635,23 @@ def generate_sha256sums(hashes: dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# TODO: Replace this with hashlib.file_digest when we drop support for Python 3.10.
+def get_file_sha256(file_path: str | Path) -> str:
+    hash = hashlib.sha256()
+
+    with open(file_path, "rb") as file:
+        # Read the file in 64 kB blocks.
+        for block in iter(lambda: file.read(65536), b""):
+            hash.update(block)
+
+    return hash.hexdigest()
+
+
 def create_reproduce_folder(
     path: Path,
     settings: Settings,
     checkpoint_path: str | Path,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
 ):
@@ -706,7 +725,7 @@ def upload_reproduce_folder(
     settings: Settings,
     token: str,
     checkpoint_path: str | Path,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     include_system_information: bool,
 ):
     api = huggingface_hub.HfApi()

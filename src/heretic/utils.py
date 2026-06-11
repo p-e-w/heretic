@@ -567,14 +567,11 @@ def generate_reproduce_readme(
 
     trial_scores = trial.user_attrs["scores"]
     baseline_by_name = {name: score for name, score in baseline_scores}
-    score_rows = "\n".join(
-        f"| **{score['name']}** | {score['md_display']} | "
-        f"{baseline_by_name[score['name']].md_display if score['name'] in baseline_by_name else '-'} |"
+    score_lines = "\n".join(
+        f"- **{score['name']}:** {score['md_display']}"
+        f" (baseline: {baseline_by_name[score['name']].md_display if score['name'] in baseline_by_name else 'N/A'})"
         for score in trial_scores
     )
-    trial_scores_table = f"""| Metric | This trial | Baseline |
-| :----- | :--------: | :------: |
-{score_rows}"""
 
     return f"""# Reproduction guide
 
@@ -593,7 +590,7 @@ This directory contains the necessary information and assets to reproduce the re
 
 - **Trial number:** {trial.user_attrs["index"]}
 
-{trial_scores_table}
+{score_lines}
 
 {system_report}## Environment
 

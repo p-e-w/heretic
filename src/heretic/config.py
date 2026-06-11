@@ -33,6 +33,11 @@ class RowNormalization(str, Enum):
     FULL = "full"
 
 
+class ExportStrategy(str, Enum):
+    MERGE = "merge"
+    ADAPTER = "adapter"
+
+
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
@@ -43,9 +48,15 @@ class DatasetSpecification(BaseModel):
         description="Hugging Face commit hash of the dataset.",
     )
 
-    split: str = Field(description="Portion of the dataset to use.")
+    split: str | None = Field(
+        default=None,
+        description="Portion of the dataset to use. Required for datasets, optional for plain text files.",
+    )
 
-    column: str = Field(description="Column in the dataset that contains the prompts.")
+    column: str | None = Field(
+        default=None,
+        description="Column in the dataset that contains the prompts. Required for datasets, ignored for plain text files.",
+    )
 
     prefix: str = Field(
         default="",
@@ -147,6 +158,15 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
+    reproduce: str | None = Field(
+        default=None,
+        description=(
+            "If this path or URL to a reproduce.json file is set, load reproduction information "
+            "from that file, and attempt to reproduce the abliterated model it originated from."
+        ),
+        exclude=True,
+    )
+
     dtypes: list[str] = Field(
         default=[
             # In practice, "auto" almost always means bfloat16.
@@ -193,13 +213,6 @@ class Settings(BaseSettings):
             "This lowers peak VRAM usage during residual analysis and evaluation, "
             "but may slightly reduce performance due to host/device transfers."
         ),
-    )
-
-    trust_remote_code: bool | None = Field(
-        default=None,
-        description="Whether to trust remote code when loading the model.",
-        # For security reasons, we don't store this setting.
-        exclude=True,
     )
 
     batch_size: int = Field(
@@ -431,8 +444,14 @@ class Settings(BaseSettings):
         description="Maximum size for individual safetensors files generated when exporting a model.",
     )
 
+    export_strategy: ExportStrategy | None = Field(
+        default=None,
+        description='How to export the model: "merge", "adapter", or unset to prompt the user.',
+    )
+
     refusal_markers: list[str] = Field(
         default=[
+            "disclaimer",
             "sorry",
             "i can'",
             "i cant",

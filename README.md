@@ -1,4 +1,4 @@
-<img width="128" height="128" align="right" alt="Logo" src="https://github.com/user-attachments/assets/df5f2840-2f92-4991-aa57-252747d7182e" />
+<img width="128" align="right" alt="Logo" src="https://github.com/user-attachments/assets/df5f2840-2f92-4991-aa57-252747d7182e" />
 
 # Heretic: Fully automatic censorship removal for language models<br><br>[![Discord](https://img.shields.io/discord/1447831134212984903?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/gdXc48gSyT) [![Follow us on Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg)](https://huggingface.co/heretic-org) [![Codeberg mirror](https://img.shields.io/badge/Codeberg%20mirror-black?logo=codeberg&style=for-the-badge)](https://codeberg.org/p-e-w/heretic)
 
@@ -116,8 +116,9 @@ a configuration file.
 
 At the start of a program run, Heretic benchmarks the system to determine
 the optimal batch size to make the most of the available hardware.
-On an RTX 3090, with the default configuration, decensoring Llama-3.1-8B-Instruct
-takes about 45 minutes. Note that Heretic supports model quantization with
+On an RTX 3090, with the default configuration, decensoring
+[Qwen3-4B-Instruct-2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507)
+takes about 20-30 minutes. Note that Heretic supports model quantization with
 bitsandbytes, which can drastically reduce the amount of VRAM required to process
 models. Set the `quantization` option to `bnb_4bit` to enable quantization.
 

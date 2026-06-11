@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import getpass
+import hashlib
 import json
 import os
 import platform
 import random
 import tempfile
+import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
@@ -24,8 +26,10 @@ from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
+from huggingface_hub.utils import validate_repo_id
 from optuna import Trial
 from optuna.study import StudyDirection
+from optuna.trial import FrozenTrial
 from psutil import Process
 from questionary import Choice, Style
 from rich.console import Console
@@ -204,19 +208,33 @@ def format_duration(seconds: float) -> str:
 def is_hf_path(path: str) -> bool:
     """Checks whether a path likely refers to a Hugging Face repository."""
 
-    return (
-        not path.startswith("/")
-        and not path.endswith("/")
-        and path.count("/") == 1
-        and "\\" not in path
-        and not Path(path).exists()
-    )
+    # Match Transformers: existing local paths take precedence over Hub lookup,
+    # even if the path string is also a valid repository ID.
+    if Path(path).exists():
+        return False
+
+    validate_repo_id(path)
+    return True
 
 
 @dataclass
 class Prompt:
     system: str
     user: str
+
+
+def get_split_slice(split_str: str, length: int) -> tuple[int, int]:
+    """Resolves a split specification into absolute (start, end) indices."""
+
+    # The split name is the part before the slice, e.g. "train" in "train[:400]".
+    split_name = split_str.split("[")[0]
+    # Associate the split with its number of examples (lines).
+    name_to_length = {split_name: length}
+    # Convert the instructions to absolute indices and select the first one.
+    absolute_instruction = ReadInstruction.from_spec(split_str).to_absolute(
+        name_to_length
+    )[0]
+    return absolute_instruction.from_, absolute_instruction.to
 
 
 def load_prompts(
@@ -226,29 +244,41 @@ def load_prompts(
     path = specification.dataset
     split_str = specification.split
 
-    if is_hf_path(path):
-        dataset = load_dataset(
-            path,
-            revision=specification.commit,
-            split=split_str,
-        )
+    if os.path.isfile(path):
+        # Plain text file with one prompt per line. Empty lines are ignored.
+        with open(path, encoding="utf-8") as file:
+            prompts = [line.strip() for line in file if line.strip()]
+
+        # The split is optional for text files. When given, it selects a subset
+        # of the lines using slice notation (e.g. "[:400]"). A synthetic split
+        # name is prepended because ReadInstruction expects a named split.
+        if split_str is not None:
+            start, end = get_split_slice(f"_{split_str}", len(prompts))
+            prompts = prompts[start:end]
     else:
-        if Path(path, DATASET_STATE_JSON_FILENAME).exists():
+        # All dataset sources require an explicit split and column.
+        if split_str is None:
+            raise ValueError(f'The "split" field is required for datasets: {path}')
+
+        if specification.column is None:
+            raise ValueError(f'The "column" field is required for datasets: {path}')
+
+        if is_hf_path(path):
+            dataset = load_dataset(
+                path,
+                revision=specification.commit,
+                split=split_str,
+            )
+        elif Path(path, DATASET_STATE_JSON_FILENAME).exists():
             # Dataset saved with datasets.save_to_disk; needs special handling.
             # Path should be the subdirectory for a particular split.
             dataset = load_from_disk(path)
             assert not isinstance(dataset, DatasetDict), (
                 "Loading dataset dicts is not supported"
             )
-            # Parse the split instructions.
-            instruction = ReadInstruction.from_spec(split_str)
-            # Associate the split with its number of examples (lines).
-            split_name = str(dataset.split)
-            name2len = {split_name: len(dataset)}
-            # Convert the instructions to absolute indices and select the first one.
-            abs_instruction = instruction.to_absolute(name2len)[0]
-            # Get the dataset by applying the indices.
-            dataset = dataset[abs_instruction.from_ : abs_instruction.to]
+            # Parse the split instructions and apply them.
+            start, end = get_split_slice(split_str, len(dataset))
+            dataset = dataset[start:end]
         else:
             # Path should be a local directory.
             dataset = load_dataset(
@@ -260,7 +290,7 @@ def load_prompts(
                 download_mode=DownloadMode.FORCE_REDOWNLOAD,
             )
 
-    prompts = list(dataset[specification.column])
+        prompts = list(dataset[specification.column])
 
     if specification.prefix:
         prompts = [f"{specification.prefix} {prompt}" for prompt in prompts]
@@ -287,7 +317,7 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
 
-def get_trial_parameters(trial: Trial) -> dict[str, str]:
+def get_trial_parameters(trial: Trial | FrozenTrial) -> dict[str, str]:
     params = {}
 
     direction_index = trial.user_attrs["direction_index"]
@@ -304,7 +334,7 @@ def get_trial_parameters(trial: Trial) -> dict[str, str]:
 
 def get_readme_intro(
     settings: Settings,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     baseline_score_displays: dict[str, str],
     contains_reproducibility_information: bool,
 ) -> str:
@@ -413,7 +443,7 @@ def format_hf_link(
 def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ) -> str:
@@ -575,13 +605,18 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## How to reproduce
 
+> [!TIP]
+> You can automate this process, including all verification steps, by downloading the `reproduce.json` file and running
+> `heretic --reproduce reproduce.json`.
+
 {system_instructions}1. Install the exact version of Heretic indicated in the **Environment** section above, from its original source.
 1. Install the packages listed in `requirements.txt`: `pip install -r requirements.txt`
 1. Install the correct version of PyTorch: `{pytorch_install_command}`
 1. Place the provided `config.toml` in your working directory.
 1. Run Heretic without any additional arguments: `heretic`
 1. Wait for the run to finish, then select trial **{trial.user_attrs["index"]}** and export the model.
-1. Verify that the weight files have been exactly reproduced by comparing their SHA-256 hashes against those in `SHA256SUMS`: `sha256sum -c SHA256SUMS` (or look at the hashes online if you uploaded to Hugging Face)
+1. Verify that the weight files have been exactly reproduced by comparing their SHA-256 hashes against those in `SHA256SUMS`:
+   `sha256sum -c SHA256SUMS` (or look at the hashes online if you uploaded to Hugging Face)
 
 > [!TIP]
 > To use the included Optuna study journal `{checkpoint_filename}`, place it in the checkpoints directory (usually `checkpoints/`) before running Heretic.
@@ -592,7 +627,7 @@ This directory contains the necessary information and assets to reproduce the re
 
 def generate_reproduce_json(
     settings: Settings,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     timestamp: str,
     uploaded_model_hashes: dict[str, str],
     baseline_scores: list[tuple[str, Score]],
@@ -655,11 +690,23 @@ def generate_sha256sums(hashes: dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+# TODO: Replace this with hashlib.file_digest when we drop support for Python 3.10.
+def get_file_sha256(file_path: str | Path) -> str:
+    hash = hashlib.sha256()
+
+    with open(file_path, "rb") as file:
+        # Read the file in 64 kB blocks.
+        for block in iter(lambda: file.read(65536), b""):
+            hash.update(block)
+
+    return hash.hexdigest()
+
+
 def create_reproduce_folder(
     path: Path,
     settings: Settings,
     checkpoint_path: str | Path,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     uploaded_model_hashes: dict[str, str],
     baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
@@ -737,7 +784,7 @@ def upload_reproduce_folder(
     settings: Settings,
     token: str,
     checkpoint_path: str | Path,
-    trial: Trial,
+    trial: Trial | FrozenTrial,
     baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ):
@@ -780,3 +827,16 @@ def upload_reproduce_folder(
                     repo_id=repo_id,
                     token=token,
                 )
+
+
+def format_exception(error: Exception) -> str:
+    # Walk causal chain to find a non-empty message.
+    current = error
+    while current is not None:
+        message = str(current).strip()
+        if message:
+            return message
+        current = current.__cause__ or current.__context__
+
+    # If there is no message in the entire causal chain, fall back to the complete traceback.
+    return traceback.format_exc().strip()

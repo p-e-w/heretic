@@ -47,7 +47,7 @@ import questionary
 import torch
 import torch.nn.functional as F
 import transformers
-from huggingface_hub import ModelCard, ModelCardData
+from huggingface_hub import HfApi, ModelCard, ModelCardData
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -55,21 +55,26 @@ from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
 from optuna.study import StudyDirection
-from optuna.trial import TrialState
+from optuna.trial import TrialState, create_trial
 from pydantic import ValidationError
 from questionary import Choice, Style
 from rich.table import Table
 from rich.traceback import install
 
 from .analyzer import Analyzer
-from .config import QuantizationMethod
+from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
-from .reproduce import collect_reproducibles
+from .reproduce import (
+    check_environment,
+    collect_reproducibles,
+    load_reproduction_information,
+)
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     format_duration,
     format_exception,
+    get_file_sha256,
     get_readme_intro,
     get_trial_parameters,
     is_hf_path,
@@ -85,12 +90,18 @@ from .utils import (
 )
 
 
-def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
+def obtain_export_strategy(
+    settings: Settings,
+    model: Model,
+) -> ExportStrategy | None:
     """
-    Prompts the user for how to proceed with saving the model.
+    Gets the export strategy from settings or prompts the user.
     Provides info to the user if the model is quantized on memory use.
-    Returns "merge", "adapter", or None (if cancelled/invalid).
+    Returns an export strategy, or None if cancelled.
     """
+
+    if settings.export_strategy is not None:
+        return settings.export_strategy
 
     if settings.quantization == QuantizationMethod.BNB_4BIT:
         print()
@@ -114,7 +125,9 @@ def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
                     settings.model,
                     device_map="meta",
                     torch_dtype=torch.bfloat16,
-                    trust_remote_code=model.trusted_models.get(settings.model),
+                    trust_remote_code=True
+                    if settings.model in model.trusted_models
+                    else None,
                     **model.revision_kwargs,
                 )
                 footprint_bytes = meta_model.get_memory_footprint()
@@ -143,11 +156,11 @@ def obtain_merge_strategy(settings: Settings, model: Model) -> str | None:
                     if settings.quantization == QuantizationMethod.NONE
                     else " (requires sufficient RAM)"
                 ),
-                value="merge",
+                value=ExportStrategy.MERGE,
             ),
             Choice(
                 title="Save LoRA adapter only (can be merged later)",
-                value="adapter",
+                value=ExportStrategy.ADAPTER,
             ),
         ],
     )
@@ -176,6 +189,7 @@ def run():
         len(sys.argv) > 1
         # Heretic is being invoked in standard (model processing) mode.
         and "--collect-reproducibles" not in sys.argv
+        and "--reproduce" not in sys.argv
         # No model has been explicitly provided.
         and "--model" not in sys.argv
         # The last argument is a parameter value rather than a flag (such as "--help").
@@ -186,7 +200,9 @@ def run():
 
     # Work around the "model" argument being required
     # when Heretic is invoked in a non-processing mode.
-    if "--collect-reproducibles" in sys.argv and "--model" not in sys.argv:
+    if (
+        "--collect-reproducibles" in sys.argv or "--reproduce" in sys.argv
+    ) and "--model" not in sys.argv:
         sys.argv.extend(["--model", ""])
 
     try:
@@ -210,6 +226,31 @@ def run():
     if settings.collect_reproducibles is not None:
         collect_reproducibles(settings.collect_reproducibles)
         return
+
+    reproduction_mode = settings.reproduce is not None
+
+    if settings.reproduce is not None:
+        print(f"Loading reproduction information from [bold]{settings.reproduce}[/]...")
+        # FIXME: "Reproduction"/"reproducibility" name inconsistency!
+        reproduction_information = load_reproduction_information(settings.reproduce)
+
+        if reproduction_information["version"] not in ["1", "2"]:
+            print(
+                (
+                    f"[red]Unsupported file format version: [bold]{reproduction_information['version']}[/].[/] "
+                    "Try loading the file with a newer version of Heretic."
+                )
+            )
+            return
+
+        if not check_environment(reproduction_information):
+            return
+
+        print()
+
+        verify_hashes = reproduction_information["version"] != "1"
+
+        settings = Settings.model_validate(reproduction_information["settings"])
 
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
@@ -260,7 +301,11 @@ def run():
     except IndexError:
         existing_study = None
 
-    if existing_study is not None and settings.evaluate_model is None:
+    if (
+        existing_study is not None
+        and settings.evaluate_model is None
+        and not reproduction_mode
+    ):
         choices = []
 
         if existing_study.user_attrs["finished"]:
@@ -604,151 +649,177 @@ def run():
             trial.study.stop()
             raise TrialPruned()
 
-    study = optuna.create_study(
-        sampler=TPESampler(
-            n_startup_trials=settings.n_startup_trials,
-            n_ei_candidates=128,
-            multivariate=True,
-            seed=settings.seed,
-        ),
-        directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
-        storage=storage,
-        study_name="heretic",
-        load_if_exists=True,
-    )
-
-    study.set_user_attr("settings", settings.model_dump_json())
-    study.set_user_attr("finished", False)
-
-    start_index = trial_index = len(study.trials)
-    if start_index > 0:
-        print()
-        print("Resuming existing study.")
-
-    try:
-        study.optimize(
-            objective_wrapper,
-            n_trials=settings.n_trials - len(study.trials),
+    if not reproduction_mode:
+        study = optuna.create_study(
+            sampler=TPESampler(
+                n_startup_trials=settings.n_startup_trials,
+                n_ei_candidates=128,
+                multivariate=True,
+                seed=settings.seed,
+            ),
+            directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
+            storage=storage,
+            study_name="heretic",
+            load_if_exists=True,
         )
-    except KeyboardInterrupt:
-        # This additional handler takes care of the small chance that KeyboardInterrupt
-        # is raised just between trials, which wouldn't be caught by the handler
-        # defined in objective_wrapper above.
-        pass
 
-    if len(study.trials) == settings.n_trials:
-        study.set_user_attr("finished", True)
+        study.set_user_attr("settings", settings.model_dump_json())
+        study.set_user_attr("finished", False)
+
+        start_index = trial_index = len(study.trials)
+        if start_index > 0:
+            print()
+            print("Resuming existing study.")
+
+        try:
+            study.optimize(
+                objective_wrapper,
+                n_trials=settings.n_trials - len(study.trials),
+            )
+        except KeyboardInterrupt:
+            # This additional handler takes care of the small chance that KeyboardInterrupt
+            # is raised just between trials, which wouldn't be caught by the handler
+            # defined in objective_wrapper above.
+            pass
+
+        if len(study.trials) == settings.n_trials:
+            study.set_user_attr("finished", True)
 
     while True:
-        # If no trials at all have been evaluated, the study must have been stopped
-        # by pressing Ctrl+C while the first trial was running. In this case, we just
-        # re-raise the interrupt to invoke the standard handler defined below.
-        completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
-        if not completed_trials:
-            raise KeyboardInterrupt
+        if not reproduction_mode:
+            # If no trials at all have been evaluated, the study must have been stopped
+            # by pressing Ctrl+C while the first trial was running. In this case, we just
+            # re-raise the interrupt to invoke the standard handler defined below.
+            completed_trials = [
+                t for t in study.trials if t.state == TrialState.COMPLETE
+            ]
+            if not completed_trials:
+                raise KeyboardInterrupt
 
-        # Get the Pareto front of trials. We can't use study.best_trials directly
-        # as get_score() doesn't return the pure KL divergence and refusal count.
-        # Note: Unlike study.best_trials, this does not handle objective constraints.
-        sorted_trials = sorted(
-            completed_trials,
-            key=lambda trial: (
-                trial.user_attrs["refusals"],
-                trial.user_attrs["kl_divergence"],
-            ),
-        )
-        min_divergence = math.inf
-        best_trials = []
-        for trial in sorted_trials:
-            kl_divergence = trial.user_attrs["kl_divergence"]
-            if kl_divergence < min_divergence:
-                min_divergence = kl_divergence
-                best_trials.append(trial)
-
-        choices = [
-            Choice(
-                title=(
-                    f"[Trial {trial.user_attrs['index']:>3}] "
-                    f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                    f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
+            # Get the Pareto front of trials. We can't use study.best_trials directly
+            # as get_score() doesn't return the pure KL divergence and refusal count.
+            # Note: Unlike study.best_trials, this does not handle objective constraints.
+            sorted_trials = sorted(
+                completed_trials,
+                key=lambda trial: (
+                    trial.user_attrs["refusals"],
+                    trial.user_attrs["kl_divergence"],
                 ),
-                value=trial,
             )
-            for trial in best_trials
-        ]
+            min_divergence = math.inf
+            best_trials = []
+            for trial in sorted_trials:
+                kl_divergence = trial.user_attrs["kl_divergence"]
+                if kl_divergence < min_divergence:
+                    min_divergence = kl_divergence
+                    best_trials.append(trial)
 
-        choices.append(
-            Choice(
-                title="Run additional trials",
-                value="continue",
-            )
-        )
+            choices = [
+                Choice(
+                    title=(
+                        f"[Trial {trial.user_attrs['index']:>3}] "
+                        f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
+                        f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
+                    ),
+                    value=trial,
+                )
+                for trial in best_trials
+            ]
 
-        choices.append(
-            Choice(
-                title="Exit program",
-                value="",
+            choices.append(
+                Choice(
+                    title="Run additional trials",
+                    value="continue",
+                )
             )
-        )
 
-        print()
-        print("[bold green]Optimization finished![/]")
-        print()
-        print(
-            (
-                "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
-                "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
-                "chat with it to test how well it works, or run standard benchmarks on it. "
-                "You can return to this menu later to select a different trial. "
-                "[yellow]Note that KL divergence values above 0.5 usually indicate significant damage to the original model's capabilities.[/]"
+            choices.append(
+                Choice(
+                    title="Exit program",
+                    value="",
+                )
             )
-        )
+
+            print()
+            print("[bold green]Optimization finished![/]")
+            print()
+            print(
+                (
+                    "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
+                    "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
+                    "chat with it to test how well it works, or run standard benchmarks on it. "
+                    "You can return to this menu later to select a different trial. "
+                    "[yellow]Note that KL divergence values above 0.5 usually indicate significant damage to the original model's capabilities.[/]"
+                )
+            )
 
         while True:
-            print()
-            trial = prompt_select("Which trial do you want to use?", choices)
+            if reproduction_mode:
+                parameters = reproduction_information["parameters"]
+                metrics = reproduction_information["metrics"]
 
-            if trial == "continue":
-                while True:
+                trial = create_trial(
+                    values=[],
+                    user_attrs={
+                        "direction_index": parameters["direction_index"],
+                        "parameters": parameters["abliteration_parameters"],
+                        "kl_divergence": metrics["kl_divergence"],
+                        "refusals": metrics["refusals"],
+                        "base_refusals": metrics["base_refusals"],
+                        "n_bad_prompts": metrics["n_bad_prompts"],
+                    },
+                )
+
+                print()
+                print("Restoring model from reproduction information...")
+            else:
+                print()
+                trial = prompt_select("Which trial do you want to use?", choices)
+
+                if trial is None or trial == "":
+                    return
+
+                if trial == "continue":
+                    while True:
+                        try:
+                            n_additional_trials = prompt_text(
+                                "How many additional trials do you want to run?"
+                            )
+                            if n_additional_trials is None or n_additional_trials == "":
+                                n_additional_trials = 0
+                                break
+                            n_additional_trials = int(n_additional_trials)
+                            if n_additional_trials > 0:
+                                break
+                            print("[red]Please enter a number greater than 0.[/]")
+                        except ValueError:
+                            print("[red]Please enter a number.[/]")
+
+                    if n_additional_trials == 0:
+                        continue
+
+                    settings.n_trials += n_additional_trials
+                    study.set_user_attr("settings", settings.model_dump_json())
+                    study.set_user_attr("finished", False)
+
                     try:
-                        n_additional_trials = prompt_text(
-                            "How many additional trials do you want to run?"
+                        study.optimize(
+                            objective_wrapper,
+                            n_trials=settings.n_trials - len(study.trials),
                         )
-                        if n_additional_trials is None or n_additional_trials == "":
-                            n_additional_trials = 0
-                            break
-                        n_additional_trials = int(n_additional_trials)
-                        if n_additional_trials > 0:
-                            break
-                        print("[red]Please enter a number greater than 0.[/]")
-                    except ValueError:
-                        print("[red]Please enter a number.[/]")
+                    except KeyboardInterrupt:
+                        pass
 
-                if n_additional_trials == 0:
-                    continue
+                    if len(study.trials) == settings.n_trials:
+                        study.set_user_attr("finished", True)
 
-                settings.n_trials += n_additional_trials
-                study.set_user_attr("settings", settings.model_dump_json())
-                study.set_user_attr("finished", False)
+                    break
 
-                try:
-                    study.optimize(
-                        objective_wrapper,
-                        n_trials=settings.n_trials - len(study.trials),
-                    )
-                except KeyboardInterrupt:
-                    pass
+                print()
+                print(
+                    f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]..."
+                )
 
-                if len(study.trials) == settings.n_trials:
-                    study.set_user_attr("finished", True)
-
-                break
-
-            elif trial is None or trial == "":
-                return
-
-            print()
-            print(f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]...")
             print("* Parameters:")
             for name, value in get_trial_parameters(trial).items():
                 print(f"  * {name} = [bold]{value}[/]")
@@ -779,12 +850,20 @@ def run():
                         "Upload the model to Hugging Face",
                         "Chat with the model",
                         "Benchmark the model",
-                        "Return to the trial selection menu",
+                        Choice(
+                            title="Exit program"
+                            if reproduction_mode
+                            else "Return to the trial selection menu",
+                            value="",
+                        ),
                     ],
                 )
 
-                if action is None or action == "Return to the trial selection menu":
-                    break
+                if action is None or action == "":
+                    if reproduction_mode:
+                        return
+                    else:
+                        break
 
                 # All actions are wrapped in a try/except block so that if an error occurs,
                 # another action can be tried, instead of the program crashing and losing
@@ -796,11 +875,11 @@ def run():
                             if not save_directory:
                                 continue
 
-                            strategy = obtain_merge_strategy(settings, model)
+                            strategy = obtain_export_strategy(settings, model)
                             if strategy is None:
                                 continue
 
-                            if strategy == "adapter":
+                            if strategy == ExportStrategy.ADAPTER:
                                 print("Saving LoRA adapter...")
                                 model.model.save_pretrained(
                                     save_directory,
@@ -821,6 +900,31 @@ def run():
                                 reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")
+
+                            if reproduction_mode and verify_hashes:
+                                print("Verifying hashes of weight files...")
+
+                                for (
+                                    filename,
+                                    original_sha256,
+                                ) in reproduction_information["hashes"].items():
+                                    file_path = Path(save_directory) / filename
+
+                                    if file_path.exists():
+                                        sha256 = get_file_sha256(file_path)
+
+                                        if sha256.lower() == original_sha256.lower():
+                                            print(
+                                                f"[bold]{filename}:[/] [green]Hash matches[/]"
+                                            )
+                                        else:
+                                            print(
+                                                f"[bold]{filename}:[/] [yellow]Hash doesn't match[/]"
+                                            )
+                                    else:
+                                        print(
+                                            f"[bold]{filename}:[/] [red]File not found[/]"
+                                        )
 
                         case "Upload the model to Hugging Face":
                             # We don't use huggingface_hub.login() because that stores the token on disk,
@@ -856,7 +960,7 @@ def run():
                                 continue
                             private = visibility == "Private"
 
-                            strategy = obtain_merge_strategy(settings, model)
+                            strategy = obtain_export_strategy(settings, model)
                             if strategy is None:
                                 continue
 
@@ -868,8 +972,10 @@ def run():
                                 settings.good_evaluation_prompts.dataset,
                                 settings.bad_evaluation_prompts.dataset,
                             ]
-                            is_reproducible = is_hf_path(settings.model) and all(
-                                is_hf_path(dataset) for dataset in datasets
+                            is_reproducible = (
+                                is_hf_path(settings.model)
+                                and all(is_hf_path(dataset) for dataset in datasets)
+                                and not reproduction_mode
                             )
 
                             if is_reproducible:
@@ -904,7 +1010,7 @@ def run():
                             else:
                                 reproducibility_information = "none"
 
-                            if strategy == "adapter":
+                            if strategy == ExportStrategy.ADAPTER:
                                 print("Uploading LoRA adapter...")
                                 model.model.push_to_hub(
                                     repo_id,
@@ -973,19 +1079,75 @@ def run():
                                 # Set the number of trials to the number of actual completed trials
                                 # for the reproduction configuration.
                                 settings.n_trials = len(study.trials)
+                                current_export_strategy = settings.export_strategy
+                                settings.export_strategy = strategy
 
-                                upload_reproduce_folder(
-                                    repo_id,
-                                    settings,
-                                    token,
-                                    checkpoint_path=study_checkpoint_file,
-                                    trial=trial,
-                                    include_system_information=(
-                                        reproducibility_information == "full"
-                                    ),
-                                )
+                                try:
+                                    upload_reproduce_folder(
+                                        repo_id,
+                                        settings,
+                                        token,
+                                        checkpoint_path=study_checkpoint_file,
+                                        trial=trial,
+                                        include_system_information=(
+                                            reproducibility_information == "full"
+                                        ),
+                                    )
+                                finally:
+                                    settings.export_strategy = current_export_strategy
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
+
+                            if reproduction_mode and verify_hashes:
+                                print("Verifying hashes of weight files...")
+
+                                api = HfApi()
+                                model_info = api.model_info(
+                                    repo_id,
+                                    files_metadata=True,
+                                    token=token,
+                                )
+
+                                if not model_info.siblings:
+                                    raise RuntimeError(
+                                        "Could not fetch uploaded model hashes."
+                                    )
+
+                                for (
+                                    filename,
+                                    original_sha256,
+                                ) in reproduction_information["hashes"].items():
+                                    file_found = False
+
+                                    for file in model_info.siblings:
+                                        if file.rfilename == filename:
+                                            sha256 = getattr(file, "lfs", {}).get(
+                                                "sha256"
+                                            )
+                                            if not sha256:
+                                                raise RuntimeError(
+                                                    "Could not fetch uploaded model hashes."
+                                                )
+
+                                            if (
+                                                sha256.lower()
+                                                == original_sha256.lower()
+                                            ):
+                                                print(
+                                                    f"[bold]{filename}:[/] [green]Hash matches[/]"
+                                                )
+                                            else:
+                                                print(
+                                                    f"[bold]{filename}:[/] [yellow]Hash doesn't match[/]"
+                                                )
+
+                                            file_found = True
+                                            break
+
+                                    if not file_found:
+                                        print(
+                                            f"[bold]{filename}:[/] [red]File not found[/]"
+                                        )
 
                         case "Chat with the model":
                             print()

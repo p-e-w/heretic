@@ -181,7 +181,7 @@ class Evaluator:
         return [
             entry.name
             for entry in self._scorer_entries
-            if parse_study_direction(entry.config.direction) != StudyDirection.NOT_SET
+            if parse_study_direction(entry.config.optimization) != StudyDirection.NOT_SET
         ]
 
     def get_objective_values(
@@ -194,7 +194,7 @@ class Evaluator:
     def get_objective_directions(self) -> list[StudyDirection]:
         """Get optimization directions for objectives."""
         return [
-            parse_study_direction(entry.config.direction)
+            parse_study_direction(entry.config.optimization)
             for entry in self._scorer_entries
-            if parse_study_direction(entry.config.direction) != StudyDirection.NOT_SET
+            if parse_study_direction(entry.config.optimization) != StudyDirection.NOT_SET
         ]

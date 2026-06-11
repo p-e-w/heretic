@@ -68,12 +68,14 @@ def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str
     return merged
 
 
-def parse_study_direction(direction: str) -> StudyDirection:
+def parse_study_direction(optimization: str) -> StudyDirection:
     """
-    Converts the study direction stored as a `str` to the
-    `StudyDirection.DIRECTION` object required by Optuna.
+    Converts the optimization value stored as a `str` to the
+    `StudyDirection` object required by Optuna.
     """
-    return StudyDirection[direction.upper()]
+    if optimization == "none":
+        return StudyDirection.NOT_SET
+    return StudyDirection[optimization.upper()]
 
 
 def print_memory_usage():

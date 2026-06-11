@@ -91,7 +91,7 @@ class ScorerConfig(BaseModel):
     Configuration for a scorer plugin.
 
     TOML format:
-    - { plugin = "<plugin>", direction = "<direction>", instance_name = "<optional>" }
+    - { plugin = "<plugin>", optimization = "<optimization>", instance_name = "<optional>" }
     """
 
     plugin: str = Field(
@@ -102,11 +102,11 @@ class ScorerConfig(BaseModel):
         ),
     )
 
-    direction: Literal["minimize", "maximize", "not_set"] = Field(
+    optimization: Literal["minimize", "maximize", "none"] = Field(
         description=(
             "Optimization direction for this scorer. "
             '"minimize" / "maximize" to include the scorer as an objective, '
-            '"not_set" to compute the score without optimizing for it.'
+            '"none" to compute the score without optimizing for it.'
         ),
     )
 
@@ -309,8 +309,8 @@ class Settings(BaseSettings):
         default_factory=list,
         description=(
             "List of scorer plugin configs. Each entry is an object"
-            " { plugin = <plugin>, direction = <direction>, instance_name = <optional> }."
-            " <direction> is one of 'minimize', 'maximize', 'not_set' (aka do not optimize)."
+            " { plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }."
+            " <optimization> is one of 'minimize', 'maximize', 'none' (do not optimize)."
         ),
     )
 

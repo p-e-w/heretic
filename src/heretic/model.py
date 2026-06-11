@@ -84,7 +84,6 @@ class Model:
         if get_model_class(settings.model) == AutoModelForImageTextToText:
             self.processor = AutoProcessor.from_pretrained(
                 settings.model,
-                trust_remote_code=settings.trust_remote_code,
                 **self.revision_kwargs,
             )
 

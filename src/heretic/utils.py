@@ -638,7 +638,9 @@ def generate_reproduce_json(
     version_info = get_heretic_version_info()
 
     data = {
-        "version": "2",  # Version number of the reproduce.json file format, to allow for future changes.
+        # Version 3: plugin-era schema with generic scorer `scores`/`baseline_scores`.
+        # Not compatible with the pre-plugin v1/v2 `metrics` schema.
+        "version": "3",
         "timestamp": timestamp,
         "system": None,  # Defined here to preserve insertion order.
         "environment": {

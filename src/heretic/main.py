@@ -233,11 +233,16 @@ def run():
         # FIXME: "Reproduction"/"reproducibility" name inconsistency!
         reproduction_information = load_reproduction_information(settings.reproduce)
 
-        if reproduction_information["version"] not in ["1", "2"]:
+        # Version 3 is the plugin-era schema, which stores generic scorer
+        # `scores`/`baseline_scores`. It is intentionally NOT compatible with the
+        # pre-plugin v1/v2 schema (hardcoded refusals/KL `metrics`), so those are
+        # rejected rather than silently failing on a missing key later.
+        if reproduction_information["version"] != "3":
             print(
                 (
                     f"[red]Unsupported file format version: [bold]{reproduction_information['version']}[/].[/] "
-                    "Try loading the file with a newer version of Heretic."
+                    "This version of Heretic reads version 3 (plugin scorer) reproduce.json files. "
+                    "Older files were produced before the scorer-plugin refactor and are not supported."
                 )
             )
             return
@@ -247,7 +252,9 @@ def run():
 
         print()
 
-        verify_hashes = reproduction_information["version"] != "1"
+        # Version 3 always includes a `hashes` field (populated from the uploaded
+        # safetensors; empty only for models with no safetensors weights).
+        verify_hashes = True
 
         settings = Settings.model_validate(reproduction_information["settings"])
 

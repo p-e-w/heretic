@@ -40,7 +40,6 @@ dependencies = [
     "tomli-w~=1.2",
     "tqdm~=4.67",
     "transformers[kernels]~=5.6",
-    "torch",
 ]
 
 [project.optional-dependencies]
@@ -75,14 +74,5 @@ build-backend = "uv_build"
 [tool.uv]
 exclude-newer = "7 days"
 
-[tool.uv.sources]
-torch = { index = "pytorch" }
-
-[[tool.uv.index]]
-name = "pytorch"
-url = "https://download.pytorch.org/whl/cu124"
-explicit = true
-
 [tool.uv.build-backend]
 module-name = "heretic"
-

@@ -4,6 +4,14 @@
 # ruff: noqa: E402
 
 import sys
+import warnings
+
+# Silence harmless transitive startup warning from requests about chardet/urllib3 compatibility.
+warnings.filterwarnings(
+    "ignore",
+    message=".*(chardet|charset_normalizer|urllib3).*doesn't match a supported version",
+    category=UserWarning,
+)
 
 from .config import Settings
 

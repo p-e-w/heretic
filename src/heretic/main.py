@@ -106,7 +106,7 @@ def obtain_export_strategy(
     if settings.quantization == QuantizationMethod.BNB_4BIT:
         print()
         print(
-            "Model was loaded with quantization. Merging requires reloading the base model."
+            "The model was loaded with quantization. Merging requires reloading the base model."
         )
         print(
             "[yellow]WARNING: CPU merging requires dequantizing the entire model to system RAM.[/]"
@@ -144,13 +144,14 @@ def obtain_export_strategy(
             print(
                 "[yellow]Example: A 27B model requires ~80GB RAM. A 70B model requires ~200GB RAM.[/]"
             )
+
         print()
 
     strategy = prompt_select(
-        "How do you want to proceed?",
+        "How do you want to export the model?",
         choices=[
             Choice(
-                title="Merge LoRA into full model"
+                title="Merge the abliteration LoRA and export the full model"
                 + (
                     ""
                     if settings.quantization == QuantizationMethod.NONE
@@ -159,7 +160,7 @@ def obtain_export_strategy(
                 value=ExportStrategy.MERGE,
             ),
             Choice(
-                title="Save LoRA adapter only (can be merged later)",
+                title="Export the abliteration LoRA only (can be merged later)",
                 value=ExportStrategy.ADAPTER,
             ),
         ],
@@ -178,7 +179,9 @@ def run():
 
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
-    print("[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]")
+    print(
+        "[cyan]█▀█░█▀▀░█▀▄░█▀▀░░█░░█░█░░[/]  [blue underline]https://heretic-project.org[/]"
+    )
     print(
         "[cyan]▀░▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀▀▀[/]  [blue underline]https://github.com/p-e-w/heretic[/]"
     )
@@ -212,9 +215,9 @@ def run():
     except ValidationError as error:
         print(f"[red]Configuration contains [bold]{error.error_count()}[/] errors:[/]")
 
-        for error_detail in error.errors():
+        for error_details in error.errors():
             print(
-                f"[bold]{error_detail['loc'][0]}[/]: [yellow]{error_detail['msg']}[/]"
+                f"[bold]{error_details['loc'][0]}[/]: [yellow]{error_details['msg']}[/]"
             )
 
         print()
@@ -412,9 +415,10 @@ def run():
 
                 formatted = format_exception(error)
                 if "\n" in formatted:
-                    print(f"[red]Failed[/]:\n{formatted}")
+                    print(f"[red]Failed:\n{formatted}[/]")
                 else:
-                    print(f"[red]Failed[/] ({formatted})")
+                    print(f"[red]Failed ({formatted})[/]")
+
                 break
 
             response_lengths = [
@@ -824,9 +828,10 @@ def run():
             for name, value in get_trial_parameters(trial).items():
                 print(f"  * {name} = [bold]{value}[/]")
 
-            # Per https://github.com/huggingface/peft/issues/868#issuecomment-1820642893 once a LoRA is merged it's
-            # expected to be empty. Provide a utility function to restore the previous LoRA-ified state.
-            def reset_trial_model() -> None:
+            # Per https://github.com/huggingface/peft/issues/868#issuecomment-1820642893
+            # once a LoRA is merged it's expected to be empty. Provide a utility function
+            # to restore the previous LoRA-ified state.
+            def reset_trial_model():
                 print("* Resetting model...")
                 model.reset_model()
                 print("* Abliterating...")
@@ -1289,7 +1294,7 @@ def run():
                 except Exception as error:
                     formatted = format_exception(error)
                     if "\n" in formatted:
-                        print(f"[red]Error:[/]\n{formatted}")
+                        print(f"[red]Error:\n{formatted}[/]")
                     else:
                         print(f"[red]Error: {formatted}[/]")
 

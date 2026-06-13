@@ -173,10 +173,23 @@ def format_duration(seconds: float) -> str:
         return f"{seconds}s"
 
 
+def format_exception(error: Exception) -> str:
+    # Walk causal chain to find a non-empty message.
+    current = error
+    while current is not None:
+        message = str(current).strip()
+        if message:
+            return message
+        current = current.__cause__ or current.__context__
+
+    # If there is no message in the entire causal chain, fall back to the complete traceback.
+    return traceback.format_exc().strip()
+
+
 def is_hf_path(path: str) -> bool:
     """Checks whether a path likely refers to a Hugging Face repository."""
 
-    # Match Transformers: existing local paths take precedence over Hub lookup,
+    # Match Transformers: Existing local paths take precedence over Hub lookup,
     # even if the path string is also a valid repository ID.
     if Path(path).exists():
         return False
@@ -196,12 +209,15 @@ def get_split_slice(split_str: str, length: int) -> tuple[int, int]:
 
     # The split name is the part before the slice, e.g. "train" in "train[:400]".
     split_name = split_str.split("[")[0]
+
     # Associate the split with its number of examples (lines).
     name_to_length = {split_name: length}
+
     # Convert the instructions to absolute indices and select the first one.
     absolute_instruction = ReadInstruction.from_spec(split_str).to_absolute(
         name_to_length
     )[0]
+
     return absolute_instruction.from_, absolute_instruction.to
 
 
@@ -326,7 +342,7 @@ def get_readme_intro(
 
     return f"""# This is a decensored version of {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}
+    }, made using [Heretic](https://heretic-project.org) v{version("heretic-llm")}
 {reproducibility_instructions}
 ## Abliteration parameters
 
@@ -766,16 +782,3 @@ def upload_reproduce_folder(
                     repo_id=repo_id,
                     token=token,
                 )
-
-
-def format_exception(error: Exception) -> str:
-    # Walk causal chain to find a non-empty message.
-    current = error
-    while current is not None:
-        message = str(current).strip()
-        if message:
-            return message
-        current = current.__cause__ or current.__context__
-
-    # If there is no message in the entire causal chain, fall back to the complete traceback.
-    return traceback.format_exc().strip()

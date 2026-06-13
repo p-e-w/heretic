@@ -58,8 +58,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/p-e-w/heretic"
-Documentation = "https://github.com/p-e-w/heretic"
+Homepage = "https://heretic-project.org"
+Documentation = "https://heretic-project.org/tutorial"
 Repository = "https://github.com/p-e-w/heretic.git"
 Issues = "https://github.com/p-e-w/heretic/issues"
 Changelog = "https://github.com/p-e-w/heretic/releases"

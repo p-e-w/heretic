@@ -418,14 +418,14 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
-    max_shard_size: int | str = Field(
-        default="5GB",
-        description="Maximum size for individual safetensors files generated when exporting a model.",
-    )
-
     export_strategy: ExportStrategy | None = Field(
         default=None,
         description='How to export the model: "merge", "adapter", or unset to prompt the user.',
+    )
+
+    max_shard_size: int | str = Field(
+        default="5GB",
+        description="Maximum size for individual safetensors files generated when exporting a model.",
     )
 
     refusal_markers: list[str] = Field(

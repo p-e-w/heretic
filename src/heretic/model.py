@@ -46,9 +46,15 @@ def get_model_class(
 
     for config in configs:
         if isinstance(config, dict) and config.get("model_type") == "diffusion_gemma":
+            if "DiffusionGemmaForBlockDiffusion" not in globals():
+                raise ImportError(
+                    "DiffusionGemma support requires a newer version of the transformers library."
+                )
             return DiffusionGemmaForBlockDiffusion  # type: ignore[return-value]
 
-    if any([("vision_config" in config) for config in configs if isinstance(config, dict)]):
+    if any(
+        [("vision_config" in config) for config in configs if isinstance(config, dict)]
+    ):
         return AutoModelForImageTextToText
     else:
         return AutoModelForCausalLM
@@ -334,7 +340,7 @@ class Model:
         """
         current_model = getattr(self.model.config, "name_or_path", None)
         if current_model == self.settings.model and not self.needs_reload:
-            # Reset LoRA adapters to zero (identity transformation)
+            # Reset LoRA adapters to zero (identity transformation).
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
                     torch.nn.init.zeros_(module.weight)
@@ -351,7 +357,7 @@ class Model:
 
         quantization_config = self._get_quantization_config(str(dtype).split(".")[-1])
 
-        # Build kwargs, only include quantization_config if it's not None
+        # Build kwargs, only include quantization_config if it's not None.
         extra_kwargs = {}
         if quantization_config is not None:
             extra_kwargs["quantization_config"] = quantization_config
@@ -388,11 +394,19 @@ class Model:
         saved: dict[int, tuple[Tensor, Tensor]] = {}
 
         for module in self.model.modules():
-            if isinstance(module, Linear) and hasattr(module, "lora_A") and hasattr(module, "lora_B"):
+            if (
+                isinstance(module, Linear)
+                and hasattr(module, "lora_A")
+                and hasattr(module, "lora_B")
+            ):
                 base_w = module.base_layer.weight.data
                 ptr = base_w.data_ptr()
                 if ptr in saved:
-                    continue  # already handled this shared tensor
+                    continue  # Already handled this shared tensor.
+                if base_w.dtype == torch.uint8 or hasattr(base_w, "quant_state"):
+                    raise RuntimeError(
+                        "DiffusionGemma LoRA merge is not supported with 4-bit quantization."
+                    )
                 lora_A_w = cast(Tensor, module.lora_A["default"].weight.data)
                 lora_B_w = cast(Tensor, module.lora_B["default"].weight.data)
                 delta = (lora_B_w @ lora_A_w).to(base_w.dtype)
@@ -411,7 +425,9 @@ class Model:
         layers = self.get_layers()
         for layer_idx, layer in enumerate(layers):
             if hasattr(layer, "experts") and hasattr(layer.experts, "down_proj"):
-                self._dg_expert_saved[layer_idx] = layer.experts.down_proj.data.cpu().clone()
+                self._dg_expert_saved[layer_idx] = (
+                    layer.experts.down_proj.data.cpu().clone()
+                )
 
     def _restore_dg_expert_weights(self) -> None:
         """Restore expert weights modified in-place by EGA, ready for the next trial."""
@@ -448,9 +464,9 @@ class Model:
                 distance = cast(float, abs(layer_idx - params.max_weight_position))
                 if distance > params.min_weight_distance:
                     continue
-                weight_scale = params.max_weight + (distance / params.min_weight_distance) * (
-                    params.min_weight - params.max_weight
-                )
+                weight_scale = params.max_weight + (
+                    distance / params.min_weight_distance
+                ) * (params.min_weight - params.max_weight)
             else:
                 weight_scale = 1.0
 
@@ -460,26 +476,36 @@ class Model:
             else:
                 w_frac, idx = math.modf(direction_index + 1)
                 layer_refusal_direction = F.normalize(
-                    refusal_directions[int(idx)].lerp(refusal_directions[int(idx) + 1], w_frac),
-                    p=2, dim=0,
+                    refusal_directions[int(idx)].lerp(
+                        refusal_directions[int(idx) + 1], w_frac
+                    ),
+                    p=2,
+                    dim=0,
                 )
 
             expert_down = layer.experts.down_proj  # [n_experts, hidden, moe_inter]
-            v = F.normalize(layer_refusal_direction.float(), dim=0).to(expert_down.device)
+            v = F.normalize(layer_refusal_direction.float(), dim=0).to(
+                expert_down.device
+            )
 
             for expert_idx in range(expert_down.shape[0]):
                 # W: [hidden, moe_inter] — out_features=hidden, in_features=moe_inter
                 W = expert_down.data[expert_idx].float()
                 W_norms = W.norm(dim=1, keepdim=True)  # [hidden, 1]
-                W_dirs = F.normalize(W, dim=1)          # row-normalised
+                W_dirs = F.normalize(W, dim=1)  # Row-normalised.
 
                 # Projection 1: remove refusal component from each column of W
                 refusal_comp = v @ W_dirs  # [moe_inter]
-                W_dirs = F.normalize(W_dirs - weight_scale * v.unsqueeze(1) * refusal_comp.unsqueeze(0), dim=1)
+                W_dirs = F.normalize(
+                    W_dirs - weight_scale * v.unsqueeze(1) * refusal_comp.unsqueeze(0),
+                    dim=1,
+                )
 
                 # Projection 2: biprojection to catch residual leakage
                 refusal_comp2 = v @ W_dirs
-                W_dirs = F.normalize(W_dirs - v.unsqueeze(1) * refusal_comp2.unsqueeze(0), dim=1)
+                W_dirs = F.normalize(
+                    W_dirs - v.unsqueeze(1) * refusal_comp2.unsqueeze(0), dim=1
+                )
 
                 expert_down.data[expert_idx] = (W_norms * W_dirs).to(expert_down.dtype)
 
@@ -489,14 +515,14 @@ class Model:
             model = model.base_model.model
         return "DiffusionGemmaForBlockDiffusion" in type(model).__name__
 
-    def _get_dg_encoder(self):
+    def _get_dg_encoder(self) -> Module:
         """Return the DiffusionGemmaEncoderModel (not the text sub-model)."""
         model = self.model
         if isinstance(model, PeftModel):
             model = model.base_model.model
         return model.model.encoder
 
-    def _get_dg_lm_head(self):
+    def _get_dg_lm_head(self) -> Module:
         model = self.model
         if isinstance(model, PeftModel):
             model = model.base_model.model
@@ -723,6 +749,8 @@ class Model:
                         W = W - W_org
                         # Use a low-rank SVD to get an approximation of the matrix.
                         r = self.peft_config.r
+                        if self.settings.seed is not None:
+                            torch.manual_seed(self.settings.seed)
                         U, S, Vh = torch.svd_lowrank(W, q=2 * r + 4, niter=6)
                         # Truncate it to the part we want to store in the LoRA adapter.
                         # Note: svd_lowrank actually returns V, so transpose it to get Vh.
@@ -792,8 +820,14 @@ class Model:
             # DiffusionGemmaGenerationMixin.generate() does not support do_sample,
             # pad_token_id, output_hidden_states, output_logits, return_dict_in_generate,
             # or use_cache — these are handled via the diffusion sampler config instead.
-            dg_allowed = {"max_new_tokens", "streamer", "generation_config",
-                          "logits_processor", "stopping_criteria", "max_length"}
+            dg_allowed = {
+                "max_new_tokens",
+                "streamer",
+                "generation_config",
+                "logits_processor",
+                "stopping_criteria",
+                "max_length",
+            }
             dg_kwargs = {k: v for k, v in kwargs.items() if k in dg_allowed}
             # Merge LoRA into shared encoder/decoder tensors so the decoder-driven
             # diffusion generation sees the current abliteration state.
@@ -826,7 +860,9 @@ class Model:
         )
 
         # DiffusionGemmaGenerationOutput stores the full sequence in .sequences.
-        sequences: LongTensor = outputs.sequences if hasattr(outputs, "sequences") else outputs  # ty:ignore[assignment]
+        sequences: LongTensor = (
+            outputs.sequences if hasattr(outputs, "sequences") else outputs
+        )  # ty:ignore[assignment]
 
         return self.tokenizer.batch_decode(
             # Extract the newly generated part.
@@ -860,12 +896,17 @@ class Model:
         layer's output via forward hooks.
         """
         chats = [
-            [{"role": "system", "content": p.system}, {"role": "user", "content": p.user}]
+            [
+                {"role": "system", "content": p.system},
+                {"role": "user", "content": p.user},
+            ]
             for p in prompts
         ]
         chat_prompts = cast(
             list[str],
-            self.tokenizer.apply_chat_template(chats, add_generation_prompt=True, tokenize=False),
+            self.tokenizer.apply_chat_template(
+                chats, add_generation_prompt=True, tokenize=False
+            ),
         )
         if self.settings.response_prefix:
             chat_prompts = [cp + self.settings.response_prefix for cp in chat_prompts]
@@ -885,16 +926,24 @@ class Model:
         def make_embed_hook():
             def hook(module: Module, input: Any, output: Tensor) -> None:
                 captured[-1] = output.detach()
+
             return hook
 
         hooks.append(text_model.embed_tokens.register_forward_hook(make_embed_hook()))
 
         for idx, layer in enumerate(text_model.layers):
+
             def make_layer_hook(i: int):
                 def hook(module: Module, input: Any, output: Tensor) -> None:
                     # Encoder layers return a plain Tensor, not a tuple.
-                    captured[i] = output.detach() if isinstance(output, Tensor) else output[0].detach()
+                    captured[i] = (
+                        output.detach()
+                        if isinstance(output, Tensor)
+                        else output[0].detach()
+                    )
+
                 return hook
+
             hooks.append(layer.register_forward_hook(make_layer_hook(idx)))
 
         try:
@@ -910,7 +959,7 @@ class Model:
         # Build (prompt, layer, component) tensor; heretic convention: index 0 = embeddings.
         layer_outputs = []
         if -1 in captured:
-            layer_outputs.append(captured[-1][:, -1, :])  # last token position
+            layer_outputs.append(captured[-1][:, -1, :])  # Last token position.
         for idx in range(len(text_model.layers)):
             if idx in captured:
                 layer_outputs.append(captured[idx][:, -1, :])
@@ -919,7 +968,9 @@ class Model:
 
         if 0 <= self.settings.winsorization_quantile < 1:
             abs_residuals = torch.abs(residuals)
-            thresholds = torch.quantile(abs_residuals, self.settings.winsorization_quantile, dim=2, keepdim=True)
+            thresholds = torch.quantile(
+                abs_residuals, self.settings.winsorization_quantile, dim=2, keepdim=True
+            )
             residuals = torch.clamp(residuals, -thresholds, thresholds)
 
         if self.settings.offload_outputs_to_cpu:
@@ -1024,12 +1075,17 @@ class Model:
         abliteration has shifted the encoder's output distribution.
         """
         chats = [
-            [{"role": "system", "content": p.system}, {"role": "user", "content": p.user}]
+            [
+                {"role": "system", "content": p.system},
+                {"role": "user", "content": p.user},
+            ]
             for p in prompts
         ]
         chat_prompts = cast(
             list[str],
-            self.tokenizer.apply_chat_template(chats, add_generation_prompt=True, tokenize=False),
+            self.tokenizer.apply_chat_template(
+                chats, add_generation_prompt=True, tokenize=False
+            ),
         )
         if self.settings.response_prefix:
             chat_prompts = [cp + self.settings.response_prefix for cp in chat_prompts]
@@ -1132,7 +1188,9 @@ class Model:
                     streamer=streamer,
                     max_new_tokens=4096,
                 )
-            sequences: LongTensor = outputs.sequences if hasattr(outputs, "sequences") else outputs  # ty:ignore[assignment]
+            sequences: LongTensor = (
+                outputs.sequences if hasattr(outputs, "sequences") else outputs
+            )  # ty:ignore[assignment]
             return cast(
                 str,
                 self.tokenizer.decode(

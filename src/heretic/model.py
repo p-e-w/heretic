@@ -128,6 +128,7 @@ class Model:
                     **self.revision_kwargs,
                     **extra_kwargs,
                 )
+
                 self.dtype = self.model.dtype
 
                 # If we reach this point and the model requires trust_remote_code,
@@ -150,11 +151,13 @@ class Model:
             except Exception as error:
                 self.model = None  # ty:ignore[invalid-assignment]
                 empty_cache()
+
                 formatted = format_exception(error)
                 if "\n" in formatted:
-                    print(f"* [red]Failed[/]:\n{formatted}")
+                    print(f"* [red]Failed:\n{formatted}[/]")
                 else:
-                    print(f"* [red]Failed[/] ({formatted})")
+                    print(f"* [red]Failed ({formatted})[/]")
+
                 continue
 
             if settings.quantization == QuantizationMethod.BNB_4BIT:
@@ -319,6 +322,7 @@ class Model:
         - Slow path: If switching models or after merge_and_unload(),
           performs full model reload with quantization config.
         """
+
         # If a prior model load was interrupted/cancelled mid-process, self.model will be None.
         current_model = None
         if self.model is not None:
@@ -785,8 +789,10 @@ class Model:
         # of model.generate with return_dict_in_generate=True.
         outputs = cast(GenerateDecoderOnlyOutput, outputs)
 
+        # Logits for the first (only) generated token.
         # Use raw logits, not processed generation scores; processors can insert
         # -inf for suppressed tokens, which can make KL divergence evaluate to NaN.
+        # This cast is valid because we passed output_logits=True above.
         logits = cast(tuple[FloatTensor], outputs.logits)[0]
 
         # The returned tensor has shape (prompt, token).

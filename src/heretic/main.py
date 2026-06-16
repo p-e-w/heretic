@@ -488,7 +488,7 @@ def run():
             print(f"  * {score_name}: [bold]{score.cli_display}[/]")
         return
 
-    if not reproduction_mode and evaluator.get_objective_names():
+    if not reproduction_mode and not evaluator.get_objective_names():
         print()
         print(
             "[red]No optimization objectives configured.[/] At least one scorer "

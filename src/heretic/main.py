@@ -252,10 +252,6 @@ def run():
 
         print()
 
-        # Version 3 always includes a `hashes` field (populated from the uploaded
-        # safetensors; empty only for models with no safetensors weights).
-        verify_hashes = True
-
         settings = Settings.model_validate(reproduction_information["settings"])
 
     if settings.seed is None:
@@ -929,7 +925,7 @@ def run():
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
-                            if reproduction_mode and verify_hashes:
+                            if reproduction_mode:
                                 print("Verifying hashes of weight files...")
 
                                 for (
@@ -1130,7 +1126,7 @@ def run():
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 
-                            if reproduction_mode and verify_hashes:
+                            if reproduction_mode:
                                 print("Verifying hashes of weight files...")
 
                                 api = HfApi()

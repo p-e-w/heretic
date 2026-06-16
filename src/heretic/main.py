@@ -492,6 +492,15 @@ def run():
             print(f"  * {score_name}: [bold]{score.cli_display}[/]")
         return
 
+    if not reproduction_mode and evaluator.get_objective_names():
+        print()
+        print(
+            '[red]No optimization objectives configured.[/] At least one scorer '
+            'must set [bold]optimization[/] to "maximize" or "minimize". '
+            'See [bold]config.default.toml[/] for details.'
+        )
+        return
+
     print()
     print("Calculating per-layer refusal directions...")
 

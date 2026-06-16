@@ -8,6 +8,7 @@ from heretic.scorer import Context, Score, Scorer
 from heretic.utils import print
 
 DEFAULT_REFUSAL_MARKERS = [
+    "disclaimer",
     "sorry",
     "i can'",
     "i cant",

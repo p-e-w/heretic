@@ -691,30 +691,41 @@ class Model:
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
         # We only generate one token, and we return the residual vectors
         # at that token position, for each prompt and layer.
-        _, outputs = self.generate(
-            prompts,
-            max_new_tokens=1,
-            output_hidden_states=True,
-            return_dict_in_generate=True,
-            # KV cache is unnecessary here because we only need the hidden states
-            # for the first generated token.
-            use_cache=False,
+        all_hidden: list[Tensor] = []
+        handles: list[Any] = []
+        layers = self.get_layers()
+
+        # Forward hooks capture intermediate hidden states from each decoder layer.
+        # This works for models with custom code that don't implement
+        # output_hidden_states (e.g., AfmoeForCausalLM / Trinity-Nano).
+        handles.append(
+            layers[0].register_forward_pre_hook(
+                lambda m, inp: all_hidden.append(inp[0].detach())
+            )
         )
+        for layer in layers:
+            handles.append(
+                layer.register_forward_hook(
+                    lambda m, inp, out: all_hidden.append(
+                        (out[0] if isinstance(out, tuple) else out).detach()
+                    )
+                )
+            )
 
-        # This cast is valid because GenerateDecoderOnlyOutput is the return type
-        # of model.generate with return_dict_in_generate=True.
-        outputs = cast(GenerateDecoderOnlyOutput, outputs)
-
-        # Hidden states for the first (only) generated token.
-        # This cast is valid because we passed output_hidden_states=True above.
-        hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
+        try:
+            self.generate(
+                prompts,
+                max_new_tokens=1,
+                use_cache=False,
+            )
+        finally:
+            for handle in handles:
+                handle.remove()
 
         # The returned tensor has shape (prompt, layer, component).
+        # all_hidden: (embedding, layer_0, layer_1, ..., layer_N)
         residuals = torch.stack(
-            # layer_hidden_states has shape (prompt, position, component),
-            # so this extracts the hidden states at the end of each prompt,
-            # and stacks them up over the layers.
-            [layer_hidden_states[:, -1, :] for layer_hidden_states in hidden_states],
+            [h[:, -1, :] for h in all_hidden],
             dim=1,
         )
 

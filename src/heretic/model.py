@@ -507,13 +507,12 @@ class Model:
                     layer_refusal_direction = refusal_direction
 
                 for module in modules:
-                    # FIXME: This cast is potentially invalid, because the program logic
-                    #        does not guarantee that the module is of type Linear, and in fact
-                    #        the retrieved modules might not conform to the interface assumed
-                    #        below (though they do in practice). However, this is difficult
-                    #        to fix cleanly, because get_layer_modules is called twice on
-                    #        different model configurations, and PEFT employs different
-                    #        module types depending on the chosen quantization.
+                    # Some models (e.g. ibm-granite/granite-4.0-micro) have modules that
+                    # weren't wrapped by PEFT (no base_layer/lora_A/lora_B).  Skip them —
+                    # they can't be abliterated via LoRA, and trying would crash.
+                    if not hasattr(module, "base_layer"):
+                        continue
+
                     module = cast(Linear, module)
 
                     # LoRA abliteration: delta W = -lambda * v * (v^T W)
@@ -525,10 +524,6 @@ class Model:
                     v = layer_refusal_direction.to(module.weight.device)
 
                     # Get W (dequantize if necessary).
-                    #
-                    # FIXME: This cast is valid only under the assumption that the original
-                    #        module wrapped by the LoRA adapter has a weight attribute.
-                    #        See the comment above for why this is currently not guaranteed.
                     base_weight = cast(Tensor, module.base_layer.weight)
                     quant_state = getattr(base_weight, "quant_state", None)
 

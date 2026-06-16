@@ -802,14 +802,14 @@ def run():
                     if n_additional_trials == 0:
                         continue
 
-                    settings.n_trials += n_additional_trials
+                    settings.n_trials = len(study.trials) + n_additional_trials
                     study.set_user_attr("settings", settings.model_dump_json())
                     study.set_user_attr("finished", False)
 
                     try:
                         study.optimize(
                             objective_wrapper,
-                            n_trials=settings.n_trials - len(study.trials),
+                            n_trials=n_additional_trials,
                         )
                     except KeyboardInterrupt:
                         pass

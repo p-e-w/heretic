@@ -984,7 +984,6 @@ def run():
 
                             # Reproducibility requires that the model and all datasets
                             # are available on the Hugging Face Hub (not local paths).
-                            # Plugin-specific datasets are the plugin author's responsibility.
                             datasets = [
                                 settings.good_prompts.dataset,
                                 settings.bad_prompts.dataset,

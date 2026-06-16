@@ -174,27 +174,43 @@ class Evaluator:
             for entry in self._scorer_entries
         ]
 
-    def get_objective_names(self) -> list[str]:
-        """Return objective names for scores used in optimization."""
+    def _objective_entries(self) -> list[ScorerEntry]:
+        """
+        Scorer entries that participate in optimization, in canonical order.
+        Single source of truth for which scorers are objectives and in what
+        order. Every objective-derived list (names, directions, values) is built
+        from this so they stay positionally aligned: Optuna matches the objective
+        values returned each trial to the study `directions` by index, so a length
+        or order mismatch here would silently corrupt the optimization.
+        """
         return [
-            entry.name
+            entry
             for entry in self._scorer_entries
             if parse_study_direction(entry.config.optimization)
             != StudyDirection.NOT_SET
         ]
 
+    def get_objective_names(self) -> list[str]:
+        """Return objective names for scores used in optimization."""
+        return [entry.name for entry in self._objective_entries()]
+
     def get_objective_values(
         self, scores: list[tuple[str, Score]]
     ) -> tuple[float, ...]:
-        """Extract objective values as a tuple for Optuna."""
-        objective_names = set(self.get_objective_names())
-        return tuple(score.value for name, score in scores if name in objective_names)
+        """
+        Extract objective values as a tuple for Optuna.
+
+        Ordered by `_objective_entries()` so the result aligns by index with
+        `get_objective_names()` and `get_objective_directions()`.
+        """
+        score_by_name = {name: score for name, score in scores}
+        return tuple(
+            score_by_name[entry.name].value for entry in self._objective_entries()
+        )
 
     def get_objective_directions(self) -> list[StudyDirection]:
         """Get optimization directions for objectives."""
         return [
             parse_study_direction(entry.config.optimization)
-            for entry in self._scorer_entries
-            if parse_study_direction(entry.config.optimization)
-            != StudyDirection.NOT_SET
+            for entry in self._objective_entries()
         ]

@@ -174,6 +174,31 @@ class Evaluator:
             for entry in self._scorer_entries
         ]
 
+    def get_paired_score_records(
+        self, scores: list[tuple[str, Score]]
+    ) -> list[dict[str, Any]]:
+        """
+        Pair each trial score with its baseline into one serializable record.
+
+        `scores` (from `get_scores()`) and `self.baseline_scores` are both ordered
+        by `_scorer_entries`, so they align positionally.
+        """
+        records: list[dict[str, Any]] = []
+        for (name, score), (baseline_name, baseline) in zip(
+            scores, self.baseline_scores
+        ):
+            assert name == baseline_name, (
+                f"Score/baseline order mismatch: {name!r} != {baseline_name!r}"
+            )
+            records.append(
+                {
+                    "name": name,
+                    "score": dict(score.__dict__),
+                    "baseline": dict(baseline.__dict__),
+                }
+            )
+        return records
+
     def _objective_entries(self) -> list[ScorerEntry]:
         """
         Scorer entries that participate in optimization, in canonical order.

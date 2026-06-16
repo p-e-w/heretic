@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 import huggingface_hub
 import numpy as np
@@ -35,10 +35,6 @@ from questionary import Choice, Style
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
-
-if TYPE_CHECKING:
-    from .scorer import Score
-
 from .system import (
     get_accelerator_info_dict,
     get_cpu_info_dict,
@@ -341,7 +337,6 @@ def get_trial_parameters(trial: Trial | FrozenTrial) -> dict[str, str]:
 def get_readme_intro(
     settings: Settings,
     trial: Trial | FrozenTrial,
-    baseline_score_displays: dict[str, str],
     contains_reproducibility_information: bool,
 ) -> str:
     if is_hf_path(settings.model):
@@ -351,7 +346,7 @@ def get_readme_intro(
         model_link = "a model"
 
     scores_raw = trial.user_attrs["scores"]
-    scores_by_name: dict[str, dict[str, object]] = {}
+    scores_by_name: dict[str, dict[str, Any]] = {}
     score_names: list[str] = []
     for score in scores_raw:
         name = score["name"]
@@ -362,8 +357,8 @@ def get_readme_intro(
         [
             (
                 f"| **{name}** | "
-                f"{scores_by_name[name]['md_display']} | "
-                f"{baseline_score_displays[name]} |"
+                f"{scores_by_name[name]['score']['md_display']} | "
+                f"{scores_by_name[name]['baseline']['md_display']} |"
             )
             for name in score_names
         ]
@@ -450,7 +445,6 @@ def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
     trial: Trial | FrozenTrial,
-    baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a README.md for the reproduce/ folder."""
@@ -566,10 +560,9 @@ def generate_reproduce_readme(
             )
 
     trial_scores = trial.user_attrs["scores"]
-    baseline_by_name = {name: score for name, score in baseline_scores}
     score_lines = "\n".join(
-        f"- **{score['name']}:** {score['md_display']}"
-        f" (baseline: {baseline_by_name[score['name']].md_display if score['name'] in baseline_by_name else 'N/A'})"
+        f"- **{score['name']}:** {score['score']['md_display']}"
+        f" (baseline: {score['baseline']['md_display']})"
         for score in trial_scores
     )
 
@@ -633,7 +626,6 @@ def generate_reproduce_json(
     trial: Trial | FrozenTrial,
     timestamp: str,
     uploaded_model_hashes: dict[str, str],
-    baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ) -> str:
     """Generates the contents of a reproduce.json file for the reproduce/ folder."""
@@ -641,11 +633,10 @@ def generate_reproduce_json(
     version_info = get_heretic_version_info()
 
     data = {
-        # Version 3: plugin-era schema with generic scorer `scores`/`baseline_scores`.
-        # Not compatible with the pre-plugin v1/v2 `metrics` schema.
+        # Version 3: plugin-based schema with generic scores/baseline scores.
         "version": "3",
         "timestamp": timestamp,
-        "system": None,  # Defined here to preserve insertion order.
+        "system": None,
         "environment": {
             "heretic": {
                 "version": version_info.version,
@@ -661,9 +652,6 @@ def generate_reproduce_json(
             "abliteration_parameters": trial.user_attrs["parameters"],
         },
         "scores": trial.user_attrs["scores"],
-        "baseline_scores": [
-            {"name": name, **score.__dict__} for name, score in baseline_scores
-        ],
         "hashes": uploaded_model_hashes,
     }
 
@@ -713,7 +701,6 @@ def create_reproduce_folder(
     checkpoint_path: str | Path,
     trial: Trial | FrozenTrial,
     uploaded_model_hashes: dict[str, str],
-    baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ):
     reproduce_dir = path / "reproduce"
@@ -751,7 +738,6 @@ def create_reproduce_folder(
             trial,
             timestamp=timestamp,
             uploaded_model_hashes=uploaded_model_hashes,
-            baseline_scores=baseline_scores,
             include_system_information=include_system_information,
         ),
         encoding="utf-8",
@@ -762,7 +748,6 @@ def create_reproduce_folder(
             settings,
             checkpoint_filename,
             trial,
-            baseline_scores=baseline_scores,
             include_system_information=include_system_information,
         ),
         encoding="utf-8",
@@ -780,7 +765,6 @@ def upload_reproduce_folder(
     token: str,
     checkpoint_path: str | Path,
     trial: Trial | FrozenTrial,
-    baseline_scores: list[tuple[str, Score]],
     include_system_information: bool,
 ):
     api = huggingface_hub.HfApi()
@@ -809,7 +793,6 @@ def upload_reproduce_folder(
             checkpoint_path=checkpoint_path,
             trial=trial,
             uploaded_model_hashes=uploaded_model_hashes,
-            baseline_scores=baseline_scores,
             include_system_information=include_system_information,
         )
 

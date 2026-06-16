@@ -491,9 +491,9 @@ def run():
     if not reproduction_mode and evaluator.get_objective_names():
         print()
         print(
-            '[red]No optimization objectives configured.[/] At least one scorer '
+            "[red]No optimization objectives configured.[/] At least one scorer "
             'must set [bold]optimization[/] to "maximize" or "minimize". '
-            'See [bold]config.default.toml[/] for details.'
+            "See [bold]config.default.toml[/] for details."
         )
         return
 
@@ -653,7 +653,7 @@ def run():
             )
         trial.set_user_attr(
             "scores",
-            [{"name": name, **score.__dict__} for name, score in scores],
+            evaluator.get_paired_score_records(scores),
         )
         print_memory_usage()
 
@@ -725,7 +725,7 @@ def run():
                     tuple(
                         next(
                             (
-                                score["value"]
+                                score["score"]["value"]
                                 for score in trial.user_attrs["scores"]
                                 if score["name"] == name
                             ),
@@ -744,7 +744,7 @@ def run():
                 score_parts: list[str] = []
                 for score in trial.user_attrs["scores"]:
                     name = score["name"]
-                    value = score["cli_display"]
+                    value = score["score"]["cli_display"]
                     score_parts.append(f"{name}: {value}")
 
                 return f"{prefix} " + ", ".join(score_parts)
@@ -1087,15 +1087,10 @@ def run():
                                 card.data.tags.append("abliterated")
                                 if reproducibility_information != "none":
                                     card.data.tags.append("reproducible")
-                                baseline_score_displays = {
-                                    name: score.md_display
-                                    for name, score in evaluator.baseline_scores
-                                }
                                 card.text = (
                                     get_readme_intro(
                                         settings,
                                         trial,
-                                        baseline_score_displays,
                                         reproducibility_information != "none",
                                     )
                                     + card.text
@@ -1116,7 +1111,6 @@ def run():
                                         token,
                                         checkpoint_path=study_checkpoint_file,
                                         trial=trial,
-                                        baseline_scores=evaluator.baseline_scores,
                                         include_system_information=(
                                             reproducibility_information == "full"
                                         ),

@@ -732,16 +732,17 @@ def run():
             )
 
             def format_trial_title(trial: FrozenTrial) -> str:
-                parts: list[str] = [f"[Trial {trial.user_attrs['index']:>3}]"]
+                prefix = f"[Trial {trial.user_attrs['index']:>3}]"
 
                 # We don't directly use the trial.values here since we need to show the
                 # CLI-formatted versions, which are stored in the trial's user attributes.
+                score_parts: list[str] = []
                 for score in trial.user_attrs["scores"]:
                     name = score["name"]
                     value = score["cli_display"]
-                    parts.append(f"{name}: {value}")
+                    score_parts.append(f"{name}: {value}")
 
-                return ", ".join(parts)
+                return f"{prefix} " + ", ".join(score_parts)
 
             choices = [
                 Choice(title=format_trial_title(trial), value=trial)

@@ -375,37 +375,44 @@ def create_model_card(
     settings: Settings,
     trial: Trial | FrozenTrial,
     contains_reproducibility_information: bool = False,
-) -> huggingface_hub.ModelCard | None:
+) -> huggingface_hub.ModelCard:
     """Generates the abliterated model card by extending the base model's card."""
+    card: huggingface_hub.ModelCard | None = None
     if is_hf_path(settings.model):
-        card = huggingface_hub.ModelCard.load(settings.model)
+        try:
+            card = huggingface_hub.ModelCard.load(settings.model)
+        except Exception:
+            # Fall back to an empty card if the base card cannot be loaded.
+            pass
     else:
         card_path = Path(settings.model) / huggingface_hub.constants.REPOCARD_NAME
         if card_path.exists():
-            card = huggingface_hub.ModelCard.load(card_path)
-        else:
-            card = None
+            try:
+                card = huggingface_hub.ModelCard.load(card_path)
+            except Exception:
+                # Fall back to an empty card if the base card cannot be loaded.
+                pass
 
-    if card is not None:
-        if card.data is None:
-            card.data = huggingface_hub.ModelCardData()
-        if card.data.tags is None:
-            card.data.tags = []
-        card.data.tags.append("heretic")
-        card.data.tags.append("uncensored")
-        card.data.tags.append("decensored")
-        card.data.tags.append("abliterated")
-        if contains_reproducibility_information:
-            card.data.tags.append("reproducible")
-        card.text = (
-            get_readme_intro(
-                settings,
-                trial,
-                contains_reproducibility_information,
-            )
-            + card.text
-        )
+    if card is None:
+        card = huggingface_hub.ModelCard("")
 
+    if card.data is None:
+        card.data = huggingface_hub.ModelCardData()
+    if getattr(card.data, "tags", None) is None:
+        card.data.tags = []  # type: ignore
+
+    tags: list[str] = card.data.tags  # type: ignore
+    tags.append("heretic")
+    tags.append("uncensored")
+    tags.append("decensored")
+    tags.append("abliterated")
+    if contains_reproducibility_information:
+        tags.append("reproducible")
+    card.text = get_readme_intro(
+        settings,
+        trial,
+        contains_reproducibility_information,
+    ) + (card.text or "")
     return card
 
 

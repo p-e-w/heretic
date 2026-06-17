@@ -578,9 +578,16 @@ def run():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.
+            #
+            # The MLP gets a lower bound of 0 so that the optimizer can effectively
+            # disable its ablation (max_weight 0 yields a zero adapter). Ablating the
+            # MLP is often unnecessary for removing refusals and tends to damage model
+            # intelligence more than ablating the attention output, so on many models
+            # the optimum is to leave it (mostly) untouched. See issue #202.
+            max_weight_lower_bound = 0.0 if component == "mlp.down_proj" else 0.8
             max_weight = trial.suggest_float(
                 f"{component}.max_weight",
-                0.8,
+                max_weight_lower_bound,
                 1.5,
             )
             max_weight_position = trial.suggest_float(

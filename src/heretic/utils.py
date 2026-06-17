@@ -380,10 +380,7 @@ def create_model_card(
     if is_hf_path(settings.model):
         card = huggingface_hub.ModelCard.load(settings.model)
     else:
-        card_path = (
-            Path(settings.model)
-            / huggingface_hub.constants.REPOCARD_NAME
-        )
+        card_path = Path(settings.model) / huggingface_hub.constants.REPOCARD_NAME
         if card_path.exists():
             card = huggingface_hub.ModelCard.load(card_path)
         else:

@@ -47,7 +47,7 @@ import questionary
 import torch
 import torch.nn.functional as F
 import transformers
-from huggingface_hub import HfApi, ModelCard, ModelCardData
+from huggingface_hub import HfApi
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -76,7 +76,6 @@ from .utils import (
     format_duration,
     format_exception,
     get_file_sha256,
-    get_readme_intro,
     get_trial_parameters,
     is_hf_path,
     load_prompts,

@@ -182,16 +182,9 @@ class Settings(BaseSettings):
     )
 
     batch_size: int = Field(
-        default=0,  # auto
-        description="Number of input sequences to process in parallel (0 = auto).",
-    )
-
-    max_batch_size: int = Field(
         default=128,
-        description="Maximum batch size to try when automatically determining the optimal batch size.",
-        # When storing a settings object, the batch size is already fixed,
-        # either determined by the automatic mechanism or by explicit user choice.
-        exclude=True,
+        description="Number of input sequences to process in parallel. "
+        "If an out-of-memory error occurs, the batch size is halved automatically.",
     )
 
     max_response_length: int = Field(

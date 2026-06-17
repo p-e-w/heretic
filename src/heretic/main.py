@@ -386,57 +386,6 @@ def run():
     bad_prompts = load_prompts(settings, settings.bad_prompts)
     print(f"* [bold]{len(bad_prompts)}[/] prompts loaded")
 
-    if settings.batch_size == 0:
-        print()
-        print("Determining optimal batch size...")
-
-        batch_size = 1
-        best_batch_size = -1
-        best_performance = -1
-
-        while batch_size <= settings.max_batch_size:
-            print(f"* Trying batch size [bold]{batch_size}[/]... ", end="")
-
-            prompts = good_prompts * math.ceil(batch_size / len(good_prompts))
-            prompts = prompts[:batch_size]
-
-            try:
-                # Warmup run to build the computation graph so that part isn't benchmarked.
-                model.get_responses(prompts)
-
-                start_time = time.perf_counter()
-                responses = model.get_responses(prompts)
-                end_time = time.perf_counter()
-            except Exception as error:
-                if batch_size == 1:
-                    # Even a batch size of 1 already fails.
-                    # We cannot recover from this.
-                    raise
-
-                formatted = format_exception(error)
-                if "\n" in formatted:
-                    print(f"[red]Failed:\n{formatted}[/]")
-                else:
-                    print(f"[red]Failed ({formatted})[/]")
-
-                break
-
-            response_lengths = [
-                len(model.tokenizer.encode(response)) for response in responses
-            ]
-            performance = sum(response_lengths) / (end_time - start_time)
-
-            print(f"[green]Ok[/] ([bold]{performance:.0f}[/] tokens/s)")
-
-            if performance > best_performance:
-                best_batch_size = batch_size
-                best_performance = performance
-
-            batch_size *= 2
-
-        settings.batch_size = best_batch_size
-        print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
-
     if settings.response_prefix is None:
         print()
         print("Checking for common response prefix...")

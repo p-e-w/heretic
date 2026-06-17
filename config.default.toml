@@ -33,11 +33,9 @@ device_map = "auto"
 # but may slightly reduce performance due to host/device transfers.
 offload_outputs_to_cpu = true
 
-# Number of input sequences to process in parallel (0 = auto).
-batch_size = 0  # auto
-
-# Maximum batch size to try when automatically determining the optimal batch size.
-max_batch_size = 128
+# Number of input sequences to process in parallel.
+# If an out-of-memory error occurs, the batch size is halved automatically.
+batch_size = 128
 
 # Maximum number of tokens to generate for each response.
 max_response_length = 100

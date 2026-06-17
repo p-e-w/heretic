@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import math
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Type, cast
@@ -33,7 +34,7 @@ from transformers.generation import (
 
 from .config import QuantizationMethod, RowNormalization, Settings
 from .system import empty_cache
-from .utils import Prompt, batchify, format_exception, print
+from .utils import Prompt, format_exception, print
 
 
 def get_model_class(
@@ -97,6 +98,10 @@ class Model:
         self.tokenizer.padding_side = "left"
 
         self.model = None  # ty:ignore[invalid-assignment]
+        self._batch_sizes: dict[str, int] = {
+            key: settings.batch_size if settings.batch_size > 0 else 128
+            for key in ("responses", "residuals", "logprobs")
+        }
         self.max_memory = (
             {int(k) if k.isdigit() else k: v for k, v in settings.max_memory.items()}
             if settings.max_memory
@@ -672,20 +677,43 @@ class Model:
             skip_special_tokens=skip_special_tokens,
         )
 
+    def _batched(
+        self, prompts: list[Prompt], key: str, fn: Callable[[list[Prompt]], Any]
+    ) -> list[Any]:
+        """Run fn on prompt batches, halving the batch size on OOM."""
+        results = []
+        i = 0
+        while i < len(prompts):
+            n = self._batch_sizes[key]
+            try:
+                results.append(fn(prompts[i : i + n]))
+                i += n
+            except (torch.cuda.OutOfMemoryError, RuntimeError) as error:
+                # On non-CUDA platforms (MPS, XPU), OOM raises RuntimeError
+                # with an "out of memory" message rather than the typed exception.
+                if (
+                    isinstance(error, RuntimeError)
+                    and "out of memory" not in str(error).lower()
+                ):
+                    raise
+                if n == 1:
+                    raise
+                self._batch_sizes[key] = n // 2
+                empty_cache()
+        return results
+
     def get_responses_batched(
         self,
         prompts: list[Prompt],
         skip_special_tokens: bool = False,
     ) -> list[str]:
         responses = []
-
-        for batch in batchify(prompts, self.settings.batch_size):
-            for response in self.get_responses(
-                batch,
-                skip_special_tokens=skip_special_tokens,
-            ):
-                responses.append(response)
-
+        for batch in self._batched(
+            prompts,
+            "responses",
+            lambda b: self.get_responses(b, skip_special_tokens=skip_special_tokens),
+        ):
+            responses.extend(batch)
         return responses
 
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
@@ -741,12 +769,10 @@ class Model:
         return residuals
 
     def get_residuals_batched(self, prompts: list[Prompt]) -> Tensor:
-        residuals = []
-
-        for batch in batchify(prompts, self.settings.batch_size):
-            residuals.append(self.get_residuals(batch))
-
-        return torch.cat(residuals, dim=0)
+        return torch.cat(
+            self._batched(prompts, "residuals", self.get_residuals),
+            dim=0,
+        )
 
     def get_residuals_mean(self, prompts: list[Prompt]) -> Tensor:
         if not prompts:
@@ -755,18 +781,14 @@ class Model:
         running_sum = None
         total_count = 0
 
-        for batch in batchify(prompts, self.settings.batch_size):
-            batch_residuals = self.get_residuals(batch)
-
+        for batch in self._batched(prompts, "residuals", self.get_residuals):
             # Accumulate in high precision on CPU to reduce peak VRAM usage.
-            batch_sum = batch_residuals.sum(dim=0, dtype=torch.float64).cpu()
-
+            batch_sum = batch.sum(dim=0, dtype=torch.float64).cpu()
             if running_sum is None:
                 running_sum = batch_sum
             else:
                 running_sum += batch_sum
-
-            total_count += batch_residuals.shape[0]
+            total_count += batch.shape[0]
 
         assert running_sum is not None
 
@@ -806,12 +828,10 @@ class Model:
         return logprobs
 
     def get_logprobs_batched(self, prompts: list[Prompt]) -> Tensor:
-        logprobs = []
-
-        for batch in batchify(prompts, self.settings.batch_size):
-            logprobs.append(self.get_logprobs(batch))
-
-        return torch.cat(logprobs, dim=0)
+        return torch.cat(
+            self._batched(prompts, "logprobs", self.get_logprobs),
+            dim=0,
+        )
 
     def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
         # This cast is valid because str is the return type

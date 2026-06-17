@@ -5,8 +5,13 @@
 
 import sys
 
-from .config import Settings
+# Ensure standard output/error use UTF-8 instead of system default charmap (e.g. cp1252 on Windows)
+if hasattr(sys.stdout, "reconfigure") and getattr(sys.stdout, "encoding", "").lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore
+if hasattr(sys.stderr, "reconfigure") and getattr(sys.stderr, "encoding", "").lower() != "utf-8":
+    sys.stderr.reconfigure(encoding="utf-8")  # type: ignore
 
+from .config import Settings
 
 def _is_help_invocation() -> bool:
     args = sys.argv[1:]

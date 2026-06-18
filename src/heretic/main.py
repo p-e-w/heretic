@@ -5,6 +5,14 @@
 
 import sys
 
+# Ensure standard output/error use UTF-8 instead of system default charmap (e.g. cp1252 on Windows).
+for stream in (sys.stdout, sys.stderr):
+    if (
+        hasattr(stream, "reconfigure")
+        and (getattr(stream, "encoding", "") or "").lower() != "utf-8"
+    ):
+        stream.reconfigure(encoding="utf-8")  # type: ignore
+
 from .config import Settings
 
 

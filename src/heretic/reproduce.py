@@ -12,6 +12,7 @@ from typing import Any, cast
 from urllib.request import urlopen
 
 import cpuinfo
+import questionary
 import torch
 from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.utils import (
@@ -19,7 +20,7 @@ from huggingface_hub.utils import (
     disable_progress_bars,
     enable_progress_bars,
 )
-from questionary import Choice
+from questionary import Choice, Style
 from rich.table import Table
 
 from .system import (
@@ -27,7 +28,7 @@ from .system import (
     get_heretic_version_info,
     get_requirements_dict,
 )
-from .utils import print, prompt_select
+from .utils import print
 
 
 def collect_reproducibles(path: str):
@@ -362,9 +363,9 @@ def check_environment(reproduction_information: dict[str, Any]) -> bool:
         )
 
         print()
-        choice = prompt_select(
+        choice = questionary.select(
             "How would you like to proceed?",
-            [
+            choices=[
                 Choice(
                     title="Attempt to reproduce the model anyway",
                     value=True,
@@ -374,7 +375,8 @@ def check_environment(reproduction_information: dict[str, Any]) -> bool:
                     value=False,
                 ),
             ],
-        )
+            style=Style([("highlighted", "reverse")]),
+        ).ask()
 
         return choice
     else:

@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import getpass
 import hashlib
 import json
 import os
@@ -13,11 +12,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import huggingface_hub
 import numpy as np
-import questionary
 import tomli_w
 import torch
 from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
@@ -28,7 +26,6 @@ from huggingface_hub.utils import validate_repo_id
 from optuna import Trial
 from optuna.trial import FrozenTrial
 from psutil import Process
-from questionary import Choice, Style
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
@@ -65,99 +62,6 @@ def print_memory_usage():
     elif torch.backends.mps.is_available():
         p("Allocated MPS memory", torch.mps.current_allocated_memory())
         p("Driver (reserved) MPS memory", torch.mps.driver_allocated_memory())
-
-
-def is_notebook() -> bool:
-    # Check for specific environment variables (Colab, Kaggle).
-    # This is necessary because when running as a subprocess (e.g. !heretic),
-    # get_ipython() might not be available or might not reflect the notebook environment.
-    if os.getenv("COLAB_GPU") or os.getenv("KAGGLE_KERNEL_RUN_TYPE"):
-        return True
-
-    # Check IPython shell type (for library usage).
-    try:
-        from IPython import get_ipython  # ty:ignore[unresolved-import]
-
-        shell = get_ipython()
-        if shell is None:
-            return False
-
-        shell_name = shell.__class__.__name__
-        if shell_name in ["ZMQInteractiveShell", "Shell"]:
-            return True
-
-        if "google.colab" in str(shell.__class__):
-            return True
-
-        return False
-    except (ImportError, NameError, AttributeError):
-        return False
-
-
-def prompt_select(message: str, choices: list[Any]) -> Any:
-    if is_notebook():
-        print()
-        print(message)
-        real_choices = []
-
-        for i, choice in enumerate(choices, 1):
-            if isinstance(choice, Choice):
-                print(f"[{i}] {choice.title}")
-                real_choices.append(choice.value)
-            else:
-                print(f"[{i}] {choice}")
-                real_choices.append(choice)
-
-        while True:
-            try:
-                selection = input("Enter number: ")
-                index = int(selection) - 1
-                if 0 <= index < len(real_choices):
-                    return real_choices[index]
-                print(
-                    f"[red]Please enter a number between 1 and {len(real_choices)}[/]"
-                )
-            except ValueError:
-                print("[red]Invalid input. Please enter a number.[/]")
-    else:
-        return questionary.select(
-            message,
-            choices=choices,
-            style=Style([("highlighted", "reverse")]),
-        ).ask()
-
-
-def prompt_text(
-    message: str,
-    default: str = "",
-    qmark: str = "?",
-    unsafe: bool = False,
-) -> str:
-    if is_notebook():
-        print()
-        result = input(f"{message} [{default}]: " if default else f"{message}: ")
-        return result if result else default
-    else:
-        question = questionary.text(message, default=default, qmark=qmark)
-        if unsafe:
-            return question.unsafe_ask()
-        else:
-            return question.ask()
-
-
-def prompt_path(message: str) -> str:
-    if is_notebook():
-        return prompt_text(message)
-    else:
-        return questionary.path(message, only_directories=True).ask()
-
-
-def prompt_password(message: str) -> str:
-    if is_notebook():
-        print()
-        return getpass.getpass(message)
-    else:
-        return questionary.password(message).ask()
 
 
 def format_duration(seconds: float) -> str:

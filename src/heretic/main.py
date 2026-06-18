@@ -81,10 +81,6 @@ from .utils import (
     load_prompts,
     print,
     print_memory_usage,
-    prompt_password,
-    prompt_path,
-    prompt_select,
-    prompt_text,
     set_seed,
     upload_reproduce_folder,
 )
@@ -147,7 +143,7 @@ def obtain_export_strategy(
 
         print()
 
-    strategy = prompt_select(
+    strategy = questionary.select(
         "How do you want to export the model?",
         choices=[
             Choice(
@@ -164,7 +160,8 @@ def obtain_export_strategy(
                 value=ExportStrategy.ADAPTER,
             ),
         ],
-    )
+        style=Style([("highlighted", "reverse")]),
+    ).ask()
 
     return strategy
 
@@ -359,7 +356,11 @@ def run():
         )
 
         print()
-        choice = prompt_select("How would you like to proceed?", choices)
+        choice = questionary.select(
+            "How would you like to proceed?",
+            choices=choices,
+            style=Style([("highlighted", "reverse")]),
+        ).ask()
 
         if choice == "continue":
             settings = Settings.model_validate_json(
@@ -778,7 +779,11 @@ def run():
                 print("Restoring model from reproduction information...")
             else:
                 print()
-                trial = prompt_select("Which trial do you want to use?", choices)
+                trial = questionary.select(
+                    "Which trial do you want to use?",
+                    choices=choices,
+                    style=Style([("highlighted", "reverse")]),
+                ).ask()
 
                 if trial is None or trial == "":
                     return
@@ -786,9 +791,9 @@ def run():
                 if trial == "continue":
                     while True:
                         try:
-                            n_additional_trials = prompt_text(
+                            n_additional_trials = questionary.text(
                                 "How many additional trials do you want to run?"
-                            )
+                            ).ask()
                             if n_additional_trials is None or n_additional_trials == "":
                                 n_additional_trials = 0
                                 break
@@ -848,9 +853,9 @@ def run():
 
             while True:
                 print()
-                action = prompt_select(
+                action = questionary.select(
                     "What do you want to do with the decensored model?",
-                    [
+                    choices=[
                         "Save the model to a local folder",
                         "Upload the model to Hugging Face",
                         "Chat with the model",
@@ -862,7 +867,8 @@ def run():
                             value="",
                         ),
                     ],
-                )
+                    style=Style([("highlighted", "reverse")]),
+                ).ask()
 
                 if action is None or action == "":
                     if reproduction_mode:
@@ -876,7 +882,10 @@ def run():
                 try:
                     match action:
                         case "Save the model to a local folder":
-                            save_directory = prompt_path("Path to the folder:")
+                            save_directory = questionary.path(
+                                "Path to the folder:",
+                                only_directories=True,
+                            ).ask()
                             if not save_directory:
                                 continue
 
@@ -937,7 +946,9 @@ def run():
                             # it's better to not persist credentials.
                             token = huggingface_hub.get_token()
                             if not token:
-                                token = prompt_password("Hugging Face access token:")
+                                token = questionary.password(
+                                    "Hugging Face access token:"
+                                ).ask()
                             if not token:
                                 continue
 
@@ -949,18 +960,19 @@ def run():
                             email = user.get("email", "no email found")
                             print(f"Logged in as [bold]{fullname} ({email})[/]")
 
-                            repo_id = prompt_text(
+                            repo_id = questionary.text(
                                 "Name of repository:",
                                 default=f"{user['name']}/{Path(settings.model).name}-heretic",
-                            )
+                            ).ask()
 
-                            visibility = prompt_select(
+                            visibility = questionary.select(
                                 "Should the repository be public or private?",
-                                [
+                                choices=[
                                     "Public",
                                     "Private",
                                 ],
-                            )
+                                style=Style([("highlighted", "reverse")]),
+                            ).ask()
                             if visibility is None:
                                 continue
                             private = visibility == "Private"
@@ -993,9 +1005,9 @@ def run():
                                         "[bold]The information does not include any file system paths or other private data.[/]"
                                     )
                                 )
-                                reproducibility_information = prompt_select(
+                                reproducibility_information = questionary.select(
                                     "Which reproducibility information do you want to add?",
-                                    [
+                                    choices=[
                                         Choice(
                                             title="Full: Settings, package versions, and system information",
                                             value="full",
@@ -1009,7 +1021,8 @@ def run():
                                             value="none",
                                         ),
                                     ],
-                                )
+                                    style=Style([("highlighted", "reverse")]),
+                                ).ask()
                                 if reproducibility_information is None:
                                     continue
                             else:
@@ -1166,11 +1179,10 @@ def run():
 
                             while True:
                                 try:
-                                    message = prompt_text(
+                                    message = questionary.text(
                                         "User:",
                                         qmark=">",
-                                        unsafe=True,
-                                    )
+                                    ).unsafe_ask()
                                     if not message:
                                         break
                                     chat.append({"role": "user", "content": message})
@@ -1199,16 +1211,17 @@ def run():
                             if not benchmarks:
                                 continue
 
-                            scope = prompt_select(
+                            scope = questionary.select(
                                 (
                                     "Do you want to benchmark the original model along with the decensored model? "
                                     "Benchmarking both models allows you to compare the scores, but it takes twice as much time."
                                 ),
-                                [
+                                choices=[
                                     "Benchmark only the decensored model",
                                     "Benchmark both models",
                                 ],
-                            )
+                                style=Style([("highlighted", "reverse")]),
+                            ).ask()
                             if scope is None:
                                 continue
                             benchmark_original_model = scope == "Benchmark both models"

@@ -709,6 +709,8 @@ def run():
         if len(study.trials) == settings.n_trials:
             study.set_user_attr("finished", True)
 
+    huggingface_token: str | None = None
+
     while True:
         if not reproduction_mode:
             # If no trials at all have been evaluated, the study must have been stopped
@@ -955,19 +957,53 @@ def run():
                             # We don't use huggingface_hub.login() because that stores the token on disk,
                             # and since this program will often be run on rented or shared GPU servers,
                             # it's better to not persist credentials.
-                            token = huggingface_hub.get_token()
+                            token = huggingface_token or huggingface_hub.get_token()
                             if not token:
                                 token = prompt_password("Hugging Face access token:")
-                            if not token:
-                                continue
+                                if not token:
+                                    continue
 
-                            user = huggingface_hub.whoami(token)
-                            fullname = user.get(
-                                "fullname",
-                                user.get("name", "unknown user"),
-                            )
-                            email = user.get("email", "no email found")
-                            print(f"Logged in as [bold]{fullname} ({email})[/]")
+                            authenticated = False
+                            while not authenticated:
+                                try:
+                                    user = huggingface_hub.whoami(token)
+                                    fullname = user.get(
+                                        "fullname",
+                                        user.get("name", "unknown user"),
+                                    )
+                                    email = user.get("email", "no email found")
+                                    print(f"Logged in as [bold]{fullname} ({email})[/]")
+
+                                    choice = prompt_select(
+                                        "Do you want to proceed with this account or switch?",
+                                        [
+                                            "Proceed",
+                                            "Switch account",
+                                        ],
+                                    )
+                                    if choice is None:
+                                        break
+
+                                    if choice == "Switch account":
+                                        token = prompt_password(
+                                            "Hugging Face access token:"
+                                        )
+                                        if not token:
+                                            break
+                                        continue
+
+                                    authenticated = True
+                                    huggingface_token = token
+                                except Exception as e:
+                                    print(f"[bold red]Authentication failed:[/] {e}")
+                                    token = prompt_password(
+                                        "Please enter a valid Hugging Face access token:"
+                                    )
+                                    if not token:
+                                        break
+
+                            if not authenticated:
+                                continue
 
                             repo_id = prompt_text(
                                 "Name of repository:",
@@ -1122,6 +1158,7 @@ def run():
                                     settings.export_strategy = current_export_strategy
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
+                            huggingface_token = token
 
                             if reproduction_mode and verify_hashes:
                                 print("Verifying hashes of weight files...")

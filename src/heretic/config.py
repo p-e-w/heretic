@@ -418,14 +418,61 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
+    max_shard_size: int | str = Field(
+        default="5GB",
+        description="Maximum size for individual safetensors files generated when exporting a model.",
+    )
+
     export_strategy: ExportStrategy | None = Field(
         default=None,
         description='How to export the model: "merge", "adapter", or unset to prompt the user.',
     )
 
-    max_shard_size: int | str = Field(
-        default="5GB",
-        description="Maximum size for individual safetensors files generated when exporting a model.",
+    checkpoint_action: str | None = Field(
+        default=None,
+        description='Action to take in case a checkpoint exists: "continue", "restart", or unset to prompt the user.',
+    )
+
+    trial_index: int | None = Field(
+        default=None,
+        description="Index (in the sorted Pareto front) of the trial to use, or unset to prompt the user.",
+    )
+
+    n_additional_trials: int | None = Field(
+        default=None,
+        description="Number of additional trials to run, or unset to prompt the user.",
+    )
+
+    model_action: str | None = Field(
+        default=None,
+        description='Action to take with the decensored model: "save", "upload", or unset to prompt the user.',
+    )
+
+    save_directory: str | None = Field(
+        default=None,
+        description="Directory to save the model to, or unset to prompt the user.",
+        exclude=True,
+    )
+
+    upload_repo_id: str | None = Field(
+        default=None,
+        description="Name of the Hugging Face repository to upload the model to, or unset to prompt the user.",
+        exclude=True,
+    )
+
+    upload_repo_private: bool | None = Field(
+        default=None,
+        description="Whether the Hugging Face repository to upload the model to should be private, or unset to prompt the user.",
+    )
+
+    upload_reproducibility_information: str | None = Field(
+        default=None,
+        description='Which reproducibility information to add to the Hugging Face repository: "full", "basic", "none", or unset to prompt the user.',
+    )
+
+    ignore_mismatches: bool | None = Field(
+        default=None,
+        description="Whether to attempt to reproduce the model even if there are environment mismatches, or unset to prompt the user.",
     )
 
     refusal_markers: list[str] = Field(

@@ -26,6 +26,7 @@ from huggingface_hub.utils import validate_repo_id
 from optuna import Trial
 from optuna.trial import FrozenTrial
 from psutil import Process
+from questionary import Question
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
@@ -37,6 +38,9 @@ from .system import (
     get_requirements_dict,
     is_xpu_available,
 )
+
+T = TypeVar("T")
+
 
 print = Console(highlight=False).print
 
@@ -88,6 +92,16 @@ def format_exception(error: Exception) -> str:
 
     # If there is no message in the entire causal chain, fall back to the complete traceback.
     return traceback.format_exc().strip()
+
+
+def ask_if_unset(value: T, question: Question, unsafe: bool = False) -> T:
+    if value is None:
+        if unsafe:
+            return question.unsafe_ask()
+        else:
+            return question.ask()
+    else:
+        return value
 
 
 def is_hf_path(path: str) -> bool:
@@ -199,9 +213,6 @@ def load_prompts(
         )
         for prompt in prompts
     ]
-
-
-T = TypeVar("T")
 
 
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:

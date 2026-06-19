@@ -55,7 +55,7 @@ import questionary
 import torch
 import torch.nn.functional as F
 import transformers
-from huggingface_hub import HfApi, ModelCard, ModelCardData
+from huggingface_hub import HfApi
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -80,10 +80,10 @@ from .reproduce import (
 )
 from .system import empty_cache, get_accelerator_info
 from .utils import (
+    create_model_card,
     format_duration,
     format_exception,
     get_file_sha256,
-    get_readme_intro,
     get_trial_parameters,
     is_hf_path,
     load_prompts,
@@ -926,6 +926,17 @@ def run():
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
+                            card = create_model_card(
+                                settings,
+                                trial,
+                                contains_reproducibility_information=False,
+                            )
+                            if card is not None:
+                                card.save(
+                                    Path(save_directory)
+                                    / huggingface_hub.constants.REPOCARD_NAME
+                                )
+
                             if reproduction_mode and verify_hashes:
                                 print("Verifying hashes of weight files...")
 
@@ -1067,37 +1078,13 @@ def run():
                                     )
                                 reset_trial_model()
 
-                            if is_hf_path(settings.model):
-                                card = ModelCard.load(settings.model)
-                            else:
-                                card_path = (
-                                    Path(settings.model)
-                                    / huggingface_hub.constants.REPOCARD_NAME
-                                )
-                                if card_path.exists():
-                                    card = ModelCard.load(card_path)
-                                else:
-                                    card = None
-
+                            card = create_model_card(
+                                settings,
+                                trial,
+                                contains_reproducibility_information=reproducibility_information
+                                != "none",
+                            )
                             if card is not None:
-                                if card.data is None:
-                                    card.data = ModelCardData()
-                                if card.data.tags is None:
-                                    card.data.tags = []
-                                card.data.tags.append("heretic")
-                                card.data.tags.append("uncensored")
-                                card.data.tags.append("decensored")
-                                card.data.tags.append("abliterated")
-                                if reproducibility_information != "none":
-                                    card.data.tags.append("reproducible")
-                                card.text = (
-                                    get_readme_intro(
-                                        settings,
-                                        trial,
-                                        reproducibility_information != "none",
-                                    )
-                                    + card.text
-                                )
                                 card.push_to_hub(repo_id, token=token)
 
                             if reproducibility_information != "none":

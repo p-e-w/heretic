@@ -273,6 +273,15 @@ wheels = [
 ]
 
 [[package]]
+name = "backports-strenum"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/35/c7/2ed54c32fed313591ffb21edbd48db71e68827d43a61938e5a0bc2b6ec91/backports_strenum-1.3.1.tar.gz", hash = "sha256:77c52407342898497714f0596e86188bb7084f89063226f4ba66863482f42414", size = 7257, upload-time = "2023-12-09T14:36:40.937Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/50/56cf20e2ee5127b603b81d5a69580a1a325083e2b921aa8f067da83927c0/backports_strenum-1.3.1-py3-none-any.whl", hash = "sha256:cdcfe36dc897e2615dc793b7d3097f54d359918fc448754a517e6f23044ccf83", size = 8304, upload-time = "2023-12-09T14:36:39.905Z" },
+]
+
+[[package]]
 name = "bitsandbytes"
 version = "0.49.2"
 source = { registry = "https://pypi.org/simple" }
@@ -952,6 +961,7 @@ version = "1.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
+    { name = "backports-strenum", marker = "python_full_version < '3.11'" },
     { name = "bitsandbytes" },
     { name = "datasets" },
     { name = "huggingface-hub" },
@@ -993,6 +1003,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", specifier = "~=1.13" },
+    { name = "backports-strenum", marker = "python_full_version < '3.11'", specifier = "~=1.3.1" },
     { name = "bitsandbytes", specifier = "~=0.49" },
     { name = "datasets", specifier = "~=4.7" },
     { name = "geom-median", marker = "extra == 'research'", specifier = "~=0.1" },

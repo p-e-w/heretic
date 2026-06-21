@@ -702,7 +702,9 @@ def run():
         if len(study.trials) == settings.n_trials:
             study.set_user_attr("finished", True)
 
-    while True:
+    trial_loop_active = True
+
+    while trial_loop_active:
         if not reproduction_mode:
             # If no trials at all have been evaluated, the study must have been stopped
             # by pressing Ctrl+C while the first trial was running. In this case, we just
@@ -772,7 +774,11 @@ def run():
                     )
                 )
 
-        while True:
+        while trial_loop_active:
+            # Ensure a predefined trial is only processed once.
+            if settings.trial_index is not None:
+                trial_loop_active = False
+
             if reproduction_mode:
                 parameters = reproduction_information["parameters"]
                 metrics = reproduction_information["metrics"]
@@ -873,7 +879,13 @@ def run():
 
             reset_trial_model()
 
-            while True:
+            action_loop_active = True
+
+            while action_loop_active:
+                # Ensure a predefined action is only executed once.
+                if settings.model_action is not None:
+                    action_loop_active = False
+
                 if settings.model_action is None:
                     print()
 

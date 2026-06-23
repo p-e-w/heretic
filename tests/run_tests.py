@@ -24,6 +24,7 @@ def get_file_sha256(file_path: str | Path) -> str:
     else:
         # For binary files (like .safetensors), read raw bytes.
         with open(file_path, "rb") as file:
+            # Read the file in 64 kB blocks.
             for block in iter(lambda: file.read(65536), b""):
                 hash_obj.update(block)
 
@@ -81,6 +82,5 @@ for test_directory in script_directory.iterdir():
                                     f"Actual hash:   {sha256}"
                                 )
                             )
-
 
 print("All tests passed!")

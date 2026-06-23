@@ -69,7 +69,7 @@ for test_directory in script_directory.iterdir():
                 for line in file:
                     if line.strip():
                         original_sha256, filename = line.split()
-                        filename = filename.lstrip("*")
+                        filename = filename.removeprefix("*")
                         sha256 = get_file_sha256(test_directory / "model" / filename)
 
                         if sha256.lower() != original_sha256.lower():

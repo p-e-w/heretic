@@ -40,6 +40,9 @@ jobs:
       - name: Check typing
         run: uv run ty check --output-format=github --error-on-warning .
 
+      - name: Run tests
+        run: uv run tests/run_tests.py
+
       - name: Build package
         run: uv build
 

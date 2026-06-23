@@ -499,6 +499,12 @@ class Model:
                     params.min_weight - params.max_weight
                 )
 
+                # A weight of 0 disables this component's ablation. reset_model() has
+                # already left the adapter at identity, so abort before the otherwise
+                # wasteful decomposition (which would also be operating on a zero matrix).
+                if weight == 0:
+                    continue
+
                 if refusal_direction is None:
                     # The index must be shifted by 1 because the first element
                     # of refusal_directions is the direction for the embeddings.

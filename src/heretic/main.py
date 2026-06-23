@@ -612,7 +612,7 @@ def run():
             min_weight_distance = trial.suggest_float(
                 f"{component}.min_weight_distance",
                 1.0,
-                0.6 * last_layer_index,
+                max(0.6 * last_layer_index, 1.0),
             )
 
             parameters[component] = AbliterationParameters(
@@ -798,7 +798,9 @@ def run():
                 print()
                 print("Restoring model from reproduction information...")
             else:
-                print()
+                if settings.trial_index is None:
+                    print()
+
                 trial = ask_if_unset(
                     None
                     if settings.trial_index is None

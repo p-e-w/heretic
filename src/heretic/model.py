@@ -590,12 +590,22 @@ class Model:
                         # https://github.com/pytorch/pytorch/blob/20919052303c0b5ba87f8bf7e19237dc33ab09d3/torch/_lowrank.py#L108-L109
                         # Reseed immediately before the call so restoring a trial is independent of RNG history.
                         torch.manual_seed(self.settings.seed)
-                        U, S, Vh = torch.svd_lowrank(W, q=2 * r + 4, niter=6)
-                        # Truncate it to the part we want to store in the LoRA adapter.
-                        # Note: svd_lowrank actually returns V, so transpose it to get Vh.
-                        U = U[:, :r]
-                        S = S[:r]
-                        Vh = Vh[:, :r].T
+                        try:
+                            U, S, Vh = torch.svd_lowrank(W, q=2 * r + 4, niter=6)
+                            # Truncate it to the part we want to store in the LoRA adapter.
+                            # Note: svd_lowrank actually returns V, so transpose it to get Vh.
+                            U = U[:, :r]
+                            S = S[:r]
+                            Vh = Vh[:, :r].T
+                        except LA.LinAlgError:
+                            # The cuSOLVER driver's iterative SVD algorithm can fail to
+                            # converge on certain matrices. Fall back to CPU LAPACK.
+                            U, S, Vh = torch.svd_lowrank(
+                                W.detach().cpu(), q=2 * r + 4, niter=6
+                            )
+                            U = U[:, :r].to(W.device)
+                            S = S[:r].to(W.device)
+                            Vh = Vh[:, :r].T.to(W.device)
                         # Transfer it into the LoRA adapter components. Split the singular values
                         # evenly between the two components to keep their norms balanced and avoid
                         # potential issues with numerical stability.

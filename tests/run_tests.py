@@ -13,7 +13,7 @@ def get_file_sha256(file_path: str | Path) -> str:
     hash_obj = hashlib.sha256()
 
     # Common text / config file extensions used by Hugging Face models.
-    text_extensions = {".json", ".jinja", ".txt", ".py", ".md", ".toml"}
+    text_extensions = {".json", ".jinja", ".txt", ".py", ".md", ".yaml"}
 
     if file_path.suffix.lower() in text_extensions:
         # For text files, read as binary but normalize \r\n down to \n in memory.

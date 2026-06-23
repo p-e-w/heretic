@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import platform
-import random
 import tempfile
 import traceback
 from dataclasses import dataclass
@@ -15,7 +14,6 @@ from pathlib import Path
 from typing import TypeVar
 
 import huggingface_hub
-import numpy as np
 import tomli_w
 import torch
 from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
@@ -299,14 +297,6 @@ def generate_requirements_txt() -> str:
         f"{package}=={version}" for package, version in get_requirements_dict().items()
     ]
     return "\n".join(requirements) + "\n"
-
-
-def set_seed(seed: int):
-    """Sets the seed for all RNGs."""
-
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
 
 
 def format_hf_link(

@@ -82,7 +82,6 @@ from .utils import (
     load_prompts,
     print,
     print_memory_usage,
-    set_seed,
     upload_reproduce_folder,
 )
 
@@ -257,7 +256,7 @@ def run():
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
 
-    set_seed(settings.seed)
+    transformers.set_seed(settings.seed)
 
     print(get_accelerator_info())
 

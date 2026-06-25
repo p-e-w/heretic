@@ -268,6 +268,10 @@ def run():
 
     print(get_accelerator_info())
 
+    if settings.print_debug_information:
+        print()
+        print(torch.__config__.show().strip())
+
     # We don't need gradients as we only do inference.
     torch.set_grad_enabled(False)
 

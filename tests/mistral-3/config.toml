@@ -1,13 +1,14 @@
 model = "tiny-random/mistral-3"
 model_commit = "931aa2e5c9668fc3679e56aa44972fe18597d55d"
 
+seed = 12345
+print_debug_information = true
+
 batch_size = 2
 max_response_length = 10
 kl_divergence_target = 0
 n_trials = 2
 n_startup_trials = 1
-
-seed = 12345
 
 export_strategy = "merge"
 checkpoint_action = "restart"

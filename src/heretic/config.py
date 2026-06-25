@@ -252,6 +252,12 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
+    print_debug_information: bool = Field(
+        default=False,
+        description="Whether to print additional information that can help with debugging.",
+        exclude=True,
+    )
+
     print_residual_geometry: bool = Field(
         default=False,
         description="Whether to print detailed information about residuals and refusal directions.",

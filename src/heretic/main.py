@@ -268,10 +268,6 @@ def run():
 
     print(get_accelerator_info())
 
-    torch.backends.mkldnn.enabled = False  # ty:ignore[invalid-assignment]
-    torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
-
     if settings.print_debug_information:
         print()
         print(torch.__config__.show().strip())

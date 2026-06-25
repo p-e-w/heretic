@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import hashlib
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +23,12 @@ def get_file_sha256(file_path: str | Path) -> str:
 script_directory = Path(__file__).resolve().parent
 
 project_directory = script_directory.parent
+
+environment = os.environ | {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+}
 
 for test_directory in script_directory.iterdir():
     if test_directory.is_dir():
@@ -44,6 +51,7 @@ for test_directory in script_directory.iterdir():
                     test_directory,
                     "heretic",
                 ],
+                env=environment,
                 check=True,
             )
 

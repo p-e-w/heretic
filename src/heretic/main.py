@@ -271,6 +271,14 @@ def run():
     if settings.print_debug_information:
         print()
         print(torch.__config__.show().strip())
+        print()
+        print(
+            f"torch.backends.mkldnn.enabled = [bold]{torch.backends.mkldnn.enabled}[/]"
+        )
+        print(f"torch.get_num_threads() = [bold]{torch.get_num_threads()}[/]")
+        print(
+            f"torch.get_num_interop_threads() = [bold]{torch.get_num_interop_threads()}[/]"
+        )
 
     # We don't need gradients as we only do inference.
     torch.set_grad_enabled(False)

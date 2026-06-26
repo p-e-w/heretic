@@ -86,7 +86,7 @@ models with Heretic.
 Prepare a Python 3.10+ environment with PyTorch 2.2+ installed as appropriate
 for your hardware. Then run:
 
-```
+```sh
 pip install -U heretic-llm
 heretic Qwen/Qwen3-4B-Instruct-2507
 ```
@@ -134,7 +134,7 @@ provides features designed to support research into the semantics of model inter
 (interpretability). To use those features, you need to install Heretic with the
 optional `research` extra:
 
-```
+```sh
 pip install -U heretic-llm[research]
 ```
 

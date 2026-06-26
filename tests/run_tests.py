@@ -70,7 +70,7 @@ for test_directory in script_directory.iterdir():
                     for line in file:
                         if line.strip():
                             sha256, filename = line.split()
-                            filename = filename.lstrip("*")
+                            filename = filename.removeprefix("*")
 
                             if filename not in valid_hashes:
                                 valid_hashes[filename] = []

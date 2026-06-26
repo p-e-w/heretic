@@ -460,19 +460,19 @@ class Model:
 
     def abliterate(
         self,
-        refusal_directions: Tensor,
+        residual_directions: Tensor,
         direction_index: float | None,
         parameters: dict[str, AbliterationParameters],
     ):
         if direction_index is None:
-            refusal_direction = None
+            residual_direction = None
         else:
             # The index must be shifted by 1 because the first element
-            # of refusal_directions is the direction for the embeddings.
+            # of residual_directions is the direction for the embeddings.
             weight, index = math.modf(direction_index + 1)
-            refusal_direction = F.normalize(
-                refusal_directions[int(index)].lerp(
-                    refusal_directions[int(index) + 1],
+            residual_direction = F.normalize(
+                residual_directions[int(index)].lerp(
+                    residual_directions[int(index) + 1],
                     weight,
                 ),
                 p=2,
@@ -505,12 +505,12 @@ class Model:
                 if weight == 0:
                     continue
 
-                if refusal_direction is None:
+                if residual_direction is None:
                     # The index must be shifted by 1 because the first element
-                    # of refusal_directions is the direction for the embeddings.
-                    layer_refusal_direction = refusal_directions[layer_index + 1]
+                    # of residual_directions is the direction for the embeddings.
+                    layer_residual_direction = residual_directions[layer_index + 1]
                 else:
-                    layer_refusal_direction = refusal_direction
+                    layer_residual_direction = residual_direction
 
                 for module in modules:
                     # FIXME: This cast is potentially invalid, because the program logic
@@ -526,9 +526,9 @@ class Model:
                     # lora_B = -lambda * v
                     # lora_A = v^T W
 
-                    # Use the FP32 refusal direction directly (no downcast/upcast)
+                    # Use the FP32 residual direction directly (no downcast/upcast)
                     # and move to the correct device.
-                    v = layer_refusal_direction.to(module.weight.device)
+                    v = layer_residual_direction.to(module.weight.device)
 
                     # Get W (dequantize if necessary).
                     #
@@ -684,7 +684,6 @@ class Model:
         skip_special_tokens: bool = False,
     ) -> list[str]:
         responses = []
-
         for batch in batchify(prompts, self.settings.batch_size):
             for response in self.get_responses(
                 batch,
@@ -778,11 +777,9 @@ class Model:
 
         return (running_sum / total_count).to(torch.float32)
 
-    # We work with logprobs rather than probabilities for numerical stability
-    # when computing the KL divergence.
-    def get_logprobs(self, prompts: list[Prompt]) -> Tensor:
-        # We only generate one token, and we return the (log) probability distributions
-        # over the vocabulary at that token position, for each prompt.
+    def get_logits(self, prompts: list[Prompt]) -> Tensor:
+        # We only generate one token, and we return the raw logits over the vocabulary
+        # at that token position, for each prompt.
         _, outputs = self.generate(
             prompts,
             max_new_tokens=1,
@@ -802,22 +799,20 @@ class Model:
         logits = cast(tuple[FloatTensor], outputs.logits)[0]
 
         # The returned tensor has shape (prompt, token).
-        logprobs = F.log_softmax(logits, dim=-1)
-
         if self.settings.offload_outputs_to_cpu:
-            del outputs, logits
-            logprobs = logprobs.cpu()
+            del outputs
+            logits = logits.cpu()
             empty_cache()
 
-        return logprobs
+        return logits
 
-    def get_logprobs_batched(self, prompts: list[Prompt]) -> Tensor:
-        logprobs = []
+    def get_logits_batched(self, prompts: list[Prompt]) -> Tensor:
+        logits = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            logprobs.append(self.get_logprobs(batch))
+            logits.append(self.get_logits(batch))
 
-        return torch.cat(logprobs, dim=0)
+        return torch.cat(logits, dim=0)
 
     def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
         # This cast is valid because str is the return type

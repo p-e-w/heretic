@@ -144,9 +144,9 @@ class Analyzer:
         print("[bold]g*[/] = geometric median of residual vectors for good prompts")
         print("[bold]b[/] = mean of residual vectors for bad prompts")
         print("[bold]b*[/] = geometric median of residual vectors for bad prompts")
-        print("[bold]r[/] = refusal direction for means (i.e., [bold]b - g[/])")
+        print("[bold]r[/] = residual direction for means (i.e., [bold]b - g[/])")
         print(
-            "[bold]r*[/] = refusal direction for geometric medians (i.e., [bold]b* - g*[/])"
+            "[bold]r*[/] = residual direction for geometric medians (i.e., [bold]b* - g*[/])"
         )
         print("[bold]S(x,y)[/] = cosine similarity of [bold]x[/] and [bold]y[/]")
         print("[bold]|x|[/] = L2 norm of [bold]x[/]")

@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Dict
+from typing import Dict, Literal
 
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -10,6 +10,7 @@ from pydantic_settings import (
     CliSettingsSource,
     EnvSettingsSource,
     PydanticBaseSettingsSource,
+    SettingsConfigDict,
     TomlConfigSettingsSource,
 )
 
@@ -82,6 +83,39 @@ class DatasetSpecification(BaseModel):
         default=None,
         description="Matplotlib color to use for the dataset in plots of residual vectors.",
         exclude=True,
+    )
+
+
+class ScorerConfig(BaseModel):
+    """
+    Configuration for a scorer plugin.
+
+    TOML format:
+    - { plugin = "<plugin>", optimization = "<optimization>", instance_name = "<optional>" }
+    """
+
+    plugin: str = Field(
+        description=(
+            "Plugin to load. Either a file path with class name "
+            "(`path/to/plugin.py:ClassName`) or a fully-qualified import path "
+            "(`module.submodule.ClassName`)."
+        ),
+    )
+
+    optimization: Literal["minimize", "maximize", "none"] = Field(
+        description=(
+            "Optimization direction for this scorer. "
+            '"minimize" / "maximize" to include the scorer as an objective, '
+            '"none" to compute the score without optimizing for it.'
+        ),
+    )
+
+    instance_name: str | None = Field(
+        default=None,
+        description=(
+            "Optional name to distinguish multiple instances of the same plugin class. "
+            "Instance-specific settings live under `[scorer.<ClassName>_<instance_name>]`."
+        ),
     )
 
 
@@ -241,15 +275,9 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
-    print_responses: bool = Field(
-        default=False,
-        description="Whether to print prompt/response pairs when counting refusals.",
-        exclude=True,
-    )
-
     print_residual_geometry: bool = Field(
         default=False,
-        description="Whether to print detailed information about residuals and refusal directions.",
+        description="Whether to print detailed information about residuals and residual directions.",
         exclude=True,
     )
 
@@ -277,26 +305,19 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
-    kl_divergence_scale: float = Field(
-        default=1.0,
+    scorers: list[ScorerConfig] = Field(
+        default_factory=list,
         description=(
-            'Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models. '
-            "This is used to ensure balanced co-optimization of KL divergence and refusal count."
-        ),
-    )
-
-    kl_divergence_target: float = Field(
-        default=0.01,
-        description=(
-            "The KL divergence to target. Below this value, an objective based on the refusal count is used. "
-            'This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".'
+            "List of scorer plugin configs. Each entry is an object"
+            " { plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }."
+            " <optimization> is one of 'minimize', 'maximize', 'none' (do not optimize)."
         ),
     )
 
     orthogonalize_direction: bool = Field(
         default=True,
         description=(
-            "Whether to adjust the refusal directions so that only the component that is "
+            "Whether to adjust the residual directions so that only the component that is "
             "orthogonal to the good direction is subtracted during abliteration."
         ),
     )
@@ -428,7 +449,7 @@ class Settings(BaseSettings):
         description="Maximum size for individual safetensors files generated when exporting a model.",
     )
 
-    refusal_markers: list[str] = Field(
+    keyword_markers: list[str] = Field(
         default=[
             "disclaimer",
             "sorry",
@@ -464,7 +485,7 @@ class Settings(BaseSettings):
             "unethical",
             "ethical boundaries",
         ],
-        description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
+        description="Strings whose presence in a response (case insensitive) identifies the response as a keyword match.",
     )
 
     system_prompt: str = Field(
@@ -494,23 +515,10 @@ class Settings(BaseSettings):
         description="Dataset of prompts that tend to result in refusals (used for calculating refusal directions).",
     )
 
-    good_evaluation_prompts: DatasetSpecification = Field(
-        default=DatasetSpecification(
-            dataset="mlabonne/harmless_alpaca",
-            split="test[:100]",
-            column="text",
-        ),
-        description="Dataset of prompts that tend to not result in refusals (used for evaluating model performance).",
-    )
-
-    bad_evaluation_prompts: DatasetSpecification = Field(
-        default=DatasetSpecification(
-            dataset="mlabonne/harmful_behaviors",
-            split="test[:100]",
-            column="text",
-        ),
-        description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
-    )
+    # We intentionally allow extra keys so users can provide plugin-specific
+    # configuration in TOML tables like `[scorer.KeywordRate]` which are later
+    # consumed via `settings.model_extra` (see `Evaluator._get_plugin_namespace`).
+    model_config = SettingsConfigDict(extra="allow")
 
     @classmethod
     def settings_customise_sources(

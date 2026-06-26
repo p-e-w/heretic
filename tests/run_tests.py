@@ -65,19 +65,12 @@ for test_directory in script_directory.iterdir():
 
             valid_hashes: dict[str, list[str]] = {}
 
-            valid_hashes: dict[str, list[str]] = {}
-
             for hash_file in hash_files:
                 with open(hash_file, "r", encoding="utf-8") as file:
                     for line in file:
                         if line.strip():
                             sha256, filename = line.split()
-                            filename = filename.removeprefix("*")
-
-                            if filename not in valid_hashes:
-                                valid_hashes[filename] = []
-
-                            valid_hashes[filename].append(sha256.lower())
+                            filename = filename.lstrip("*")
 
                             if filename not in valid_hashes:
                                 valid_hashes[filename] = []

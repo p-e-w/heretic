@@ -115,7 +115,7 @@ def load_plugin(
                 raise
 
         plugin_cls = validate_class(module, class_name)
-    # Fully-qualified import path, e.g "heretic.scorers.refusal_rate.RefusalRate"
+    # Fully-qualified import path, e.g "heretic.scorers.keyword_rate.KeywordRate"
     else:
         if "." not in name:
             raise ValueError(

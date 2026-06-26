@@ -6,7 +6,7 @@ max_response_length = 300
 residual_plot_title = "PaCMAP Projection of Residuals for Serious/Humorous Prompts"
 
 scorers = [
-    { plugin = "heretic.scorers.refusal_rate.RefusalRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
     { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
 ]
 
@@ -24,8 +24,8 @@ column = "text"
 residual_plot_label = "Humorous prompts"
 residual_plot_color = "darkorange"
 
-[scorer.RefusalRate]
-refusal_markers = [
+[scorer.KeywordRate]
+keyword_markers = [
     "😅",
     "here's one",
     "why did",
@@ -64,7 +64,7 @@ refusal_markers = [
     "clever",
 ]
 
-[scorer.RefusalRate.prompts]
+[scorer.KeywordRate.prompts]
 dataset = "UnstableLlama/jokes"
 split = "train[200:250]"
 column = "text"

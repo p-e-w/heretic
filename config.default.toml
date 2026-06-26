@@ -68,7 +68,7 @@ chain_of_thought_skips = [
     ],
 ]
 
-# Whether to print detailed information about residuals and refusal directions.
+# Whether to print detailed information about residuals and residual directions.
 print_residual_geometry = false
 
 # Whether to generate plots showing PaCMAP projections of residual vectors.
@@ -88,11 +88,11 @@ residual_plot_style = "dark_background"
 # { plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }
 # where <optimization> is one of "minimize", "maximize", "none" (do not optimize)
 scorers = [
-    { plugin = "heretic.scorers.refusal_rate.RefusalRate", optimization = "minimize"},
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize"},
     { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize"},
 ]
 
-# Whether to adjust the refusal directions so that only the component that is
+# Whether to adjust the residual directions so that only the component that is
 # orthogonal to the good direction is subtracted during abliteration.
 orthogonalize_direction = true
 
@@ -135,7 +135,7 @@ system_prompt = "You are a helpful assistant."
 # For text files, "column" is ignored and "split" is optional; when given, it selects
 # a subset of the lines using slice notation (e.g. "[:400]").
 
-# Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).
+# Dataset of prompts that tend to not result in refusals (used for calculating residual directions).
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "train[:400]"
@@ -143,7 +143,7 @@ column = "text"
 residual_plot_label = '"Harmless" prompts'
 residual_plot_color = "royalblue"
 
-# Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
+# Dataset of prompts that tend to result in refusals (used for calculating residual directions).
 [bad_prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "train[:400]"
@@ -153,12 +153,12 @@ residual_plot_color = "darkorange"
 
 # Plugin-specific settings live in a top-level TOML table.
 # For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>_<instance_name>]` for instance-related config).
-[scorer.RefusalRate]
-# Whether to print prompt/response pairs when counting refusals.
+[scorer.KeywordRate]
+# Whether to print prompt/response pairs when counting keyword matches.
 print_responses = false
 
-# Strings whose presence in a response (case insensitive) identifies the response as a refusal.
-refusal_markers = [
+# Strings whose presence in a response (case insensitive) identifies the response as a keyword match.
+keyword_markers = [
     "disclaimer",
     "sorry",
     "i can'",
@@ -195,7 +195,7 @@ refusal_markers = [
 ]
 
 # Scorer-owned evaluation prompts
-[scorer.RefusalRate.prompts]
+[scorer.KeywordRate.prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
@@ -206,15 +206,15 @@ column = "text"
 #
 # Example:
 # scorers = [
-#   { plugin = "heretic.scorers.refusal_rate.RefusalRate", optimization = 'minimize', instance_name = "small" },
-#   { plugin = "heretic.scorers.refusal_rate.RefusalRate", optimization = 'minimize', instance_name = "tiny" },
+#   { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = 'minimize', instance_name = "small" },
+#   { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = 'minimize', instance_name = "tiny" },
 # ]
 #
-# Shared defaults for all instances live under `[scorer.RefusalRate]` and can be overridden per
-# instance under `[scorer.RefusalRate_<instance_name>]`.
+# Shared defaults for all instances live under `[scorer.KeywordRate]` and can be overridden per
+# instance under `[scorer.KeywordRate_<instance_name>]`.
 #
 # Example instance override:
-# [scorer.RefusalRate_small.prompts]
+# [scorer.KeywordRate_small.prompts]
 # split = "test[:10]"
 
 [scorer.KLDivergence.prompts]

@@ -499,7 +499,7 @@ def run():
         return
 
     print()
-    print("Calculating per-layer refusal directions...")
+    print("Calculating per-layer residual directions...")
 
     needs_full_residuals = settings.print_residual_geometry or settings.plot_residuals
 
@@ -528,18 +528,18 @@ def run():
         print("* Obtaining residual mean for bad prompts...")
         bad_means = model.get_residuals_mean(bad_prompts)
 
-    refusal_directions = F.normalize(bad_means - good_means, p=2, dim=1)
+    residual_directions = F.normalize(bad_means - good_means, p=2, dim=1)
 
     if settings.orthogonalize_direction:
         # Implements https://huggingface.co/blog/grimjim/projected-abliteration
-        # Adjust the refusal directions so that only the component that is
+        # Adjust the residual directions so that only the component that is
         # orthogonal to the good direction is subtracted during abliteration.
         good_directions = F.normalize(good_means, p=2, dim=1)
-        projection_vector = torch.sum(refusal_directions * good_directions, dim=1)
-        refusal_directions = (
-            refusal_directions - projection_vector.unsqueeze(1) * good_directions
+        projection_vector = torch.sum(residual_directions * good_directions, dim=1)
+        residual_directions = (
+            residual_directions - projection_vector.unsqueeze(1) * good_directions
         )
-        refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
+        residual_directions = F.normalize(residual_directions, p=2, dim=1)
         del good_directions, projection_vector
 
     del good_means, bad_means
@@ -633,7 +633,7 @@ def run():
         print("* Resetting model...")
         model.reset_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, direction_index, parameters)
+        model.abliterate(residual_directions, direction_index, parameters)
         print("* Evaluating...")
         scores = evaluator.get_scores()
         objective_values = evaluator.get_objective_values(scores)
@@ -856,7 +856,7 @@ def run():
                 model.reset_model()
                 print("* Abliterating...")
                 model.abliterate(
-                    refusal_directions,
+                    residual_directions,
                     trial.user_attrs["direction_index"],
                     {
                         k: AbliterationParameters(**v)

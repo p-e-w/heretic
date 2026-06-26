@@ -6,7 +6,7 @@ max_response_length = 300
 residual_plot_title = "PaCMAP Projection of Residuals for Slop-Suppressing/Inducing Prompts"
 
 scorers = [
-    { plugin = "heretic.scorers.refusal_rate.RefusalRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
     { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
 ]
 
@@ -28,8 +28,8 @@ prefix = "Write a short story based on the writing prompt below. Make extensive 
 residual_plot_label = "Slop-inducing prompts"
 residual_plot_color = "darkorange"
 
-[scorer.RefusalRate]
-refusal_markers = [
+[scorer.KeywordRate]
+keyword_markers = [
     "Eldoria",
     "Lumina",
     "ethereal",
@@ -156,7 +156,7 @@ refusal_markers = [
     "ensnared",
 ]
 
-[scorer.RefusalRate.prompts]
+[scorer.KeywordRate.prompts]
 dataset = "llm-aes/writing-prompts"
 split = "train[1000:1100]"
 column = "prompt"

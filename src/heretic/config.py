@@ -277,7 +277,7 @@ class Settings(BaseSettings):
 
     print_residual_geometry: bool = Field(
         default=False,
-        description="Whether to print detailed information about residuals and refusal directions.",
+        description="Whether to print detailed information about residuals and residual directions.",
         exclude=True,
     )
 
@@ -317,7 +317,7 @@ class Settings(BaseSettings):
     orthogonalize_direction: bool = Field(
         default=True,
         description=(
-            "Whether to adjust the refusal directions so that only the component that is "
+            "Whether to adjust the residual directions so that only the component that is "
             "orthogonal to the good direction is subtracted during abliteration."
         ),
     )
@@ -449,7 +449,7 @@ class Settings(BaseSettings):
         description='How to export the model: "merge", "adapter", or unset to prompt the user.',
     )
 
-    refusal_markers: list[str] = Field(
+    keyword_markers: list[str] = Field(
         default=[
             "disclaimer",
             "sorry",
@@ -485,7 +485,7 @@ class Settings(BaseSettings):
             "unethical",
             "ethical boundaries",
         ],
-        description="Strings whose presence in a response (case insensitive) identifies the response as a refusal.",
+        description="Strings whose presence in a response (case insensitive) identifies the response as a keyword match.",
     )
 
     system_prompt: str = Field(
@@ -516,7 +516,7 @@ class Settings(BaseSettings):
     )
 
     # We intentionally allow extra keys so users can provide plugin-specific
-    # configuration in TOML tables like `[scorer.RefusalRate]` which are later
+    # configuration in TOML tables like `[scorer.KeywordRate]` which are later
     # consumed via `settings.model_extra` (see `Evaluator._get_plugin_namespace`).
     model_config = SettingsConfigDict(extra="allow")
 

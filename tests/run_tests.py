@@ -9,26 +9,14 @@ from pathlib import Path
 
 # TODO: Replace this with hashlib.file_digest when we drop support for Python 3.10.
 def get_file_sha256(file_path: str | Path) -> str:
-    file_path = Path(file_path)
-    hash_obj = hashlib.sha256()
+    hash = hashlib.sha256()
 
-    # Common text / config file extensions used by Hugging Face models.
-    text_extensions = {".json", ".jinja", ".txt", ".py", ".md", ".yaml"}
+    with open(file_path, "rb") as file:
+        # Read the file in 64 kB blocks.
+        for block in iter(lambda: file.read(65536), b""):
+            hash.update(block)
 
-    if file_path.suffix.lower() in text_extensions:
-        # For text files, read as binary but normalize \r\n down to \n in memory.
-        with open(file_path, "rb") as file:
-            content = file.read()
-            normalized_content = content.replace(b"\r\n", b"\n")
-            hash_obj.update(normalized_content)
-    else:
-        # For binary files (like .safetensors), read raw bytes.
-        with open(file_path, "rb") as file:
-            # Read the file in 64 kB blocks.
-            for block in iter(lambda: file.read(65536), b""):
-                hash_obj.update(block)
-
-    return hash_obj.hexdigest()
+    return hash.hexdigest()
 
 
 script_directory = Path(__file__).resolve().parent

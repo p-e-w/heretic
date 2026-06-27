@@ -586,11 +586,16 @@ class Model:
                         W = W - W_org
                         # Use a low-rank SVD to get an approximation of the matrix.
                         r = self.peft_config.r
+
                         # svd_lowrank is randomized:
                         # https://github.com/pytorch/pytorch/blob/20919052303c0b5ba87f8bf7e19237dc33ab09d3/torch/_lowrank.py#L108-L109
                         # Reseed immediately before the call so restoring a trial is independent of RNG history.
                         torch.manual_seed(self.settings.seed)
+                        # "It's safe to call this function if CUDA is not available;
+                        # in that case, it is silently ignored."
+                        torch.cuda.manual_seed_all(self.settings.seed)  # ty:ignore[invalid-argument-type]
                         U, S, Vh = torch.svd_lowrank(W, q=2 * r + 4, niter=6)
+
                         # Truncate it to the part we want to store in the LoRA adapter.
                         # Note: svd_lowrank actually returns V, so transpose it to get Vh.
                         U = U[:, :r]

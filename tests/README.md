@@ -8,7 +8,7 @@ To update the hashes after a logic change, run the tests, then execute
 
 ```sh
 cd TEST_DIR/model
-sha256sum * > ../SHA256SUMS.LABEL
+sha256sum -b * > ../SHA256SUMS.LABEL
 ```
 
 where `LABEL` describes the type of system you are running the tests on.

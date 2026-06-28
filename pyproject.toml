@@ -38,6 +38,7 @@ dependencies = [
     "pydantic-settings~=2.13",
     "questionary~=2.1",
     "rich~=14.3",
+    "tomli~=2.4.1",
     "tomli-w~=1.2",
     "torch",  # version deliberately unspecified
     "torchvision",  # version deliberately unspecified

@@ -10,6 +10,7 @@ if TYPE_CHECKING or sys.version_info < (3, 11):
 else:
     from enum import StrEnum
 
+import tomli
 from pydantic import (
     BaseModel,
     Field,
@@ -23,6 +24,12 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     TomlConfigSettingsSource,
 )
+from pydantic_settings.sources.providers import toml as pydantic_toml
+
+# Force pydantic-settings to use tomli for TOML v1.1.0 support.
+pydantic_toml.tomli = tomli  # ty:ignore[invalid-assignment]
+pydantic_toml.tomllib = tomli  # ty:ignore[invalid-assignment]
+pydantic_toml.import_toml = lambda: None  # ty:ignore[invalid-assignment]
 
 # !!!IMPORTANT!!!
 #

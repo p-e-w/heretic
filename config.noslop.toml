@@ -1,6 +1,8 @@
 # Rename this file to config.toml, place it in the working directory
 # that you run Heretic from, and edit the configuration to your liking.
 
+#:tombi toml-version = "v1.1.0"
+
 max_response_length = 300
 
 residual_plot_title = "PaCMAP Projection of Residuals for Slop-Suppressing/Inducing Prompts"

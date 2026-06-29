@@ -860,7 +860,7 @@ def run():
                 trial = ask_if_unset(
                     None
                     if settings.trial_index is None
-                    else best_trials[settings.trial_index],
+                    else sorted_trials[settings.trial_index],
                     questionary.select(
                         "Which trial do you want to use?",
                         choices=choices,

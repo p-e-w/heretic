@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import getpass
 import hashlib
 import json
 import os
@@ -14,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import huggingface_hub
 import tomli_w

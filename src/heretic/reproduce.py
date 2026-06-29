@@ -12,6 +12,7 @@ from typing import Any, cast
 from urllib.request import urlopen
 
 import cpuinfo
+import questionary
 import torch
 from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.utils import (
@@ -19,15 +20,16 @@ from huggingface_hub.utils import (
     disable_progress_bars,
     enable_progress_bars,
 )
-from questionary import Choice
+from questionary import Choice, Style
 from rich.table import Table
 
+from .config import Settings
 from .system import (
     get_accelerator_info_dict,
     get_heretic_version_info,
     get_requirements_dict,
 )
-from .utils import print, prompt_select
+from .utils import ask_if_unset, print
 
 
 def collect_reproducibles(path: str):
@@ -192,7 +194,10 @@ def format_version_information(version_information: dict[str, Any]) -> str:
         return f"{version}-unknown-{random.randint(2**16, 2**17)}"
 
 
-def check_environment(reproduction_information: dict[str, Any]) -> bool:
+def check_environment(
+    settings: Settings,
+    reproduction_information: dict[str, Any],
+) -> bool | None:
     mismatch_severity: MismatchSeverity | None = None
 
     system_mismatches = []
@@ -361,22 +366,26 @@ def check_environment(reproduction_information: dict[str, Any]) -> bool:
             )
         )
 
-        print()
-        choice = prompt_select(
-            "How would you like to proceed?",
-            [
-                Choice(
-                    title="Attempt to reproduce the model anyway",
-                    value=True,
-                ),
-                Choice(
-                    title="Exit program",
-                    value=False,
-                ),
-            ],
-        )
+        if settings.ignore_mismatches is None:
+            print()
 
-        return choice
+        return ask_if_unset(
+            settings.ignore_mismatches,
+            questionary.select(
+                "How would you like to proceed?",
+                choices=[
+                    Choice(
+                        title="Attempt to reproduce the model anyway",
+                        value=True,
+                    ),
+                    Choice(
+                        title="Exit program",
+                        value=False,
+                    ),
+                ],
+                style=Style([("highlighted", "reverse")]),
+            ),
+        )
     else:
         # There are no mismatches at all, so there is nothing to confirm.
         return True

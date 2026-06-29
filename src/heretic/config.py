@@ -4,7 +4,12 @@
 from enum import Enum
 from typing import Dict, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    Field,
+    NonNegativeInt,
+    PositiveInt,
+)
 from pydantic_settings import (
     BaseSettings,
     CliSettingsSource,
@@ -215,12 +220,12 @@ class Settings(BaseSettings):
         ),
     )
 
-    batch_size: int = Field(
+    batch_size: NonNegativeInt = Field(
         default=0,  # auto
         description="Number of input sequences to process in parallel (0 = auto).",
     )
 
-    max_batch_size: int = Field(
+    max_batch_size: PositiveInt = Field(
         default=128,
         description="Maximum batch size to try when automatically determining the optimal batch size.",
         # When storing a settings object, the batch size is already fixed,
@@ -228,7 +233,7 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
-    max_response_length: int = Field(
+    max_response_length: PositiveInt = Field(
         default=100,
         description="Maximum number of tokens to generate for each response.",
     )
@@ -272,6 +277,12 @@ class Settings(BaseSettings):
         ),
         # When storing a settings object, the response prefix is already fixed,
         # either determined by the automatic mechanism or by explicit user choice.
+        exclude=True,
+    )
+
+    print_debug_information: bool = Field(
+        default=False,
+        description="Whether to print additional information that can help with debugging.",
         exclude=True,
     )
 
@@ -332,7 +343,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    full_normalization_lora_rank: int = Field(
+    full_normalization_lora_rank: PositiveInt = Field(
         default=3,
         description=(
             'The rank of the LoRA adapter to use when "full" row normalization is used. '
@@ -353,12 +364,12 @@ class Settings(BaseSettings):
         ),
     )
 
-    n_trials: int = Field(
+    n_trials: PositiveInt = Field(
         default=200,
         description="Number of abliteration trials to run during optimization.",
     )
 
-    n_startup_trials: int = Field(
+    n_startup_trials: NonNegativeInt = Field(
         default=60,
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
@@ -439,7 +450,7 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
-    max_shard_size: int | str = Field(
+    max_shard_size: PositiveInt | str = Field(
         default="5GB",
         description="Maximum size for individual safetensors files generated when exporting a model.",
     )
@@ -447,6 +458,53 @@ class Settings(BaseSettings):
     export_strategy: ExportStrategy | None = Field(
         default=None,
         description='How to export the model: "merge", "adapter", or unset to prompt the user.',
+    )
+
+    checkpoint_action: str | None = Field(
+        default=None,
+        description='Action to take in case a checkpoint exists: "continue", "restart", or unset to prompt the user.',
+    )
+
+    trial_index: NonNegativeInt | None = Field(
+        default=None,
+        description="Index (in the sorted Pareto front) of the trial to use, or unset to prompt the user.",
+    )
+
+    n_additional_trials: PositiveInt | None = Field(
+        default=None,
+        description="Number of additional trials to run, or unset to prompt the user.",
+    )
+
+    model_action: str | None = Field(
+        default=None,
+        description='Action to take with the decensored model: "save", "upload", or unset to prompt the user.',
+    )
+
+    save_directory: str | None = Field(
+        default=None,
+        description="Directory to save the model to, or unset to prompt the user.",
+        exclude=True,
+    )
+
+    upload_repo_id: str | None = Field(
+        default=None,
+        description="Name of the Hugging Face repository to upload the model to, or unset to prompt the user.",
+        exclude=True,
+    )
+
+    upload_repo_private: bool | None = Field(
+        default=None,
+        description="Whether the Hugging Face repository to upload the model to should be private, or unset to prompt the user.",
+    )
+
+    upload_reproducibility_information: str | None = Field(
+        default=None,
+        description='Which reproducibility information to add to the Hugging Face repository: "full", "basic", "none", or unset to prompt the user.',
+    )
+
+    ignore_mismatches: bool | None = Field(
+        default=None,
+        description="Whether to attempt to reproduce the model even if there are environment mismatches, or unset to prompt the user.",
     )
 
     keyword_markers: list[str] = Field(

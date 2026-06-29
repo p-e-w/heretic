@@ -68,6 +68,9 @@ chain_of_thought_skips = [
     ],
 ]
 
+# Whether to print additional information that can help with debugging.
+print_debug_information = false
+
 # Whether to print detailed information about residuals and residual directions.
 print_residual_geometry = false
 

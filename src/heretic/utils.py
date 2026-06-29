@@ -8,18 +8,15 @@ import hashlib
 import json
 import os
 import platform
-import random
 import tempfile
 import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import huggingface_hub
-import numpy as np
-import questionary
 import tomli_w
 import torch
 from datasets import DatasetDict, ReadInstruction, load_dataset, load_from_disk
@@ -31,7 +28,7 @@ from optuna import Trial
 from optuna.study import StudyDirection
 from optuna.trial import FrozenTrial
 from psutil import Process
-from questionary import Choice, Style
+from questionary import Question
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
@@ -43,6 +40,9 @@ from .system import (
     get_requirements_dict,
     is_xpu_available,
 )
+
+T = TypeVar("T")
+
 
 print = Console(highlight=False).print
 
@@ -97,99 +97,6 @@ def print_memory_usage():
         p("Driver (reserved) MPS memory", torch.mps.driver_allocated_memory())
 
 
-def is_notebook() -> bool:
-    # Check for specific environment variables (Colab, Kaggle).
-    # This is necessary because when running as a subprocess (e.g. !heretic),
-    # get_ipython() might not be available or might not reflect the notebook environment.
-    if os.getenv("COLAB_GPU") or os.getenv("KAGGLE_KERNEL_RUN_TYPE"):
-        return True
-
-    # Check IPython shell type (for library usage).
-    try:
-        from IPython import get_ipython  # ty:ignore[unresolved-import]
-
-        shell = get_ipython()
-        if shell is None:
-            return False
-
-        shell_name = shell.__class__.__name__
-        if shell_name in ["ZMQInteractiveShell", "Shell"]:
-            return True
-
-        if "google.colab" in str(shell.__class__):
-            return True
-
-        return False
-    except (ImportError, NameError, AttributeError):
-        return False
-
-
-def prompt_select(message: str, choices: list[Any]) -> Any:
-    if is_notebook():
-        print()
-        print(message)
-        real_choices = []
-
-        for i, choice in enumerate(choices, 1):
-            if isinstance(choice, Choice):
-                print(f"[{i}] {choice.title}")
-                real_choices.append(choice.value)
-            else:
-                print(f"[{i}] {choice}")
-                real_choices.append(choice)
-
-        while True:
-            try:
-                selection = input("Enter number: ")
-                index = int(selection) - 1
-                if 0 <= index < len(real_choices):
-                    return real_choices[index]
-                print(
-                    f"[red]Please enter a number between 1 and {len(real_choices)}[/]"
-                )
-            except ValueError:
-                print("[red]Invalid input. Please enter a number.[/]")
-    else:
-        return questionary.select(
-            message,
-            choices=choices,
-            style=Style([("highlighted", "reverse")]),
-        ).ask()
-
-
-def prompt_text(
-    message: str,
-    default: str = "",
-    qmark: str = "?",
-    unsafe: bool = False,
-) -> str:
-    if is_notebook():
-        print()
-        result = input(f"{message} [{default}]: " if default else f"{message}: ")
-        return result if result else default
-    else:
-        question = questionary.text(message, default=default, qmark=qmark)
-        if unsafe:
-            return question.unsafe_ask()
-        else:
-            return question.ask()
-
-
-def prompt_path(message: str) -> str:
-    if is_notebook():
-        return prompt_text(message)
-    else:
-        return questionary.path(message, only_directories=True).ask()
-
-
-def prompt_password(message: str) -> str:
-    if is_notebook():
-        print()
-        return getpass.getpass(message)
-    else:
-        return questionary.password(message).ask()
-
-
 def format_duration(seconds: float) -> str:
     seconds = round(seconds)
     hours, seconds = divmod(seconds, 3600)
@@ -203,10 +110,33 @@ def format_duration(seconds: float) -> str:
         return f"{seconds}s"
 
 
+def format_exception(error: Exception) -> str:
+    # Walk causal chain to find a non-empty message.
+    current = error
+    while current is not None:
+        message = str(current).strip()
+        if message:
+            return message
+        current = current.__cause__ or current.__context__
+
+    # If there is no message in the entire causal chain, fall back to the complete traceback.
+    return traceback.format_exc().strip()
+
+
+def ask_if_unset(value: T, question: Question, unsafe: bool = False) -> T:
+    if value is None:
+        if unsafe:
+            return question.unsafe_ask()
+        else:
+            return question.ask()
+    else:
+        return value
+
+
 def is_hf_path(path: str) -> bool:
     """Checks whether a path likely refers to a Hugging Face repository."""
 
-    # Match Transformers: existing local paths take precedence over Hub lookup,
+    # Match Transformers: Existing local paths take precedence over Hub lookup,
     # even if the path string is also a valid repository ID.
     if Path(path).exists():
         return False
@@ -226,12 +156,15 @@ def get_split_slice(split_str: str, length: int) -> tuple[int, int]:
 
     # The split name is the part before the slice, e.g. "train" in "train[:400]".
     split_name = split_str.split("[")[0]
+
     # Associate the split with its number of examples (lines).
     name_to_length = {split_name: length}
+
     # Convert the instructions to absolute indices and select the first one.
     absolute_instruction = ReadInstruction.from_spec(split_str).to_absolute(
         name_to_length
     )[0]
+
     return absolute_instruction.from_, absolute_instruction.to
 
 
@@ -376,7 +309,7 @@ def get_readme_intro(
 
     return f"""# This is a decensored version of {
         model_link
-    }, made using [Heretic](https://github.com/p-e-w/heretic) v{version("heretic-llm")}
+    }, made using [Heretic](https://heretic-project.org) v{version("heretic-llm")}
 {reproducibility_instructions}
 ## Abliteration parameters
 
@@ -415,14 +348,6 @@ def generate_requirements_txt() -> str:
         f"{package}=={version}" for package, version in get_requirements_dict().items()
     ]
     return "\n".join(requirements) + "\n"
-
-
-def set_seed(seed: int):
-    """Sets the seed for all RNGs."""
-
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
 
 
 def format_hf_link(
@@ -805,16 +730,3 @@ def upload_reproduce_folder(
                     repo_id=repo_id,
                     token=token,
                 )
-
-
-def format_exception(error: Exception) -> str:
-    # Walk causal chain to find a non-empty message.
-    current = error
-    while current is not None:
-        message = str(current).strip()
-        if message:
-            return message
-        current = current.__cause__ or current.__context__
-
-    # If there is no message in the entire causal chain, fall back to the complete traceback.
-    return traceback.format_exc().strip()

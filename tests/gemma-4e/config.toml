@@ -15,6 +15,11 @@ trial_index = 0
 model_action = "save"
 save_directory = "model"
 
+scorers = [
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
+]
+
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"
 commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
@@ -27,10 +32,6 @@ commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
 split = "train[:5]"
 column = "text"
 
-# Evaluation prompts are scorer-owned in the plugin model. The default scorers
-# list (KeywordRate + KLDivergence, both "minimize") is inherited from
-# config.default.toml; minimizing KL divergence is the plugin equivalent of the
-# old top-level `kl_divergence_target = 0` knob.
 [scorer.KLDivergence.prompts]
 dataset = "mlabonne/harmless_alpaca"
 commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"

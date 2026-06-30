@@ -73,7 +73,7 @@ def load_plugin(
             "You must append the plugin class name to the filepath like this: path/to/plugin.py:ClassName"
         )
 
-    # file path with explicit class name, e.g "C:\\path\\plugin.py:MyPlugin"
+    # File path with explicit class name, e.g. "C:\\path\\plugin.py:MyPlugin".
     if ":" in name:
         file_path, class_name = name.rsplit(":", 1)
         if not file_path.endswith(".py") or not class_name:

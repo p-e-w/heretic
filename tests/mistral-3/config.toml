@@ -1,3 +1,6 @@
+# This test case is for Dense models.
+# After any change related to it, this test should PASS.
+
 model = "tiny-random/mistral-3"
 model_commit = "931aa2e5c9668fc3679e56aa44972fe18597d55d"
 

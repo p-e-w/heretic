@@ -1,3 +1,6 @@
+# This test case is for Hybrid-Edge models.
+# After any change related to it, this test should PASS.
+
 model = "tiny-random/gemma-4e"
 model_commit = "3a207ada2c2cd95e9671942e84cf47ea58f0f6af"
 

@@ -8,6 +8,10 @@ Whenever we change any code-logic related to `src/heretic/model.py` or `config.t
 
 **Example**: [tiny-random/minicpm5](https://huggingface.co/tiny-random/minicpm5).
 
+> [!NOTE]
+> It is highly recommended to use a model which does not have a `special_tokens_map.json` file in the repo.
+> Because those files are almost always wrong in `tiny-random/*` models compared to the original model.
+
 2. Clone that model repository using Git and generate the SHA256 hashes using `sha256sum`:
 
 **On Linux**:

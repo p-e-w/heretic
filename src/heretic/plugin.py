@@ -67,7 +67,7 @@ def load_plugin(
             )
         return obj
 
-    # common user trap with filepath imports
+    # Common user trap with filepath imports.
     if name.endswith(".py"):
         raise ValueError(
             "You must append the plugin class name to the filepath like this: path/to/plugin.py:ClassName"

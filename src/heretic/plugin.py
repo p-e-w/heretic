@@ -22,7 +22,7 @@ from .model import Model
 T = TypeVar("T")
 
 
-def get_plugin_namespace(model_extra, namespace: str) -> dict[str, Any]:
+def get_plugin_namespace(model_extra: dict[str, Any] | None, namespace: str) -> dict[str, Any]:
     """
     Returns the config dict from the `[<namespace>]` TOML table.
     """

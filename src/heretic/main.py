@@ -66,6 +66,7 @@ from optuna.study import StudyDirection
 from optuna.trial import TrialState, create_trial
 from pydantic import ValidationError
 from questionary import Choice, Style
+from rich.markup import escape
 from rich.table import Table
 from rich.traceback import install
 
@@ -73,6 +74,7 @@ from .analyzer import Analyzer
 from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .parameters import ModelComponent, Parameters, ParamKind
 from .reproduce import (
     check_environment,
     collect_reproducibles,
@@ -222,9 +224,19 @@ def run():
         print(f"[red]Configuration contains [bold]{error.error_count()}[/] errors:[/]")
 
         for error_details in error.errors():
-            print(
-                f"[bold]{error_details['loc'][0]}[/]: [yellow]{error_details['msg']}[/]"
-            )
+            full_loc = str(error_details["loc"][0])
+            for loc in error_details["loc"][1:]:
+                if loc in ParamKind:
+                    continue  # Skip param kinds added to loc by discriminators.
+                if not isinstance(loc, str):
+                    full_loc += f"[{loc}]"
+                elif loc == "[key]":
+                    full_loc += " (key error)"
+                elif "." in loc:
+                    full_loc += f'["{loc}"]'
+                else:
+                    full_loc += f".{loc}"
+            print(f"[bold]{escape(full_loc)}[/]: [yellow]{error_details['msg']}[/]")
 
         print()
         print(
@@ -405,6 +417,7 @@ def run():
             storage = JournalStorage(backend)
 
     model = Model(settings)
+    params = Parameters(settings.parameters)
     print()
     print_memory_usage()
 
@@ -578,80 +591,52 @@ def run():
         trial_index += 1
         trial.set_user_attr("index", trial_index)
 
-        direction_scope = trial.suggest_categorical(
-            "direction_scope",
-            [
-                "global",
-                "per layer",
-            ],
-        )
+        direction_scope_param = params.direction_scope.get()
+        direction_scope = direction_scope_param.suggest(trial)
 
         last_layer_index = len(model.get_layers()) - 1
 
-        # Discrimination between "harmful" and "harmless" inputs is usually strongest
-        # in layers slightly past the midpoint of the layer stack. See the original
-        # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
-        #
-        # Note that we always sample this parameter even though we only need it for
-        # the "global" direction scope. The reason is that multivariate TPE doesn't
-        # work with conditional or variable-range parameters.
-        direction_index = trial.suggest_float(
-            "direction_index",
-            0.4 * last_layer_index,
-            0.9 * last_layer_index,
-        )
+        # Note that we always sample this parameter when the "global" direction
+        # scope is included in the choices, even though we only need it for the
+        # "global" direction scope itself. The reason is that multivariate TPE
+        # doesn't work with conditional or variable-range parameters.
+        if "global" in direction_scope_param.choices:
+            direction_fraction = params.direction_fraction.suggest(trial)
+        else:
+            direction_fraction = None
 
-        if direction_scope == "per layer":
-            direction_index = None
-
-        parameters = {}
+        parameters: dict[ModelComponent, AbliterationParameters] = {}
 
         for component in model.get_abliterable_components():
-            # The parameter ranges are based on experiments with various models
-            # and much wider ranges. They are not set in stone and might have to be
-            # adjusted for future models.
-            #
-            # The MLP gets a negative lower bound that is then clamped to 0, so the
-            # optimizer can fully disable its ablation. The clamp puts a positive
-            # probability mass on exactly 0 (the continuous sampler would otherwise
-            # reach 0 with probability zero). Ablating the MLP is often unnecessary for
-            # removing refusals and tends to damage model intelligence more than
-            # ablating the attention output, so on many models the optimum is to leave
-            # it (mostly) untouched. See issue #202.
-            max_weight_lower_bound = -0.25 if component == "mlp.down_proj" else 0.8
-            max_weight = max(
-                0.0,
-                trial.suggest_float(
-                    f"{component}.max_weight",
-                    max_weight_lower_bound,
-                    1.5,
-                ),
+            max_weight = params.max_weight.suggest(trial, component)
+            max_weight = max(0.0, max_weight)
+
+            max_weight_position_fraction = params.max_weight_position_fraction.suggest(
+                trial, component
             )
-            max_weight_position = trial.suggest_float(
-                f"{component}.max_weight_position",
-                0.6 * last_layer_index,
-                1.0 * last_layer_index,
+            max_weight_position = max_weight_position_fraction * last_layer_index
+
+            min_weight_relative = params.min_weight_relative.suggest(trial, component)
+            min_weight = min_weight_relative * max_weight
+
+            min_weight_distance_fraction = params.min_weight_distance_fraction.suggest(
+                trial, component
             )
-            # For sampling purposes, min_weight is expressed as a fraction of max_weight,
-            # again because multivariate TPE doesn't support variable-range parameters.
-            # The value is transformed into the actual min_weight value below.
-            min_weight = trial.suggest_float(
-                f"{component}.min_weight",
-                0.0,
-                1.0,
-            )
-            min_weight_distance = trial.suggest_float(
-                f"{component}.min_weight_distance",
-                1.0,
-                max(0.6 * last_layer_index, 1.0),
+            min_weight_distance = max(
+                1.0, min_weight_distance_fraction * last_layer_index
             )
 
             parameters[component] = AbliterationParameters(
                 max_weight=max_weight,
                 max_weight_position=max_weight_position,
-                min_weight=(min_weight * max_weight),
+                min_weight=min_weight,
                 min_weight_distance=min_weight_distance,
             )
+
+        if direction_fraction is None or direction_scope != "global":
+            direction_index = None
+        else:
+            direction_index = direction_fraction * last_layer_index
 
         trial.set_user_attr("direction_index", direction_index)
         trial.set_user_attr("parameters", {k: asdict(v) for k, v in parameters.items()})

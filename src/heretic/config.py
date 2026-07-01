@@ -4,6 +4,7 @@
 from enum import Enum
 from typing import Dict
 
+import tomli
 from pydantic import (
     BaseModel,
     Field,
@@ -17,6 +18,14 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     TomlConfigSettingsSource,
 )
+from pydantic_settings.sources.providers import toml as pydantic_toml
+
+from .parameters import ParameterSpecification
+
+# Force pydantic-settings to use tomli for TOML v1.1.0 support.
+pydantic_toml.tomli = tomli  # ty:ignore[invalid-assignment]
+pydantic_toml.tomllib = tomli  # ty:ignore[invalid-assignment]
+pydantic_toml.import_toml = lambda: None  # ty:ignore[invalid-assignment]
 
 # !!!IMPORTANT!!!
 #
@@ -568,6 +577,11 @@ class Settings(BaseSettings):
             column="text",
         ),
         description="Dataset of prompts that tend to result in refusals (used for evaluating model performance).",
+    )
+
+    parameters: ParameterSpecification = Field(
+        default=ParameterSpecification(),
+        description="The parameter specifications, per parameter or per component within each parameter.",
     )
 
     @classmethod

@@ -1,3 +1,6 @@
+# This test case is for MoE models.
+# After any change related to it, this test should PASS.
+
 model = "tiny-random/qwen3.5-moe"
 model_commit = "2ebfa8d9717238c5dda927008104fa172a149050"
 

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
@@ -11,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import huggingface_hub
 import tomli_w
@@ -22,6 +24,7 @@ from datasets.download.download_manager import DownloadMode
 from datasets.utils.info_utils import VerificationMode
 from huggingface_hub.utils import validate_repo_id
 from optuna import Trial
+from optuna.study import StudyDirection
 from optuna.trial import FrozenTrial
 from psutil import Process
 from questionary import Question
@@ -41,6 +44,33 @@ T = TypeVar("T")
 
 
 print = Console(highlight=False).print
+
+T = TypeVar("T")
+
+
+def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """
+    Recursively merge two dicts.
+
+    Values from `override` take precedence. Nested dicts are merged recursively.
+    """
+    merged: dict[str, Any] = dict(base)
+    for k, v in override.items():
+        if isinstance(v, dict) and isinstance(merged.get(k), dict):
+            merged[k] = deep_merge_dicts(merged[k], v)  # type: ignore[arg-type]
+        else:
+            merged[k] = v
+    return merged
+
+
+def parse_study_direction(optimization: str) -> StudyDirection:
+    """
+    Converts the optimization value stored as a `str` to the
+    `StudyDirection` object required by Optuna.
+    """
+    if optimization == "none":
+        return StudyDirection.NOT_SET
+    return StudyDirection[optimization.upper()]
 
 
 def print_memory_usage():
@@ -164,6 +194,10 @@ def load_prompts(
             raise ValueError(f'The "column" field is required for datasets: {path}')
 
         if is_hf_path(path):
+            # Pin to the latest commit if not already set, so the exact dataset
+            # version is recorded for reproducibility.
+            if specification.commit is None:
+                specification.commit = huggingface_hub.dataset_info(path).sha
             dataset = load_dataset(
                 path,
                 revision=specification.commit,
@@ -243,6 +277,25 @@ def get_readme_intro(
         # Hide the path, which may contain private information.
         model_link = "a model"
 
+    scores_raw = trial.user_attrs["scores"]
+    scores_by_name: dict[str, dict[str, Any]] = {}
+    score_names: list[str] = []
+    for score in scores_raw:
+        name = score["name"]
+        scores_by_name[name] = score
+        score_names.append(name)
+
+    score_rows = "\n".join(
+        [
+            (
+                f"| **{name}** | "
+                f"{scores_by_name[name]['score']['md_display']} | "
+                f"{scores_by_name[name]['baseline']['md_display']} |"
+            )
+            for name in score_names
+        ]
+    )
+
     if contains_reproducibility_information:
         reproducibility_instructions = """
 > [!TIP]
@@ -274,10 +327,7 @@ def get_readme_intro(
 
 | Metric | This model | Original model ({model_link}) |
 | :----- | :--------: | :---------------------------: |
-| **KL divergence** | {trial.user_attrs["kl_divergence"]:.4f} | 0 *(by definition)* |
-| **Refusals** | {trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]} | {
-        trial.user_attrs["base_refusals"]
-    }/{trial.user_attrs["n_bad_prompts"]} |
+{score_rows}
 
 -----
 
@@ -433,6 +483,13 @@ def generate_reproduce_readme(
                 f" --index-url https://download.pytorch.org/whl/{suffix}"
             )
 
+    trial_scores = trial.user_attrs["scores"]
+    score_lines = "\n".join(
+        f"- **{score['name']}:** {score['score']['md_display']}"
+        f" (baseline: {score['baseline']['md_display']})"
+        for score in trial_scores
+    )
+
     return f"""# Reproduction guide
 
 This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}
@@ -445,14 +502,12 @@ This directory contains the necessary information and assets to reproduce the re
 
 - **Good prompts:** {format_hf_link(settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
 - **Bad prompts:** {format_hf_link(settings.bad_prompts.dataset, settings.bad_prompts.commit, is_dataset=True)}
-- **Good evaluation prompts:** {format_hf_link(settings.good_evaluation_prompts.dataset, settings.good_evaluation_prompts.commit, is_dataset=True)}
-- **Bad evaluation prompts:** {format_hf_link(settings.bad_evaluation_prompts.dataset, settings.bad_evaluation_prompts.commit, is_dataset=True)}
 
 ## Selected trial
 
 - **Trial number:** {trial.user_attrs["index"]}
-- **KL divergence:** {trial.user_attrs["kl_divergence"]:.6f}
-- **Refusals:** {trial.user_attrs["refusals"]}/{trial.user_attrs["n_bad_prompts"]}
+
+{score_lines}
 
 {system_report}## Environment
 
@@ -502,9 +557,10 @@ def generate_reproduce_json(
     version_info = get_heretic_version_info()
 
     data = {
-        "version": "2",  # Version number of the reproduce.json file format, to allow for future changes.
+        # Version 3: plugin-based schema with generic scores/baseline scores.
+        "version": "3",
         "timestamp": timestamp,
-        "system": None,  # Defined here to preserve insertion order.
+        "system": None,
         "environment": {
             "heretic": {
                 "version": version_info.version,
@@ -519,12 +575,7 @@ def generate_reproduce_json(
             "direction_index": trial.user_attrs["direction_index"],
             "abliteration_parameters": trial.user_attrs["parameters"],
         },
-        "metrics": {
-            "kl_divergence": trial.user_attrs["kl_divergence"],
-            "refusals": trial.user_attrs["refusals"],
-            "base_refusals": trial.user_attrs["base_refusals"],
-            "n_bad_prompts": trial.user_attrs["n_bad_prompts"],
-        },
+        "scores": trial.user_attrs["scores"],
         "hashes": uploaded_model_hashes,
     }
 
@@ -583,15 +634,6 @@ def create_reproduce_folder(
 
     # Fetch commit hash for the base model.
     settings.model_commit = huggingface_hub.model_info(settings.model).sha
-
-    # Fetch commit hashes for all HF datasets to ensure reproducibility.
-    for spec in [
-        settings.good_prompts,
-        settings.bad_prompts,
-        settings.good_evaluation_prompts,
-        settings.bad_evaluation_prompts,
-    ]:
-        spec.commit = huggingface_hub.dataset_info(spec.dataset).sha
 
     # Strip microseconds and timezone for a clean format.
     timestamp = (

@@ -555,9 +555,11 @@ class Model:
                     # Flatten weight matrix to (out_features, in_features).
                     W = W.view(W.shape[0], -1)
 
-                    if self.settings.row_normalization != RowNormalization.NONE:
+                    if self.settings.row_normalization == RowNormalization.FULL:
                         # Keep a reference to the original weight matrix so we can subtract it later.
                         W_org = W
+
+                    if self.settings.row_normalization != RowNormalization.NONE:
                         # Get the row norms.
                         W_row_norms = LA.vector_norm(W, dim=1, keepdim=True)
                         # Normalize the weight matrix along the rows.

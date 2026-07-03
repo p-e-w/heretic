@@ -209,7 +209,7 @@ class Plugin:
 
         - Plugins must not define a constructor (`__init__`). Initialization is
           handled by `Plugin.__init__` and an optional `init(ctx)` method.
-        - Plugin plugins may define `settings: <BaseModelSubclass>` to declare a settings schema.
+        - Plugin subclasses may define `settings: <BaseModelSubclass>` to declare a settings schema.
         """
         if "__init__" in cls.__dict__:
             raise TypeError(

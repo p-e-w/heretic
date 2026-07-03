@@ -66,6 +66,18 @@ class Evaluator:
 
             # Instantiate scorers.
             instance_name = config.instance_name or None
+            
+            if instance_name is not None:
+                if not instance_name.strip():
+                    raise ValueError(
+                        f"Invalid instance_name {instance_name} for scorer {scorer_cls.__name__}: "
+                        "cannot be empty or whitespace"
+                    )
+                if "." in instance_name or " " in instance_name:
+                    raise ValueError(
+                        f"Invalid instance_name {instance_name} for scorer {scorer_cls.__name__}: "
+                        "'.' and whitespace are not allowed"
+                    )
 
             raw_settings = self._get_scorer_settings_raw(
                 scorer_cls=scorer_cls, instance_name=instance_name
@@ -130,10 +142,6 @@ class Evaluator:
             return {}
 
         class_name = scorer_cls.__name__
-        if instance_name and "." in instance_name:
-            raise ValueError(
-                f"Invalid instance_name '{instance_name}' for scorer {class_name}: '.' is not allowed"
-            )
 
         namespaces = [f"scorer.{class_name}"]
         if instance_name:

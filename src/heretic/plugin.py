@@ -93,7 +93,7 @@ def load_plugin(
 
         # We're writing directly to the sys.modules dict,
         # so the typical restrictions on module names
-        # (no dots, slashes, etc.) don't apply
+        # (no dots, slashes, etc.) don't apply.
         module_name = f"heretic_plugin_{plugin_path}"
 
         # Reuse already-loaded modules to avoid re-executing the plugin on repeated loads.

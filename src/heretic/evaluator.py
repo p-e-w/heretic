@@ -40,7 +40,7 @@ class Evaluator:
         print("Loading and initializing scorers...")
         self._load_and_init_scorers()
 
-        # Establish baseline scores (pre-abliteration)
+        # Establish baseline scores (pre-abliteration).
         self.baseline_scores = self.get_baseline_scores()
         self._print_baseline()
 

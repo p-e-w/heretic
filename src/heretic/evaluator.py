@@ -132,8 +132,8 @@ class Evaluator:
         Build the raw settings dict for a scorer class and optional instance.
 
         Config rules:
-        - Base settings live in `[scorer.ClassName]` (applies to all instances)
-        - Instance overrides live in `[scorer.ClassName_<instance_name>]` (preferred)
+        - Base settings live in `[scorer.ClassName]` (applies to all instances).
+        - Instance overrides live in `[scorer.ClassName_<instance_name>]` (preferred).
         - Only merge/validate keys that exist in the scorer Settings schema.
         """
         settings_model = scorer_cls.get_settings_model()

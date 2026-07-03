@@ -251,7 +251,7 @@ def run():
                 (
                     f"[red]Unsupported file format version: [bold]{reproduction_information['version']}[/].[/] "
                     "This version of Heretic reads version 3 (plugin scorer) reproduce.json files. "
-                    "Older files were produced before the scorer-plugin refactor and are not supported."
+                    "Older files were produced before the scorer-plugin refactor and are not supported. "
                     "Please install Heretic 1.4 to use these files."
                 )
             )

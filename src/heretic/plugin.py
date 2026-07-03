@@ -117,7 +117,7 @@ def load_plugin(
                 raise
 
         plugin_cls = validate_class(module, class_name)
-    # Fully-qualified import path, e.g "heretic.scorers.keyword_rate.KeywordRate"
+    # Fully-qualified import path, e.g "heretic.scorers.keyword_rate.KeywordRate".
     else:
         if "." not in name:
             raise ValueError(
@@ -260,8 +260,8 @@ class Plugin:
         """
         Validates plugin settings for this plugin class.
 
-        - If a settings model is present: returns an instance of that model
-        - Otherwise returns None
+        - If a settings model is present: returns an instance of that model.
+        - Otherwise returns None.
         """
         settings_model = cls.get_settings_model()
         if settings_model is None:

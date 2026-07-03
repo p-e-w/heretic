@@ -169,7 +169,7 @@ class Context:
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
         return self._model.get_residuals_batched(prompts)
 
-    def load_prompts(self, specification: DatasetSpecification):
+    def load_prompts(self, specification: DatasetSpecification) -> list[Prompt]:
         return load_prompts(self._settings, specification)
 
 

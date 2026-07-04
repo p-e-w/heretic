@@ -18,11 +18,17 @@ class DatasetSpec(BaseModel):
     """A dataset source for prompts (mirrors ``config.DatasetSpecification``)."""
 
     dataset: str = Field(..., description="Hugging Face dataset ID or local path.")
-    split: str | None = Field(default=None, description="Portion of the dataset to use.")
-    column: str | None = Field(default=None, description="Column containing the prompts.")
+    split: str | None = Field(
+        default=None, description="Portion of the dataset to use."
+    )
+    column: str | None = Field(
+        default=None, description="Column containing the prompts."
+    )
     prefix: str = Field(default="", description="Text to prepend to each prompt.")
     suffix: str = Field(default="", description="Text to append to each prompt.")
-    system_prompt: str | None = Field(default=None, description="System prompt override.")
+    system_prompt: str | None = Field(
+        default=None, description="System prompt override."
+    )
 
 
 class TrialInfo(BaseModel):
@@ -57,7 +63,9 @@ class AblateRequest(BaseModel):
     kl_divergence_scale: float = 1.0
     kl_divergence_target: float = 0.01
     orthogonalize_direction: bool = True
-    row_normalization: str = Field(default="full", description='"none", "pre", or "full".')
+    row_normalization: str = Field(
+        default="full", description='"none", "pre", or "full".'
+    )
     winsorization_quantile: float = 1.0
     max_response_length: int = Field(default=100, gt=0)
 

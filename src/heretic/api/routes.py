@@ -267,7 +267,9 @@ async def ablation_websocket(websocket: WebSocket, task_id: str) -> None:
 
     task = task_manager.get_task(task_id)
     if task is None:
-        await websocket.send_json({"type": "error", "data": {"detail": "Task not found"}})
+        await websocket.send_json(
+            {"type": "error", "data": {"detail": "Task not found"}}
+        )
         await websocket.close()
         return
 
@@ -283,7 +285,9 @@ async def ablation_websocket(websocket: WebSocket, task_id: str) -> None:
 
             if task.status in terminal:
                 if task.status == TaskStatus.COMPLETED:
-                    await websocket.send_json({"type": "completed", "data": task.result})
+                    await websocket.send_json(
+                        {"type": "completed", "data": task.result}
+                    )
                 elif task.status == TaskStatus.FAILED:
                     await websocket.send_json(
                         {"type": "failed", "data": {"error": task.error}}

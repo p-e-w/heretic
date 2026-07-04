@@ -372,7 +372,11 @@ class AblationTask:
         within that list.
         """
 
-        if self._study is None or self._refusal_directions is None or self._model is None:
+        if (
+            self._study is None
+            or self._refusal_directions is None
+            or self._model is None
+        ):
             return None
 
         best_trials = _pareto_front(self._study)
@@ -441,9 +445,9 @@ class AblationTask:
 
     @property
     def export_in_progress(self) -> bool:
-        return (
-            self._export_job is not None
-            and self._export_job.status in (TaskStatus.PENDING, TaskStatus.RUNNING)
+        return self._export_job is not None and self._export_job.status in (
+            TaskStatus.PENDING,
+            TaskStatus.RUNNING,
         )
 
     def start_export(self, destination: str, strategy: str) -> ExportJob:

@@ -52,8 +52,12 @@ def ablate_request_to_settings(request: AblateRequest) -> Settings:
         system_prompt=request.system_prompt,
         good_prompts=_to_dataset_specification(request.good_prompts),
         bad_prompts=_to_dataset_specification(request.bad_prompts),
-        good_evaluation_prompts=_to_dataset_specification(request.good_evaluation_prompts),
-        bad_evaluation_prompts=_to_dataset_specification(request.bad_evaluation_prompts),
+        good_evaluation_prompts=_to_dataset_specification(
+            request.good_evaluation_prompts
+        ),
+        bad_evaluation_prompts=_to_dataset_specification(
+            request.bad_evaluation_prompts
+        ),
     )
 
 

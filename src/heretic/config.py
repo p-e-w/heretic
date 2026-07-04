@@ -592,3 +592,41 @@ class Settings(BaseSettings):
             file_secret_settings,
             TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )
+
+
+class ApiSettings(Settings):
+    """
+    A ``Settings`` variant intended for programmatic (API) construction.
+
+    Unlike the CLI, the API is driven entirely by the request body, so this
+    subclass ignores the CLI arguments, environment variables, ``.env`` file,
+    and ``config.toml``. Only the values passed to the constructor are used.
+
+    This keeps API requests self-contained and deterministic, and avoids
+    validation failures caused by a local ``config.toml`` that contains keys
+    unknown to this version of the ``Settings`` model.
+    """
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Only honour values explicitly passed to the constructor.
+        return (init_settings,)
+
+
+def build_settings(**kwargs: object) -> Settings:
+    """
+    Builds a ``Settings`` instance from explicit keyword arguments only,
+    bypassing the CLI/env/``config.toml`` sources used by the interactive CLI.
+
+    The returned object is a genuine ``Settings`` instance (via a subclass),
+    so it can be used anywhere the rest of the codebase expects ``Settings``.
+    """
+
+    return ApiSettings(**kwargs)  # type: ignore[arg-type]

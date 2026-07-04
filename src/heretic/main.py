@@ -35,40 +35,29 @@ from .progress import patch_tqdm
 patch_tqdm()
 """
 
-import logging
-import math
 import os
-import random
 import time
 import warnings
 from dataclasses import asdict
 from importlib.metadata import version
-from os.path import commonprefix
 from pathlib import Path
 from typing import Any
 
 import huggingface_hub
 import lm_eval
 import numpy as np
-import optuna
-import questionary
 import torch
-import torch.nn.functional as F
-import transformers
+import questionary
 from huggingface_hub import HfApi, ModelCard, ModelCardData
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
-from optuna.exceptions import ExperimentalWarning
-from optuna.samplers import TPESampler
-from optuna.storages import JournalStorage
-from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
-from optuna.study import StudyDirection
 from optuna.trial import TrialState, create_trial
 from pydantic import ValidationError
 from questionary import Choice, Style
 from rich.table import Table
 from rich.traceback import install
 
+from . import core
 from .analyzer import Analyzer
 from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
@@ -261,10 +250,7 @@ def run():
 
         settings = Settings.model_validate(reproduction_information["settings"])
 
-    if settings.seed is None:
-        settings.seed = random.randint(0, 2**32 - 1)
-
-    transformers.set_seed(settings.seed)
+    core.configure_runtime(settings)
 
     print(get_accelerator_info())
 
@@ -280,42 +266,8 @@ def run():
             f"torch.get_num_interop_threads() = [bold]{torch.get_num_interop_threads()}[/]"
         )
 
-    # We don't need gradients as we only do inference.
-    torch.set_grad_enabled(False)
-
-    # While determining the optimal batch size, we will try many different batch sizes,
-    # resulting in many computation graphs being compiled. Raising the limit (default = 8)
-    # avoids errors from TorchDynamo assuming that something is wrong because we
-    # recompile too often.
-    torch._dynamo.config.cache_size_limit = 64
-
-    # Silence warning spam from Transformers.
-    # In my entire career I've never seen a useful warning from that library.
-    transformers.logging.set_verbosity_error()
-
-    # Another library that generates warning spam.
-    logging.getLogger("lm_eval").setLevel(logging.ERROR)
-
-    # We do our own trial logging, so we don't need the INFO messages
-    # about parameters and results.
-    optuna.logging.set_verbosity(optuna.logging.WARNING)
-
-    # Silence the warning about multivariate TPE being experimental.
-    warnings.filterwarnings("ignore", category=ExperimentalWarning)
-
-    os.makedirs(settings.study_checkpoint_dir, exist_ok=True)
-
-    study_checkpoint_file = os.path.join(
-        settings.study_checkpoint_dir,
-        "".join(
-            [(c if (c.isalnum() or c in ["_", "-"]) else "--") for c in settings.model]
-        )
-        + ".jsonl",
-    )
-
-    lock_obj = JournalFileOpenLock(study_checkpoint_file)
-    backend = JournalFileBackend(study_checkpoint_file, lock_obj=lock_obj)
-    storage = JournalStorage(backend)
+    study_checkpoint_file = core.checkpoint_path(settings)
+    storage = core.open_study_storage(settings)
 
     try:
         existing_study = storage.get_all_studies()[0]
@@ -401,8 +353,7 @@ def run():
             )
         elif action == "restart":
             os.unlink(study_checkpoint_file)
-            backend = JournalFileBackend(study_checkpoint_file, lock_obj=lock_obj)
-            storage = JournalStorage(backend)
+            storage = core.open_study_storage(settings)
 
     model = Model(settings)
     print()
@@ -422,91 +373,58 @@ def run():
         print()
         print("Determining optimal batch size...")
 
-        batch_size = 1
-        best_batch_size = -1
-        best_performance = -1
-
-        while batch_size <= settings.max_batch_size:
+        def _on_batch_start(batch_size: int) -> None:
             print(f"* Trying batch size [bold]{batch_size}[/]... ", end="")
 
-            prompts = good_prompts * math.ceil(batch_size / len(good_prompts))
-            prompts = prompts[:batch_size]
-
-            try:
-                # Warmup run to build the computation graph so that part isn't benchmarked.
-                model.get_responses(prompts)
-
-                start_time = time.perf_counter()
-                responses = model.get_responses(prompts)
-                end_time = time.perf_counter()
-            except Exception as error:
-                if batch_size == 1:
-                    # Even a batch size of 1 already fails.
-                    # We cannot recover from this.
-                    raise
-
-                formatted = format_exception(error)
-                if "\n" in formatted:
-                    print(f"[red]Failed:\n{formatted}[/]")
-                else:
-                    print(f"[red]Failed ({formatted})[/]")
-
-                break
-
-            response_lengths = [
-                len(model.tokenizer.encode(response)) for response in responses
-            ]
-            performance = sum(response_lengths) / (end_time - start_time)
-
+        def _on_batch_result(batch_size: int, performance: float) -> None:
             print(f"[green]Ok[/] ([bold]{performance:.0f}[/] tokens/s)")
 
-            if performance > best_performance:
-                best_batch_size = batch_size
-                best_performance = performance
+        def _on_batch_error(batch_size: int, error: Exception) -> None:
+            formatted = format_exception(error)
+            if "\n" in formatted:
+                print(f"[red]Failed:\n{formatted}[/]")
+            else:
+                print(f"[red]Failed ({formatted})[/]")
 
-            batch_size *= 2
-
-        settings.batch_size = best_batch_size
+        core.determine_batch_size(
+            model,
+            settings,
+            good_prompts,
+            on_start=_on_batch_start,
+            on_result=_on_batch_result,
+            on_error=_on_batch_error,
+        )
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
     if settings.response_prefix is None:
         print()
         print("Checking for common response prefix...")
-        prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
-        responses = model.get_responses_batched(prefix_check_prompts)
 
-        # Despite being located in os.path, commonprefix actually performs
-        # a naive string operation without any path-specific logic,
-        # which is exactly what we need here. Trailing spaces are removed
-        # to avoid issues where multiple different tokens that all start
-        # with a space character lead to the common prefix ending with
-        # a space, which would result in an uncommon tokenization.
-        settings.response_prefix = commonprefix(responses).rstrip(" ")
+        def _on_prefix(prefix: str) -> None:
+            print(f"* Prefix found: [bold]{prefix!r}[/]")
 
-        if settings.response_prefix:
-            print(f"* Prefix found: [bold]{settings.response_prefix!r}[/]")
+        def _on_cot(prefix: str) -> None:
+            print(f"* Closed Chain-of-Thought block: [bold]{prefix!r}[/]")
+            # When using a Chain-of-Thought skip, we need to check that the prefix
+            # is actually complete (e.g. not missing a trailing newline).
+            print("* Rechecking with prefix...")
 
-            for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
-                if settings.response_prefix.startswith(cot_initializer):
-                    settings.response_prefix = closed_cot_block
-                    print(
-                        f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
-                    )
+        def _on_extended(prefix: str) -> None:
+            print(f"* Extended prefix found: [bold]{prefix!r}[/]")
 
-                    # When using a Chain-of-Thought skip, we need to check that the prefix
-                    # is actually complete (e.g. not missing a trailing newline).
-                    print("* Rechecking with prefix...")
-                    responses = model.get_responses_batched(prefix_check_prompts)
-                    additional_prefix = commonprefix(responses).rstrip(" ")
-                    if additional_prefix:
-                        settings.response_prefix += additional_prefix
-                        print(
-                            f"* Extended prefix found: [bold]{settings.response_prefix!r}[/]"
-                        )
-
-                    break
-        else:
+        def _on_none() -> None:
             print("* None found")
+
+        core.detect_response_prefix(
+            model,
+            settings,
+            good_prompts,
+            bad_prompts,
+            on_prefix=_on_prefix,
+            on_cot=_on_cot,
+            on_extended=_on_extended,
+            on_none=_on_none,
+        )
 
     evaluator = Evaluator(settings, model)
 
@@ -549,19 +467,9 @@ def run():
         print("* Obtaining residual mean for bad prompts...")
         bad_means = model.get_residuals_mean(bad_prompts)
 
-    refusal_directions = F.normalize(bad_means - good_means, p=2, dim=1)
-
-    if settings.orthogonalize_direction:
-        # Implements https://huggingface.co/blog/grimjim/projected-abliteration
-        # Adjust the refusal directions so that only the component that is
-        # orthogonal to the good direction is subtracted during abliteration.
-        good_directions = F.normalize(good_means, p=2, dim=1)
-        projection_vector = torch.sum(refusal_directions * good_directions, dim=1)
-        refusal_directions = (
-            refusal_directions - projection_vector.unsqueeze(1) * good_directions
-        )
-        refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
-        del good_directions, projection_vector
+    refusal_directions = core.compute_refusal_directions(
+        model, settings, good_means, bad_means
+    )
 
     del good_means, bad_means
 
@@ -578,80 +486,7 @@ def run():
         trial_index += 1
         trial.set_user_attr("index", trial_index)
 
-        direction_scope = trial.suggest_categorical(
-            "direction_scope",
-            [
-                "global",
-                "per layer",
-            ],
-        )
-
-        last_layer_index = len(model.get_layers()) - 1
-
-        # Discrimination between "harmful" and "harmless" inputs is usually strongest
-        # in layers slightly past the midpoint of the layer stack. See the original
-        # abliteration paper (https://arxiv.org/abs/2406.11717) for a deeper analysis.
-        #
-        # Note that we always sample this parameter even though we only need it for
-        # the "global" direction scope. The reason is that multivariate TPE doesn't
-        # work with conditional or variable-range parameters.
-        direction_index = trial.suggest_float(
-            "direction_index",
-            0.4 * last_layer_index,
-            0.9 * last_layer_index,
-        )
-
-        if direction_scope == "per layer":
-            direction_index = None
-
-        parameters = {}
-
-        for component in model.get_abliterable_components():
-            # The parameter ranges are based on experiments with various models
-            # and much wider ranges. They are not set in stone and might have to be
-            # adjusted for future models.
-            #
-            # The MLP gets a negative lower bound that is then clamped to 0, so the
-            # optimizer can fully disable its ablation. The clamp puts a positive
-            # probability mass on exactly 0 (the continuous sampler would otherwise
-            # reach 0 with probability zero). Ablating the MLP is often unnecessary for
-            # removing refusals and tends to damage model intelligence more than
-            # ablating the attention output, so on many models the optimum is to leave
-            # it (mostly) untouched. See issue #202.
-            max_weight_lower_bound = -0.25 if component == "mlp.down_proj" else 0.8
-            max_weight = max(
-                0.0,
-                trial.suggest_float(
-                    f"{component}.max_weight",
-                    max_weight_lower_bound,
-                    1.5,
-                ),
-            )
-            max_weight_position = trial.suggest_float(
-                f"{component}.max_weight_position",
-                0.6 * last_layer_index,
-                1.0 * last_layer_index,
-            )
-            # For sampling purposes, min_weight is expressed as a fraction of max_weight,
-            # again because multivariate TPE doesn't support variable-range parameters.
-            # The value is transformed into the actual min_weight value below.
-            min_weight = trial.suggest_float(
-                f"{component}.min_weight",
-                0.0,
-                1.0,
-            )
-            min_weight_distance = trial.suggest_float(
-                f"{component}.min_weight_distance",
-                1.0,
-                max(0.6 * last_layer_index, 1.0),
-            )
-
-            parameters[component] = AbliterationParameters(
-                max_weight=max_weight,
-                max_weight_position=max_weight_position,
-                min_weight=(min_weight * max_weight),
-                min_weight_distance=min_weight_distance,
-            )
+        direction_index, parameters = core.suggest_trial_parameters(trial, model)
 
         trial.set_user_attr("direction_index", direction_index)
         trial.set_user_attr("parameters", {k: asdict(v) for k, v in parameters.items()})
@@ -698,21 +533,7 @@ def run():
             raise TrialPruned()
 
     if not reproduction_mode:
-        study = optuna.create_study(
-            sampler=TPESampler(
-                n_startup_trials=settings.n_startup_trials,
-                n_ei_candidates=128,
-                multivariate=True,
-                seed=settings.seed,
-            ),
-            directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
-            storage=storage,
-            study_name="heretic",
-            load_if_exists=True,
-        )
-
-        study.set_user_attr("settings", settings.model_dump_json())
-        study.set_user_attr("finished", False)
+        study = core.create_study(settings, storage)
 
         start_index = trial_index = len(study.trials)
         if start_index > 0:
@@ -746,23 +567,8 @@ def run():
             if not completed_trials:
                 raise KeyboardInterrupt
 
-            # Get the Pareto front of trials. We can't use study.best_trials directly
-            # as get_score() doesn't return the pure KL divergence and refusal count.
-            # Note: Unlike study.best_trials, this does not handle objective constraints.
-            sorted_trials = sorted(
-                completed_trials,
-                key=lambda trial: (
-                    trial.user_attrs["refusals"],
-                    trial.user_attrs["kl_divergence"],
-                ),
-            )
-            min_divergence = math.inf
-            best_trials = []
-            for trial in sorted_trials:
-                kl_divergence = trial.user_attrs["kl_divergence"]
-                if kl_divergence < min_divergence:
-                    min_divergence = kl_divergence
-                    best_trials.append(trial)
+            # Get the Pareto front of trials.
+            best_trials = core.pareto_front(study)
 
             choices = [
                 Choice(

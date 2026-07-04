@@ -826,7 +826,11 @@ class Model:
 
         return torch.cat(logprobs, dim=0)
 
-    def stream_chat_response(self, chat: list[dict[str, str]]) -> str:
+    def stream_chat_response(
+        self,
+        chat: list[dict[str, str]],
+        max_new_tokens: int = 4096,
+    ) -> str:
         # This cast is valid because str is the return type
         # for single-chat operation with tokenize=False.
         chat_prompt = cast(
@@ -858,7 +862,7 @@ class Model:
         outputs = self.model.generate(
             **inputs,
             streamer=streamer,
-            max_new_tokens=4096,
+            max_new_tokens=max_new_tokens,
         )  # ty:ignore[call-non-callable]
 
         # This cast is valid because str is the return type

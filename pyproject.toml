@@ -25,6 +25,7 @@ dependencies = [
     "accelerate~=1.13",
     "bitsandbytes~=0.49",
     "datasets~=4.7",
+    "fastapi~=0.115",
     "huggingface-hub~=1.7",
     "immutabledict~=4.3",
     "langdetect~=1.0",
@@ -42,6 +43,7 @@ dependencies = [
     "torchvision",  # version deliberately unspecified
     "tqdm~=4.67",
     "transformers[kernels]~=5.6",
+    "uvicorn[standard]~=0.34",
 ]
 
 [project.optional-dependencies]
@@ -68,6 +70,7 @@ Changelog = "https://github.com/p-e-w/heretic/releases"
 
 [project.scripts]
 heretic = "heretic.main:main"
+heretic-api = "heretic.api_server:main"
 
 [build-system]
 requires = ["uv_build>=0.8.11,<0.9.0"]

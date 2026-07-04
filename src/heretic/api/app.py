@@ -32,7 +32,7 @@ def create_app() -> FastAPI:
             hasattr(stream, "reconfigure")
             and (getattr(stream, "encoding", "") or "").lower() != "utf-8"
         ):
-            stream.reconfigure(encoding="utf-8")
+            stream.reconfigure(encoding="utf-8")  # ty:ignore[call-non-callable]
 
     app = FastAPI(
         title="Heretic API",
@@ -46,7 +46,7 @@ def create_app() -> FastAPI:
     # credentialed CORS is not needed. Enabling it alongside a wildcard origin
     # is both invalid per the CORS spec and a security risk, so it stays off.
     app.add_middleware(
-        CORSMiddleware,
+        CORSMiddleware,  # ty:ignore[invalid-argument-type]
         allow_origins=_cors_origins(),
         allow_credentials=False,
         allow_methods=["*"],

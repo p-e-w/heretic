@@ -253,7 +253,7 @@ async def get_export_status(export_id: str) -> ExportStatusResponse:
     if result is None:
         raise HTTPException(status_code=404, detail="Export job not found")
     _task, job = result
-    return ExportStatusResponse(**job.status_response)
+    return ExportStatusResponse(**job.status_response)  # ty:ignore[invalid-argument-type]
 
 
 @router.websocket("/ablate/{task_id}/ws")

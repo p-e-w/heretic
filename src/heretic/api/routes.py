@@ -31,12 +31,12 @@ from .models import (
     TaskStatus,
     TaskStatusResponse,
 )
-from .tasks import task_manager
+from .tasks import AblationTask, task_manager
 
 router = APIRouter()
 
 
-def _require_task(task_id: str):
+def _require_task(task_id: str) -> AblationTask:
     task = task_manager.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -76,6 +76,14 @@ async def start_ablation(
                 "pending. Cancel it before starting a new one."
             ),
         )
+    if task_manager.export_in_progress:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "An export is already in progress. Wait for it to finish "
+                "before starting a new abliteration task."
+            ),
+        )
 
     settings = ablate_request_to_settings(request)
     task = task_manager.create_task(settings)
@@ -91,13 +99,13 @@ async def start_ablation(
 @router.get("/ablate/{task_id}", response_model=TaskStatusResponse)
 async def get_ablation_status(task_id: str) -> TaskStatusResponse:
     task = _require_task(task_id)
-    return TaskStatusResponse(**task.status_response)
+    return TaskStatusResponse(**task.status_response)  # ty:ignore[invalid-argument-type]
 
 
 @router.get("/ablate/{task_id}/results", response_model=AblationResult)
 async def get_ablation_results(task_id: str) -> AblationResult:
     task = _require_task(task_id)
-    return AblationResult(**task.result)
+    return AblationResult(**task.result)  # ty:ignore[invalid-argument-type]
 
 
 @router.post("/ablate/{task_id}/select-trial", response_model=SelectTrialResponse)
@@ -237,7 +245,7 @@ async def export_model(
         message = "Hugging Face export started."
 
     job = task.start_export(destination, request.strategy.value)
-    background_tasks.add_task(task.run_export, job, **export_kwargs)
+    background_tasks.add_task(task.run_export, job, **export_kwargs)  # ty:ignore[invalid-argument-type]
 
     return ExportResponse(
         export_id=job.export_id,
@@ -278,7 +286,7 @@ async def ablation_websocket(websocket: WebSocket, task_id: str) -> None:
 
     try:
         while True:
-            current = task.progress  # already a thread-safe snapshot copy
+            current = task.progress  # Already a thread-safe snapshot copy.
             if current != last_progress:
                 await websocket.send_json({"type": "progress", "data": current})
                 last_progress = current

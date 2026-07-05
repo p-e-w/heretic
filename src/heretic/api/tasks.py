@@ -71,7 +71,7 @@ class ExportJob:
         task_id: str,
         destination: str,
         strategy: str,
-    ):
+    ) -> None:
         self.export_id = str(uuid.uuid4())
         self.task_id = task_id
         self.destination = destination
@@ -102,7 +102,7 @@ class ExportJob:
 class AblationTask:
     """Tracks the lifecycle and results of a single abliteration run."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings) -> None:
         self.task_id = str(uuid.uuid4())
         self.settings = settings
         self.status = TaskStatus.PENDING
@@ -173,7 +173,7 @@ class AblationTask:
         return {
             "task_id": self.task_id,
             "status": self.status,
-            "progress": self.progress,  # snapshot via property
+            "progress": self.progress,  # Snapshot via property.
             "created_at": self.created_at,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
@@ -198,25 +198,53 @@ class AblationTask:
             self.completed_at = _now()
             self._set_progress(phase=self.status.value)
 
+    def _abort_if_cancelled(self) -> bool:
+        """Marks the task cancelled and returns whether it was cancelled."""
+
+        if self.cancelled:
+            self.status = TaskStatus.CANCELLED
+            return True
+        return False
+
     def _run_sync(self) -> None:
+        if self._abort_if_cancelled():
+            return
+
         settings = self.settings
         core.configure_runtime(settings)
 
         storage = core.open_study_storage(settings)
 
+        # Only one model can reside on the accelerator at a time. Release any
+        # model still held by a previously completed task before loading a new
+        # one, otherwise both would occupy memory simultaneously and likely
+        # trigger an out-of-memory error.
+        previous_task = task_manager.get_task_with_model()
+        if previous_task is not None and previous_task is not self:
+            previous_task.release()
+
         self._set_progress(phase="loading_model")
         model = Model(settings)
         self._model = model
 
+        if self._abort_if_cancelled():
+            return
+
         self._set_progress(phase="loading_prompts")
         good_prompts = load_prompts(settings, settings.good_prompts)
         bad_prompts = load_prompts(settings, settings.bad_prompts)
+
+        if self._abort_if_cancelled():
+            return
 
         if settings.batch_size == 0:
             self._determine_batch_size(model, settings, good_prompts)
 
         if settings.response_prefix is None:
             self._detect_response_prefix(model, settings, good_prompts, bad_prompts)
+
+        if self._abort_if_cancelled():
+            return
 
         self._set_progress(phase="initializing_evaluator")
         evaluator = Evaluator(settings, model)
@@ -386,15 +414,17 @@ class AblationTask:
         if trial is None:
             return None
 
-        self._model.reset_model()
-        self._model.abliterate(
-            self._refusal_directions,
-            trial.user_attrs["direction_index"],
-            {
-                k: AbliterationParameters(**v)
-                for k, v in trial.user_attrs["parameters"].items()
-            },
-        )
+        # Mutates model weights/hooks; serialize against all other model access.
+        with task_manager.model_lock:
+            self._model.reset_model()
+            self._model.abliterate(
+                self._refusal_directions,
+                trial.user_attrs["direction_index"],
+                {
+                    k: AbliterationParameters(**v)
+                    for k, v in trial.user_attrs["parameters"].items()
+                },
+            )
 
         self._selected_trial = _trial_info(trial)
         return self._selected_trial
@@ -409,7 +439,11 @@ class AblationTask:
             {"role": "system", "content": system_prompt or self.settings.system_prompt},
             {"role": "user", "content": message},
         ]
-        return self._model.stream_chat_response(conversation, max_new_tokens=max_tokens)
+        # Generation is not thread-safe; serialize against all other model access.
+        with task_manager.model_lock:
+            return self._model.stream_chat_response(
+                conversation, max_new_tokens=max_tokens
+            )
 
     # --- Export -----------------------------------------------------------
 
@@ -505,20 +539,26 @@ class AblationTask:
     def _do_export_local(
         self, save_directory: str, strategy: str, max_shard_size: str
     ) -> str:
-        model = self._require_export_ready()
-        os.makedirs(save_directory, exist_ok=True)
+        # Merging mutates the model in place; serialize against all model access.
+        with task_manager.model_lock:
+            model = self._require_export_ready()
+            os.makedirs(save_directory, exist_ok=True)
 
-        if strategy == "adapter":
-            model.model.save_pretrained(save_directory, max_shard_size=max_shard_size)
-        else:
-            merged_model = model.get_merged_model()
-            merged_model.save_pretrained(save_directory, max_shard_size=max_shard_size)
-            del merged_model
-            empty_cache()
-            model.tokenizer.save_pretrained(save_directory)
-            if model.processor is not None:
-                model.processor.save_pretrained(save_directory)
-            self._reapply_selected_trial()
+            if strategy == "adapter":
+                model.model.save_pretrained(
+                    save_directory, max_shard_size=max_shard_size
+                )
+            else:
+                merged_model = model.get_merged_model()
+                merged_model.save_pretrained(
+                    save_directory, max_shard_size=max_shard_size
+                )
+                del merged_model
+                empty_cache()
+                model.tokenizer.save_pretrained(save_directory)
+                if model.processor is not None:
+                    model.processor.save_pretrained(save_directory)
+                self._reapply_selected_trial()
 
         return save_directory
 
@@ -530,29 +570,31 @@ class AblationTask:
         strategy: str,
         max_shard_size: str,
     ) -> str:
-        model = self._require_export_ready()
+        # Merging mutates the model in place; serialize against all model access.
+        with task_manager.model_lock:
+            model = self._require_export_ready()
 
-        if strategy == "adapter":
-            model.model.push_to_hub(
-                repo_id,
-                private=private,
-                max_shard_size=max_shard_size,
-                token=token,
-            )
-        else:
-            merged_model = model.get_merged_model()
-            merged_model.push_to_hub(
-                repo_id,
-                private=private,
-                max_shard_size=max_shard_size,
-                token=token,
-            )
-            del merged_model
-            empty_cache()
-            model.tokenizer.push_to_hub(repo_id, private=private, token=token)
-            if model.processor is not None:
-                model.processor.push_to_hub(repo_id, private=private, token=token)
-            self._reapply_selected_trial()
+            if strategy == "adapter":
+                model.model.push_to_hub(
+                    repo_id,
+                    private=private,
+                    max_shard_size=max_shard_size,
+                    token=token,
+                )
+            else:
+                merged_model = model.get_merged_model()
+                merged_model.push_to_hub(
+                    repo_id,
+                    private=private,
+                    max_shard_size=max_shard_size,
+                    token=token,
+                )
+                del merged_model
+                empty_cache()
+                model.tokenizer.push_to_hub(repo_id, private=private, token=token)
+                if model.processor is not None:
+                    model.processor.push_to_hub(repo_id, private=private, token=token)
+                self._reapply_selected_trial()
 
         return repo_id
 
@@ -582,6 +624,11 @@ class TaskManager:
     def __init__(self) -> None:
         self._tasks: dict[str, AblationTask] = {}
         self._lock = threading.Lock()
+        # Serializes every operation that reads or mutates the shared,
+        # GPU-resident model (abliteration, chat, trial selection, export).
+        # PyTorch/Hugging Face models are not safe for concurrent inference,
+        # generation, or weight/hook mutation across threads.
+        self.model_lock = threading.Lock()
 
     def create_task(self, settings: Settings) -> AblationTask:
         task = AblationTask(settings)

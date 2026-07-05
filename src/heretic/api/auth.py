@@ -51,11 +51,13 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
     if not authorization:
         return None
 
-    scheme, _, credentials = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not credentials:
+    # split() collapses any run of whitespace, so "Bearer  <token>" (with
+    # multiple spaces) is parsed correctly, unlike partition(" ").
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
         return None
 
-    return credentials
+    return parts[1]
 
 
 def _is_authorized(authorization: str | None) -> bool:

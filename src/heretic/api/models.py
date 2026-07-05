@@ -45,7 +45,7 @@ class AblateRequest(BaseModel):
     model: str = Field(..., description="Hugging Face model ID or local path.")
     model_commit: str | None = None
 
-    # Loading / hardware
+    # Loading / hardware.
     quantization: str = Field(default="none", description='"none" or "bnb_4bit".')
     device_map: str | dict[str, Any] = "auto"
     max_memory: dict[str, str] | None = None
@@ -53,13 +53,13 @@ class AblateRequest(BaseModel):
     batch_size: int = Field(default=0, ge=0, description="0 = auto-detect.")
     max_batch_size: int = Field(default=128, gt=0)
 
-    # Optimization
+    # Optimization.
     n_trials: int = Field(default=200, gt=0)
     n_startup_trials: int = Field(default=60, ge=0)
     seed: int | None = None
     study_checkpoint_dir: str = "checkpoints"
 
-    # Abliteration behaviour
+    # Abliteration behaviour.
     kl_divergence_scale: float = 1.0
     kl_divergence_target: float = 0.01
     orthogonalize_direction: bool = True
@@ -69,7 +69,7 @@ class AblateRequest(BaseModel):
     winsorization_quantile: float = 1.0
     max_response_length: int = Field(default=100, gt=0)
 
-    # Prompting
+    # Prompting.
     system_prompt: str = "You are a helpful assistant."
     good_prompts: DatasetSpec = DatasetSpec(
         dataset="mlabonne/harmless_alpaca", split="train[:400]", column="text"

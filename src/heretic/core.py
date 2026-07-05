@@ -22,6 +22,7 @@ import os
 import random
 import time
 import warnings
+from collections.abc import Callable
 from os.path import commonprefix
 
 import optuna
@@ -108,9 +109,9 @@ def determine_batch_size(
     settings: Settings,
     good_prompts: list,
     *,
-    on_start=None,
-    on_result=None,
-    on_error=None,
+    on_start: Callable[[int], None] | None = None,
+    on_result: Callable[[int, float], None] | None = None,
+    on_error: Callable[[int, Exception], None] | None = None,
 ) -> int:
     """Benchmarks batch sizes and returns the fastest one.
 
@@ -175,10 +176,10 @@ def detect_response_prefix(
     good_prompts: list,
     bad_prompts: list,
     *,
-    on_prefix=None,
-    on_cot=None,
-    on_extended=None,
-    on_none=None,
+    on_prefix: Callable[[str], None] | None = None,
+    on_cot: Callable[[str], None] | None = None,
+    on_extended: Callable[[str], None] | None = None,
+    on_none: Callable[[], None] | None = None,
 ) -> str:
     """Detects a common response prefix and writes it to ``settings.response_prefix``.
 

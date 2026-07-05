@@ -7,7 +7,7 @@ from typing import Any
 from optuna.study import StudyDirection
 from pydantic import BaseModel
 
-from .config import ScorerConfig, Settings
+from .config import DatasetSpecification, ScorerConfig, Settings
 from .model import Model
 from .plugin import get_plugin_namespace, load_plugin
 from .scorer import Context, Score, Scorer
@@ -124,6 +124,20 @@ class Evaluator:
         """Print baseline scores summary."""
         for name, score in self.baseline_scores:
             print(f"* Baseline {name}: [bold]{score.rich_display}[/]")
+
+    def get_dataset_specifications(self) -> list[DatasetSpecification]:
+        """
+        Collect the dataset specifications declared in the settings of all
+        loaded scorers.
+        """
+        specifications = []
+        for entry in self._scorer_entries:
+            if entry.scorer.settings is None:
+                continue
+            for value in dict(entry.scorer.settings).values():
+                if isinstance(value, DatasetSpecification):
+                    specifications.append(value)
+        return specifications
 
     def _get_scorer_settings_raw(
         self, *, scorer_cls: type[Scorer], instance_name: str | None

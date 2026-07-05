@@ -72,6 +72,7 @@ from .analyzer import Analyzer
 from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .plugin import is_builtin_plugin
 from .reproduce import (
     check_environment,
     collect_reproducibles,
@@ -1113,14 +1114,27 @@ def run():
                                 continue
 
                             # Reproducibility requires that the model and all datasets
-                            # are available on the Hugging Face Hub (not local paths).
-                            datasets = [
-                                settings.good_prompts.dataset,
-                                settings.bad_prompts.dataset,
+                            # are available on the Hugging Face Hub (not local paths),
+                            # that all datasets are pinned to a commit (an unpinned
+                            # dataset was likely loaded from a local cache), and that
+                            # only built-in scorer plugins are used (external plugins
+                            # cannot be resolved when reproducing).
+                            dataset_specifications = [
+                                settings.good_prompts,
+                                settings.bad_prompts,
+                                *evaluator.get_dataset_specifications(),
                             ]
                             is_reproducible = (
                                 is_hf_path(settings.model)
-                                and all(is_hf_path(dataset) for dataset in datasets)
+                                and all(
+                                    is_hf_path(specification.dataset)
+                                    and specification.commit is not None
+                                    for specification in dataset_specifications
+                                )
+                                and all(
+                                    is_builtin_plugin(scorer.plugin)
+                                    for scorer in settings.scorers
+                                )
                                 and not reproduction_mode
                             )
 

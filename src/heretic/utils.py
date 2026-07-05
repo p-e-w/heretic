@@ -197,7 +197,17 @@ def load_prompts(
             # Pin to the latest commit if not already set, so the exact dataset
             # version is recorded for reproducibility.
             if specification.commit is None:
-                specification.commit = huggingface_hub.dataset_info(path).sha
+                try:
+                    specification.commit = huggingface_hub.dataset_info(path).sha
+                except Exception as error:
+                    # Fetching the commit hash requires internet access, but the
+                    # dataset itself may be fully cached locally. Proceed without
+                    # pinning; an unpinned dataset disables the reproducibility
+                    # offer during upload.
+                    print(
+                        f"[yellow]Warning: Could not fetch the latest commit hash for dataset [bold]{path}[/] ({error}). "
+                        "The dataset version will not be pinned.[/]"
+                    )
             dataset = load_dataset(
                 path,
                 revision=specification.commit,

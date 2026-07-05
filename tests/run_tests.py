@@ -65,10 +65,15 @@ for test_directory in script_directory.iterdir():
 
                             valid_hashes[filename].append(sha256.lower())
 
+            actual_hashes: dict[str, str] = {}
+            mismatched: list[str] = []
+
             for filename in valid_hashes:
                 sha256 = get_file_sha256(test_directory / "model" / filename)
+                actual_hashes[filename] = sha256.lower()
 
                 if sha256.lower() not in valid_hashes[filename]:
+                    mismatched.append(filename)
                     print(
                         (
                             f"Test {test_directory.name} has FAILED!\n"
@@ -80,6 +85,19 @@ for test_directory in script_directory.iterdir():
                         )
                     )
                     tests_failed = True
+
+            if mismatched:
+                # Emit a ready-to-paste SHA256SUMS block for this environment.
+                # PyTorch is not bit-reproducible across systems, so a new but
+                # legitimate environment simply needs its hashes added as an
+                # additional valid variant (see tests/README.md).
+                print(
+                    f"Suggested SHA256SUMS.<label> for {test_directory.name} "
+                    f"(this environment):"
+                )
+                for filename in valid_hashes:
+                    print(f"{actual_hashes[filename]} *{filename}")
+                print()
 
 if tests_failed:
     sys.exit("Tests failed.")

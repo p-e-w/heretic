@@ -522,7 +522,7 @@ def run():
         print()
         print("[bold]Metrics:[/]")
         for score_name, score in evaluator.get_scores():
-            print(f"  * {score_name}: [bold]{score.cli_display}[/]")
+            print(f"  * {score_name}: [bold]{score.rich_display}[/]")
         return
 
     if not reproduction_mode and not evaluator.get_objective_names():
@@ -688,7 +688,7 @@ def run():
 
         print("  * Metrics:")
         for name, score in scores:
-            print(f"    * {name}: [bold]{score.cli_display}[/]")
+            print(f"    * {name}: [bold]{score.rich_display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / (trial_index - start_index)) * (
@@ -795,7 +795,7 @@ def run():
                 score_parts: list[str] = []
                 for score in trial.user_attrs["scores"]:
                     name = score["name"]
-                    value = score["score"]["cli_display"]
+                    value = score["score"]["rich_display"]
                     score_parts.append(f"{name}: {value}")
 
                 return f"{prefix} " + ", ".join(score_parts)

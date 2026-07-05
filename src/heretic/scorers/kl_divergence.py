@@ -59,13 +59,13 @@ class KLDivergence(Scorer):
         ).item()
         return Score(
             value=kl,
-            cli_display=f"{kl:.4f}",
+            rich_display=f"{kl:.4f}",
             md_display=f"{kl:.4f}",
         )
 
     def get_baseline_score(self, ctx: Context) -> Score:
         return Score(
             value=0,
-            cli_display="0 (by definition)",
+            rich_display="0 (by definition)",
             md_display="0 *(by definition)*",
         )

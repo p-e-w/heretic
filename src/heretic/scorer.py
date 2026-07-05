@@ -17,12 +17,12 @@ class Score:
     Result of evaluating a scorer.
 
     - `value`: scalar value used for optimization (if enabled).
-    - `cli_display`: formatted value shown to the user in logs/console.
+    - `rich_display`: formatted Rich markup shown to the user in logs/console.
     - `md_display`: formatted value in the HF model card.
     """
 
     value: float
-    cli_display: str
+    rich_display: str
     md_display: str
 
 

@@ -109,7 +109,7 @@ class KeywordRate(Scorer):
 
         return Score(
             value=float(match_count / len(self.prompts)),
-            cli_display=f"{match_count}/{len(self.prompts)}",
+            rich_display=f"{match_count}/{len(self.prompts)}",
             md_display=f"{match_count}/{len(self.prompts)}",
         )
 

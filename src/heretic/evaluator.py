@@ -164,8 +164,8 @@ class Evaluator:
         merged_settings: dict[str, Any] = {}
         allowed_keys = set(settings_model.model_fields.keys())
 
-        for ns in namespaces:
-            raw_table = get_plugin_namespace(self.settings.model_extra, ns)
+        for namespace in namespaces:
+            raw_table = get_plugin_namespace(self.settings.model_extra, namespace)
             filtered = {k: v for k, v in raw_table.items() if k in allowed_keys}
             merged_settings = deep_merge_dicts(merged_settings, filtered)
 

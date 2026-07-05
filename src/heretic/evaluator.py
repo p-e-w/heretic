@@ -66,7 +66,7 @@ class Evaluator:
 
             # Instantiate scorers.
             instance_name = config.instance_name or None
-            
+
             if instance_name is not None:
                 if not instance_name.strip():
                     raise ValueError(

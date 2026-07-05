@@ -622,7 +622,16 @@ def run():
         print("* Parameters:")
         for name, value in get_trial_parameters(settings, trial).items():
             print(f"  * {name} = [bold]{value}[/]")
-        if settings.use_ara:
+        if settings.use_ara_lora:
+            print("* Resetting model...")
+            model.reset_model()
+            print("* Abliterating (Arbitrary-Rank Ablation with LoRA)...")
+            model.ara_lora_abliterate(
+                good_module_io,
+                bad_module_io,
+                ARAParameters(**trial.user_attrs["ara_parameters"]),
+            )
+        elif settings.use_ara:
             print("* Reloading model...")
             model.reset_model()
             print("* Abliterating (Arbitrary-Rank Ablation)...")
@@ -810,7 +819,16 @@ def run():
             print("* Parameters:")
             for name, value in get_trial_parameters(settings, trial).items():
                 print(f"  * {name} = [bold]{value}[/]")
-            if settings.use_ara:
+            if settings.use_ara_lora:
+                print("* Resetting model...")
+                model.reset_model()
+                print("* Abliterating (Arbitrary-Rank Ablation with LoRA)...")
+                model.ara_lora_abliterate(
+                    good_module_io,
+                    bad_module_io,
+                    ARAParameters(**trial.user_attrs["ara_parameters"]),
+                )
+            elif settings.use_ara:
                 print("* Reloading model...")
                 model.reset_model()
                 print("* Abliterating (Arbitrary-Rank Ablation)...")

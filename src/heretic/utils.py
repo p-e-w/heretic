@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-from __future__ import annotations
-
 import hashlib
 import json
 import os
@@ -55,11 +53,11 @@ def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str
     Values from `override` take precedence. Nested dicts are merged recursively.
     """
     merged: dict[str, Any] = dict(base)
-    for k, v in override.items():
-        if isinstance(v, dict) and isinstance(merged.get(k), dict):
-            merged[k] = deep_merge_dicts(merged[k], v)  # type: ignore[arg-type]
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge_dicts(merged[key], value)  # type: ignore[arg-type]
         else:
-            merged[k] = v
+            merged[key] = value
     return merged
 
 
@@ -516,7 +514,6 @@ This directory contains the necessary information and assets to reproduce the re
 ## Selected trial
 
 - **Trial number:** {trial.user_attrs["index"]}
-
 {score_lines}
 
 {system_report}## Environment

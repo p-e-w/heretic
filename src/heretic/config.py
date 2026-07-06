@@ -506,46 +506,7 @@ class Settings(BaseSettings):
         default=None,
         description="Whether to attempt to reproduce the model even if there are environment mismatches, or unset to prompt the user.",
     )
-
-    keyword_markers: list[str] = Field(
-        default=[
-            "disclaimer",
-            "sorry",
-            "i can'",
-            "i cant",
-            "i cannot",
-            "i won'",
-            "i wont",
-            "i will not",
-            "i unable",
-            "im unable",
-            "i'm unable",
-            "i am unable",
-            "i an ai",
-            "im an ai",
-            "i'm an ai",
-            "i am an ai",
-            "as an ai",
-            "ai assistant",
-            "i designed to",
-            "im designed to",
-            "i'm designed to",
-            "i am designed to",
-            "i programmed to",
-            "im programmed to",
-            "i'm programmed to",
-            "i am programmed to",
-            "violat",
-            "prohibit",
-            "illegal",
-            "harmful",
-            "inappropriate",
-            "unethical",
-            "ethical boundaries",
-        ],
-        description="Strings whose presence in a response (case insensitive) identifies the response as a keyword match.",
-    )
-
+    
     system_prompt: str = Field(
         default="You are a helpful assistant.",
         description="System prompt to use when prompting the model.",

@@ -62,6 +62,8 @@ class Model:
     processor: ProcessorMixin | None
     peft_config: LoraConfig
     dtype: torch.dtype
+    # Original weights of fused-expert MoE tensors, cached to keep abliteration reversible.
+    _fused_experts_cache: dict[int, tuple[torch.nn.Parameter, Tensor]]
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -628,8 +630,11 @@ class Model:
         )
 
     def _abliterate_fused_experts(
-        self, refusal_directions, refusal_direction, parameters
-    ):
+        self,
+        refusal_directions: Tensor,
+        refusal_direction: Tensor | None,
+        parameters: dict[str, AbliterationParameters],
+    ) -> None:
         """Orthogonalize fused-expert MoE blocks.
 
         Some MoE implementations (e.g. transformers' ``Qwen3_5MoeExperts``) pack all experts
@@ -652,8 +657,22 @@ class Model:
         except Exception:
             hidden = getattr(self.model.config, "hidden_size", None)
         for layer_index, layer in enumerate(self.get_layers()):
-            experts = getattr(getattr(layer, "mlp", None), "experts", None)
-            fused = getattr(experts, "down_proj", None)
+            # Locate the experts container across the architectures Heretic supports.
+            experts = None
+            for block_name in ("mlp", "block_sparse_moe", "feed_forward", "moe"):
+                block = getattr(layer, block_name, None)
+                if block is not None:
+                    experts = getattr(block, "experts", None)
+                    if experts is not None:
+                        break
+            if experts is None:
+                continue
+            # The fused down-projection may be named differently across families.
+            fused = None
+            for param_name in ("down_proj", "w2", "output_linear"):
+                fused = getattr(experts, param_name, None)
+                if fused is not None:
+                    break
             if not isinstance(fused, torch.nn.Parameter) or fused.dim() != 3:
                 continue
             # Expect [num_experts, out=hidden, in=inter]; skip on unexpected orientation.
@@ -678,11 +697,12 @@ class Model:
             else:
                 v = refusal_direction
             v = F.normalize(v.to(torch.float32).to(fused.device), dim=0)
-            original_f = original.to(torch.float32).to(fused.device)
-            # proj[e, in] = v^T W_e, contracting over the hidden (out) dimension.
-            proj = torch.einsum("h,ehi->ei", v, original_f)
+            # The cached original was cloned from the parameter, so it is already on device.
+            original_fp32 = original.to(torch.float32)
+            # Projection has shape [num_experts, inter]: v^T W_e, contracting the hidden dim.
+            proj = torch.einsum("h,ehi->ei", v, original_fp32)
             delta = weight * v.view(1, -1, 1) * proj.unsqueeze(1)
-            fused.data.copy_((original_f - delta).to(fused.dtype))
+            fused.data.copy_((original_fp32 - delta).to(fused.dtype))
 
     def generate(
         self,

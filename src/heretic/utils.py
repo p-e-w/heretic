@@ -570,7 +570,7 @@ def generate_reproduce_json(
         # Version 3: plugin-based schema with generic scores/baseline scores.
         "version": "3",
         "timestamp": timestamp,
-        "system": None,
+        "system": None, # Defined here to preserve insertion order.
         "environment": {
             "heretic": {
                 "version": version_info.version,

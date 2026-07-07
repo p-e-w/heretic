@@ -317,7 +317,16 @@ class Settings(BaseSettings):
     )
 
     scorers: list[ScorerConfig] = Field(
-        default_factory=list,
+        default_factory=lambda: [
+            ScorerConfig(
+                plugin="heretic.scorers.keyword_rate.KeywordRate",
+                optimization="minimize",
+            ),
+            ScorerConfig(
+                plugin="heretic.scorers.kl_divergence.KLDivergence",
+                optimization="minimize",
+            ),
+        ],
         description=(
             "List of scorer plugin configs. Each entry is an object"
             " { plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }."

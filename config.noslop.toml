@@ -5,11 +5,6 @@ max_response_length = 300
 
 residual_plot_title = "PaCMAP Projection of Residuals for Slop-Suppressing/Inducing Prompts"
 
-scorers = [
-    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
-    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
-]
-
 system_prompt = "You are a professional writer."
 
 [good_prompts]

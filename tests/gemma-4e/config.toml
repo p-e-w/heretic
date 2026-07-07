@@ -18,11 +18,6 @@ trial_index = 0
 model_action = "save"
 save_directory = "model"
 
-scorers = [
-    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
-    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
-]
-
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"
 commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"

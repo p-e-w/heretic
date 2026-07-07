@@ -5,11 +5,6 @@ max_response_length = 300
 
 residual_plot_title = "PaCMAP Projection of Residuals for Serious/Humorous Prompts"
 
-scorers = [
-    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
-    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
-]
-
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "train[:400]"

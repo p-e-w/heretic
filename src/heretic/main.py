@@ -62,8 +62,7 @@ from optuna.exceptions import ExperimentalWarning
 from optuna.samplers import TPESampler
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
-from optuna.study import StudyDirection
-from optuna.trial import TrialState, create_trial
+from optuna.trial import FrozenTrial, TrialState, create_trial
 from pydantic import ValidationError
 from questionary import Choice, Style
 from rich.table import Table
@@ -73,6 +72,7 @@ from .analyzer import Analyzer
 from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
+from .plugin import is_builtin_plugin
 from .reproduce import (
     check_environment,
     collect_reproducibles,
@@ -243,11 +243,17 @@ def run():
         # FIXME: "Reproduction"/"reproducibility" name inconsistency!
         reproduction_information = load_reproduction_information(settings.reproduce)
 
-        if reproduction_information["version"] not in ["1", "2"]:
+        # Version 3 is the plugin-era schema, which stores generic scorer
+        # `scores`/`baseline_scores`. It is intentionally NOT compatible with the
+        # pre-plugin v1/v2 schema (hardcoded refusals/KL `metrics`), so those are
+        # rejected rather than silently failing on a missing key later.
+        if reproduction_information["version"] != "3":
             print(
                 (
                     f"[red]Unsupported file format version: [bold]{reproduction_information['version']}[/].[/] "
-                    "Try loading the file with a newer version of Heretic."
+                    "This version of Heretic reads version 3 (plugin scorer) reproduce.json files. "
+                    "Older files were produced before the scorer-plugin refactor and are not supported. "
+                    "Please install Heretic 1.4 to use these files."
                 )
             )
             return
@@ -256,8 +262,6 @@ def run():
             return
 
         print()
-
-        verify_hashes = reproduction_information["version"] != "1"
 
         settings = Settings.model_validate(reproduction_information["settings"])
 
@@ -516,11 +520,23 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        evaluator.get_score()
+        print()
+        print("[bold]Metrics:[/]")
+        for score_name, score in evaluator.get_scores():
+            print(f"  * {score_name}: [bold]{score.rich_display}[/]")
+        return
+
+    if not reproduction_mode and not evaluator.get_objective_names():
+        print()
+        print(
+            "[red]No optimization objectives configured.[/] At least one scorer "
+            'must set [bold]optimization[/] to "maximize" or "minimize". '
+            "See [bold]config.default.toml[/] for details."
+        )
         return
 
     print()
-    print("Calculating per-layer refusal directions...")
+    print("Calculating per-layer residual directions...")
 
     needs_full_residuals = settings.print_residual_geometry or settings.plot_residuals
 
@@ -549,18 +565,18 @@ def run():
         print("* Obtaining residual mean for bad prompts...")
         bad_means = model.get_residuals_mean(bad_prompts)
 
-    refusal_directions = F.normalize(bad_means - good_means, p=2, dim=1)
+    residual_directions = F.normalize(bad_means - good_means, p=2, dim=1)
 
     if settings.orthogonalize_direction:
         # Implements https://huggingface.co/blog/grimjim/projected-abliteration
-        # Adjust the refusal directions so that only the component that is
+        # Adjust the residual directions so that only the component that is
         # orthogonal to the good direction is subtracted during abliteration.
         good_directions = F.normalize(good_means, p=2, dim=1)
-        projection_vector = torch.sum(refusal_directions * good_directions, dim=1)
-        refusal_directions = (
-            refusal_directions - projection_vector.unsqueeze(1) * good_directions
+        projection_vector = torch.sum(residual_directions * good_directions, dim=1)
+        residual_directions = (
+            residual_directions - projection_vector.unsqueeze(1) * good_directions
         )
-        refusal_directions = F.normalize(refusal_directions, p=2, dim=1)
+        residual_directions = F.normalize(residual_directions, p=2, dim=1)
         del good_directions, projection_vector
 
     del good_means, bad_means
@@ -573,7 +589,7 @@ def run():
     start_index = 0
     start_time = time.perf_counter()
 
-    def objective(trial: Trial) -> tuple[float, float]:
+    def objective(trial: Trial) -> tuple[float, ...]:
         nonlocal trial_index
         trial_index += 1
         trial.set_user_attr("index", trial_index)
@@ -666,9 +682,14 @@ def run():
         print("* Resetting model...")
         model.reset_model()
         print("* Abliterating...")
-        model.abliterate(refusal_directions, direction_index, parameters)
+        model.abliterate(residual_directions, direction_index, parameters)
         print("* Evaluating...")
-        score, kl_divergence, refusals = evaluator.get_score()
+        scores = evaluator.get_scores()
+        objective_values = evaluator.get_objective_values(scores)
+
+        print("  * Metrics:")
+        for name, score in scores:
+            print(f"    * {name}: [bold]{score.rich_display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / (trial_index - start_index)) * (
@@ -680,22 +701,25 @@ def run():
             print(
                 f"[grey50]Estimated remaining time: [bold]{format_duration(remaining_time)}[/][/]"
             )
+        trial.set_user_attr(
+            "scores",
+            evaluator.get_paired_score_records(scores),
+        )
         print_memory_usage()
 
-        trial.set_user_attr("kl_divergence", kl_divergence)
-        trial.set_user_attr("refusals", refusals)
-        trial.set_user_attr("base_refusals", evaluator.base_refusals)
-        trial.set_user_attr("n_bad_prompts", len(evaluator.bad_prompts))
+        return objective_values
 
-        return score
-
-    def objective_wrapper(trial: Trial) -> tuple[float, float]:
+    def objective_wrapper(trial: Trial) -> tuple[float, ...]:
         try:
             return objective(trial)
         except KeyboardInterrupt:
             # Stop the study gracefully on Ctrl+C.
             trial.study.stop()
             raise TrialPruned()
+
+    # Derive objective info from the configured scorers.
+    objective_names = evaluator.get_objective_names()
+    directions = evaluator.get_objective_directions()
 
     if not reproduction_mode:
         study = optuna.create_study(
@@ -705,8 +729,8 @@ def run():
                 multivariate=True,
                 seed=settings.seed,
             ),
-            directions=[StudyDirection.MINIMIZE, StudyDirection.MINIMIZE],
             storage=storage,
+            directions=directions,
             study_name="heretic",
             load_if_exists=True,
         )
@@ -746,34 +770,40 @@ def run():
             if not completed_trials:
                 raise KeyboardInterrupt
 
-            # Get the Pareto front of trials. We can't use study.best_trials directly
-            # as get_score() doesn't return the pure KL divergence and refusal count.
-            # Note: Unlike study.best_trials, this does not handle objective constraints.
+            # Best trials isn't sorted, so sort by all the scores in non-decreasing order.
             sorted_trials = sorted(
-                completed_trials,
+                study.best_trials,
                 key=lambda trial: (
-                    trial.user_attrs["refusals"],
-                    trial.user_attrs["kl_divergence"],
+                    tuple(
+                        next(
+                            (
+                                score["score"]["value"]
+                                for score in trial.user_attrs["scores"]
+                                if score["name"] == name
+                            ),
+                            None,
+                        )
+                        for name in objective_names
+                    )
                 ),
             )
-            min_divergence = math.inf
-            best_trials = []
-            for trial in sorted_trials:
-                kl_divergence = trial.user_attrs["kl_divergence"]
-                if kl_divergence < min_divergence:
-                    min_divergence = kl_divergence
-                    best_trials.append(trial)
+
+            def format_trial_title(trial: FrozenTrial) -> str:
+                prefix = f"[Trial {trial.user_attrs['index']:>3}]"
+
+                # We don't directly use the trial.values here since we need to show the
+                # CLI-formatted versions, which are stored in the trial's user attributes.
+                score_parts: list[str] = []
+                for score in trial.user_attrs["scores"]:
+                    name = score["name"]
+                    value = score["score"]["rich_display"]
+                    score_parts.append(f"{name}: {value}")
+
+                return f"{prefix} " + ", ".join(score_parts)
 
             choices = [
-                Choice(
-                    title=(
-                        f"[Trial {trial.user_attrs['index']:>3}] "
-                        f"Refusals: {trial.user_attrs['refusals']:>2}/{len(evaluator.bad_prompts)}, "
-                        f"KL divergence: {trial.user_attrs['kl_divergence']:.4f}"
-                    ),
-                    value=trial,
-                )
-                for trial in best_trials
+                Choice(title=format_trial_title(trial), value=trial)
+                for trial in sorted_trials
             ]
 
             choices.append(
@@ -797,7 +827,7 @@ def run():
                 print()
                 print(
                     (
-                        "The following trials resulted in Pareto optimal combinations of refusals and KL divergence. "
+                        "The following trials resulted in Pareto optimal combinations of the optimization objectives. "
                         "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
                         "chat with it to test how well it works, or run standard benchmarks on it. "
                         "You can return to this menu later to select a different trial. "
@@ -812,17 +842,13 @@ def run():
 
             if reproduction_mode:
                 parameters = reproduction_information["parameters"]
-                metrics = reproduction_information["metrics"]
 
                 trial = create_trial(
                     values=[],
                     user_attrs={
                         "direction_index": parameters["direction_index"],
                         "parameters": parameters["abliteration_parameters"],
-                        "kl_divergence": metrics["kl_divergence"],
-                        "refusals": metrics["refusals"],
-                        "base_refusals": metrics["base_refusals"],
-                        "n_bad_prompts": metrics["n_bad_prompts"],
+                        "scores": reproduction_information["scores"],
                     },
                 )
 
@@ -835,7 +861,7 @@ def run():
                 trial = ask_if_unset(
                     None
                     if settings.trial_index is None
-                    else best_trials[settings.trial_index],
+                    else sorted_trials[settings.trial_index],
                     questionary.select(
                         "Which trial do you want to use?",
                         choices=choices,
@@ -902,7 +928,7 @@ def run():
                 model.reset_model()
                 print("* Abliterating...")
                 model.abliterate(
-                    refusal_directions,
+                    residual_directions,
                     trial.user_attrs["direction_index"],
                     {
                         k: AbliterationParameters(**v)
@@ -1002,7 +1028,7 @@ def run():
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
-                            if reproduction_mode and verify_hashes:
+                            if reproduction_mode:
                                 print("Verifying hashes of weight files...")
 
                                 for (
@@ -1088,16 +1114,27 @@ def run():
                                 continue
 
                             # Reproducibility requires that the model and all datasets
-                            # are available on the Hugging Face Hub (not local paths).
-                            datasets = [
-                                settings.good_prompts.dataset,
-                                settings.bad_prompts.dataset,
-                                settings.good_evaluation_prompts.dataset,
-                                settings.bad_evaluation_prompts.dataset,
+                            # are available on the Hugging Face Hub (not local paths),
+                            # that all datasets are pinned to a commit (an unpinned
+                            # dataset was likely loaded from a local cache), and that
+                            # only built-in scorer plugins are used (external plugins
+                            # cannot be resolved when reproducing).
+                            dataset_specifications = [
+                                settings.good_prompts,
+                                settings.bad_prompts,
+                                *evaluator.get_dataset_specifications(),
                             ]
                             is_reproducible = (
                                 is_hf_path(settings.model)
-                                and all(is_hf_path(dataset) for dataset in datasets)
+                                and all(
+                                    is_hf_path(specification.dataset)
+                                    and specification.commit is not None
+                                    for specification in dataset_specifications
+                                )
+                                and all(
+                                    is_builtin_plugin(scorer.plugin)
+                                    for scorer in settings.scorers
+                                )
                                 and not reproduction_mode
                             )
 
@@ -1227,7 +1264,7 @@ def run():
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 
-                            if reproduction_mode and verify_hashes:
+                            if reproduction_mode:
                                 print("Verifying hashes of weight files...")
 
                                 api = HfApi()

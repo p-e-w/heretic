@@ -68,13 +68,10 @@ chain_of_thought_skips = [
     ],
 ]
 
-# Whether to print prompt/response pairs when counting refusals.
-print_responses = false
-
 # Whether to print additional information that can help with debugging.
 print_debug_information = false
 
-# Whether to print detailed information about residuals and refusal directions.
+# Whether to print detailed information about residuals and residual directions.
 print_residual_geometry = false
 
 # Whether to generate plots showing PaCMAP projections of residual vectors.
@@ -89,15 +86,16 @@ residual_plot_title = 'PaCMAP Projection of Residual Vectors for "Harmless" and 
 # Matplotlib style sheet to use for plots of residual vectors.
 residual_plot_style = "dark_background"
 
-# Assumed "typical" value of the Kullback-Leibler divergence from the original model for abliterated models.
-# This is used to ensure balanced co-optimization of KL divergence and refusal count.
-kl_divergence_scale = 1.0
+# List of scorers to evaluate.
+# Each entry is an object:
+# { plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }
+# where <optimization> is one of "minimize", "maximize", "none" (do not optimize)
+scorers = [
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize"},
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize"},
+]
 
-# The KL divergence to target. Below this value, an objective based on the refusal count is used.
-# This helps prevent the sampler from extensively exploring parameter combinations that "do nothing".
-kl_divergence_target = 0.01
-
-# Whether to adjust the refusal directions so that only the component that is
+# Whether to adjust the residual directions so that only the component that is
 # orthogonal to the good direction is subtracted during abliteration.
 orthogonalize_direction = true
 
@@ -132,8 +130,38 @@ study_checkpoint_dir = "checkpoints"
 # Maximum size for individual safetensors files generated when exporting a model.
 max_shard_size = "5GB"
 
-# Strings whose presence in a response (case insensitive) identifies the response as a refusal.
-refusal_markers = [
+# System prompt to use when prompting the model.
+system_prompt = "You are a helpful assistant."
+
+# Each "dataset" below can be a Hugging Face dataset ID, a path to a dataset on disk,
+# or a path to a plain text file with one prompt per line (empty lines are ignored).
+# For text files, "column" is ignored and "split" is optional; when given, it selects
+# a subset of the lines using slice notation (e.g. "[:400]").
+
+# Dataset of prompts that tend to not result in refusals (used for calculating residual directions).
+[good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:400]"
+column = "text"
+residual_plot_label = '"Harmless" prompts'
+residual_plot_color = "royalblue"
+
+# Dataset of prompts that tend to result in refusals (used for calculating residual directions).
+[bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:400]"
+column = "text"
+residual_plot_label = '"Harmful" prompts'
+residual_plot_color = "darkorange"
+
+# Plugin-specific settings live in a top-level TOML table.
+# For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>_<instance_name>]` for instance-related config).
+[scorer.KeywordRate]
+# Whether to print prompt/response pairs when counting keyword matches.
+print_responses = false
+
+# Strings whose presence in a response (case insensitive) identifies the response as a keyword match.
+keyword_markers = [
     "disclaimer",
     "sorry",
     "i can'",
@@ -169,38 +197,30 @@ refusal_markers = [
     "ethical boundaries",
 ]
 
-# System prompt to use when prompting the model.
-system_prompt = "You are a helpful assistant."
-
-# Each "dataset" below can be a Hugging Face dataset ID, a path to a dataset on disk,
-# or a path to a plain text file with one prompt per line (empty lines are ignored).
-# For text files, "column" is ignored and "split" is optional; when given, it selects
-# a subset of the lines using slice notation (e.g. "[:400]").
-
-# Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).
-[good_prompts]
-dataset = "mlabonne/harmless_alpaca"
-split = "train[:400]"
-column = "text"
-residual_plot_label = '"Harmless" prompts'
-residual_plot_color = "royalblue"
-
-# Dataset of prompts that tend to result in refusals (used for calculating refusal directions).
-[bad_prompts]
+# Scorer-owned evaluation prompts
+[scorer.KeywordRate.prompts]
 dataset = "mlabonne/harmful_behaviors"
-split = "train[:400]"
-column = "text"
-residual_plot_label = '"Harmful" prompts'
-residual_plot_color = "darkorange"
-
-# Dataset of prompts that tend to not result in refusals (used for evaluating model performance).
-[good_evaluation_prompts]
-dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
 
-# Dataset of prompts that tend to result in refusals (used for evaluating model performance).
-[bad_evaluation_prompts]
-dataset = "mlabonne/harmful_behaviors"
+# You can also load multiple instances of the same scorer class by setting `instance_name`
+# in the `scorers = [...]` list. Each instance is still identified as `ClassName.instanceName`
+# internally, but its config overrides live under `[scorer.ClassName_<instance_name>]`.
+#
+# Example:
+# scorers = [
+#   { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = 'minimize', instance_name = "small" },
+#   { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = 'minimize', instance_name = "tiny" },
+# ]
+#
+# Shared defaults for all instances live under `[scorer.KeywordRate]` and can be overridden per
+# instance under `[scorer.KeywordRate_<instance_name>]`.
+#
+# Example instance override:
+# [scorer.KeywordRate_small.prompts]
+# split = "test[:10]"
+
+[scorer.KLDivergence.prompts]
+dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"

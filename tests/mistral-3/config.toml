@@ -9,7 +9,6 @@ print_debug_information = true
 
 batch_size = 2
 max_response_length = 10
-kl_divergence_target = 0
 n_trials = 2
 n_startup_trials = 1
 
@@ -31,13 +30,13 @@ commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
 split = "train[:5]"
 column = "text"
 
-[good_evaluation_prompts]
+[scorer.KLDivergence.prompts]
 dataset = "mlabonne/harmless_alpaca"
 commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
 split = "test[:5]"
 column = "text"
 
-[bad_evaluation_prompts]
+[scorer.KeywordRate.prompts]
 dataset = "mlabonne/harmful_behaviors"
 commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
 split = "test[:5]"

@@ -493,8 +493,10 @@ def generate_reproduce_readme(
 
     trial_scores = trial.user_attrs["scores"]
     score_lines = "\n".join(
-        f"- **{score['name']}:** {score['score']['md_display']}"
-        f" (baseline: {score['baseline']['md_display']})"
+        (
+            f"- **{score['name']}:** {score['score']['md_display']}"
+            f" (baseline: {score['baseline']['md_display']})"
+        )
         for score in trial_scores
     )
 

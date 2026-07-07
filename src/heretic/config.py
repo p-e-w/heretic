@@ -506,7 +506,7 @@ class Settings(BaseSettings):
         default=None,
         description="Whether to attempt to reproduce the model even if there are environment mismatches, or unset to prompt the user.",
     )
-    
+
     system_prompt: str = Field(
         default="You are a helpful assistant.",
         description="System prompt to use when prompting the model.",

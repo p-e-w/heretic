@@ -13,6 +13,7 @@ for stream in (sys.stdout, sys.stderr):
     ):
         stream.reconfigure(encoding="utf-8")  # type: ignore
 
+from .cli import normalize_cli_args
 from .config import Settings
 
 
@@ -193,26 +194,7 @@ def run():
     )
     print()
 
-    if (
-        # There is at least one argument (argv[0] is the program name).
-        len(sys.argv) > 1
-        # Heretic is being invoked in standard (model processing) mode.
-        and "--collect-reproducibles" not in sys.argv
-        and "--reproduce" not in sys.argv
-        # No model has been explicitly provided.
-        and "--model" not in sys.argv
-        # The last argument is a parameter value rather than a flag (such as "--help").
-        and not sys.argv[-1].startswith("-")
-    ):
-        # Assume the last argument is the model.
-        sys.argv.insert(-1, "--model")
-
-    # Work around the "model" argument being required
-    # when Heretic is invoked in a non-processing mode.
-    if (
-        "--collect-reproducibles" in sys.argv or "--reproduce" in sys.argv
-    ) and "--model" not in sys.argv:
-        sys.argv.extend(["--model", ""])
+    sys.argv[1:] = normalize_cli_args(sys.argv[1:])
 
     try:
         # The required argument "model" must be provided by the user,

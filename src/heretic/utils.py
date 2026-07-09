@@ -12,7 +12,12 @@ from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, TypeVar
-
+from pydantic import (
+    BaseModel,
+    Secret,
+    SecretStr,
+    SecretBytes
+)
 import huggingface_hub
 import tomli_w
 import torch
@@ -27,7 +32,6 @@ from optuna.trial import FrozenTrial
 from psutil import Process
 from questionary import Question
 from rich.console import Console
-
 from .config import DatasetSpecification, Settings
 from .system import (
     get_accelerator_info_dict,
@@ -44,6 +48,62 @@ T = TypeVar("T")
 print = Console(highlight=False).print
 
 T = TypeVar("T")
+
+def secret_field_names(model: type[BaseModel]) -> set[str]:
+    """
+    Finds and returns all plugin setting fields that are typed with Pydantic's
+    `Secret`, `SecretStr`, and `SecretBytes`.
+    https://pydantic.dev/docs/validation/2.0/usage/types/secrets/
+    """
+
+    names: set[str] = set()
+    for name, field in model.model_fields.items():
+        annotation = field.annotation
+        is_secret_type = isinstance(annotation, type) and issubclass(
+            annotation, (Secret, SecretStr, SecretBytes)
+        )
+        if is_secret_type:
+            names.add(name)
+    return names
+
+
+def strip_plugin_secrets(dumped: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    """
+    Strip secret-marked plugin fields from a settings dump before it's serialized.
+    """
+    # Imported lazily to break the utils <-> plugin/scorer import cycle.
+    from .plugin import load_plugin
+    from .scorer import Scorer
+
+    scorer_tables = dumped.get("scorer")
+    if not isinstance(scorer_tables, dict):
+        # There's no scorers or we're only using defaults, so there's nothing to redact.
+        return dumped
+
+    for cfg in settings.scorers:
+        plugin_cls = load_plugin(cfg.plugin, Scorer)
+        model = plugin_cls.get_settings_model()
+        if model is None:
+            continue
+        
+        secrets = secret_field_names(model)
+        if not secrets:
+            continue
+        
+        class_name = plugin_cls.__name__
+        candidates = [class_name]
+        # Kind of ugly, needs a second thought here
+        if cfg.instance_name:
+            candidates.append(f"{class_name}_{cfg.instance_name}")
+        
+        for table_name in candidates:
+            table = scorer_tables.get(table_name)
+            if isinstance(table, dict):
+                for field in secrets:
+                    # TODO: think about removing vs placeholder
+                    table.pop(field, None)
+        
+    return dumped
 
 
 def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -345,7 +405,9 @@ def get_readme_intro(
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
 
-    return tomli_w.dumps(settings.model_dump(exclude_none=True))
+    return tomli_w.dumps(
+        strip_plugin_secrets(settings.model_dump(exclude_none=True), settings)
+    )
 
 
 def generate_requirements_txt() -> str:
@@ -579,7 +641,9 @@ def generate_reproduce_json(
             "pytorch_version": torch.__version__,
             "requirements": get_requirements_dict(),
         },
-        "settings": settings.model_dump(),
+        # TODO: we might have to warn the user here that this might not be directly reproducible,
+        # as the plugin contains secret fields that will be omitted from the final `reproduce.json`.
+        "settings": strip_plugin_secrets(settings.model_dump(), settings),
         "parameters": {
             "direction_index": trial.user_attrs["direction_index"],
             "abliteration_parameters": trial.user_attrs["parameters"],

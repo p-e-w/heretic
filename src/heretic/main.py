@@ -13,13 +13,12 @@ for stream in (sys.stdout, sys.stderr):
     ):
         stream.reconfigure(encoding="utf-8")  # type: ignore
 
-from .cli import normalize_cli_args
+from .cli import is_help_invocation, normalize_cli_args
 from .config import Settings
 
 
 def _is_help_invocation() -> bool:
-    args = sys.argv[1:]
-    return "-h" in args or "--help" in args
+    return is_help_invocation(sys.argv[1:])
 
 
 # Parse and handle CLI help before importing heavyweight ML/runtime dependencies.

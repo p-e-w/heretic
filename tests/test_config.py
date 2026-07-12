@@ -29,7 +29,9 @@ class ScorerConfigTests(unittest.TestCase):
     def test_rejects_whitespace_in_instance_name(self) -> None:
         for instance_name in ["small name", "small\tname", "small\nname"]:
             with self.subTest(instance_name=instance_name):
-                with self.assertRaises(ValidationError):
+                with self.assertRaisesRegex(
+                    ValidationError, "whitespace is not allowed"
+                ):
                     ScorerConfig(
                         plugin="heretic.scorers.keyword_rate.KeywordRate",
                         optimization="minimize",
@@ -37,7 +39,7 @@ class ScorerConfigTests(unittest.TestCase):
                     )
 
     def test_rejects_dot_in_instance_name(self) -> None:
-        with self.assertRaises(ValidationError):
+        with self.assertRaisesRegex(ValidationError, "'\\.' is not allowed"):
             ScorerConfig(
                 plugin="heretic.scorers.keyword_rate.KeywordRate",
                 optimization="minimize",

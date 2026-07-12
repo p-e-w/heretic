@@ -133,8 +133,11 @@ class ScorerConfig(BaseModel):
         if not value.strip():
             raise ValueError("cannot be empty or whitespace")
 
-        if "." in value or any(char.isspace() for char in value):
-            raise ValueError("'.' and whitespace are not allowed")
+        if "." in value:
+            raise ValueError("'.' is not allowed")
+
+        if any(char.isspace() for char in value):
+            raise ValueError("whitespace is not allowed")
 
         return value
 

@@ -10,8 +10,6 @@ jobs:
   checks:
     name: Check and build (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    env:
-      UV_PYTHON: ${{ matrix.python-version }}
     strategy:
       fail-fast: false
       matrix:
@@ -46,7 +44,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: |
-          uv run python -m unittest discover -s tests -p "test_*.py"
+          uv run python -m unittest discover -s tests -p 'test_*.py'
           uv run tests/run_tests.py 2>&1
 
       - name: Build package

@@ -525,6 +525,18 @@ def run():
                 1.0,
                 log=True,
             )
+            steer_core_weight = trial.suggest_float(
+                "steer_core_weight",
+                0.0001,
+                1.0,
+                log=True,
+            )
+            steer_late_weight = trial.suggest_float(
+                "steer_late_weight",
+                0.0001,
+                1.0,
+                log=True,
+            )
             overcorrect_relative_weight = trial.suggest_float(
                 "overcorrect_relative_weight",
                 0.0,
@@ -541,6 +553,8 @@ def run():
                 end_layer_index=end_layer_index,
                 preserve_good_behavior_weight=preserve_good_behavior_weight,
                 steer_bad_behavior_weight=steer_bad_behavior_weight,
+                steer_core_weight=steer_core_weight,
+                steer_late_weight=steer_late_weight,
                 overcorrect_relative_weight=overcorrect_relative_weight,
                 neighbor_count=neighbor_count,
             )

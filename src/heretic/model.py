@@ -527,7 +527,7 @@ class Model:
                         # Keep a reference to the original weight matrix so we can subtract it later.
                         W_org = W
                         # Get the row norms.
-                        W_row_norms = LA.vector_norm(W, dim=1, keepdim=True)
+                        W_row_norms = LA.vector_norm(W.float(), dim=1, keepdim=True)
                         # Normalize the weight matrix along the rows.
                         W = F.normalize(W, p=2, dim=1)
 
@@ -591,7 +591,7 @@ class Model:
                     module = cast(Linear, module)
                     matrix = module.weight
 
-                    row_norms = LA.vector_norm(matrix, dim=1, keepdim=True).detach()
+                    row_norms = LA.vector_norm(matrix.float(), dim=1, keepdim=True).detach()
 
                     # Helper function for reparameterization (row-norm preservation constraint).
                     def get_matrix() -> Tensor:
@@ -709,7 +709,7 @@ class Model:
                     # Row normalization setup.
                     # Pre-calculate the original row norms to preserve them.
                     # This implements the RowNormalization.FULL logic.
-                    W_row_norms = LA.vector_norm(W_base, dim=1, keepdim=True).detach()
+                    W_row_norms = LA.vector_norm(W_base.float(), dim=1, keepdim=True).detach()
 
                     # Adapter target identification.
                     # We optimize the LoRA weights A and B.

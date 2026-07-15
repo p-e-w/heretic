@@ -9,6 +9,7 @@ from pydantic import (
     Field,
     NonNegativeInt,
     PositiveInt,
+    field_validator,
 )
 from pydantic_settings import (
     BaseSettings,
@@ -122,6 +123,23 @@ class ScorerConfig(BaseModel):
             "Instance-specific settings live under `[scorer.<ClassName>_<instance_name>]`."
         ),
     )
+
+    @field_validator("instance_name")
+    @classmethod
+    def validate_instance_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        if not value.strip():
+            raise ValueError("cannot be empty or whitespace")
+
+        if "." in value:
+            raise ValueError("'.' is not allowed")
+
+        if any(char.isspace() for char in value):
+            raise ValueError("whitespace is not allowed")
+
+        return value
 
 
 class BenchmarkSpecification(BaseModel):

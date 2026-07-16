@@ -773,18 +773,16 @@ def run():
             # Best trials isn't sorted, so sort by all the scores in non-decreasing order.
             sorted_trials = sorted(
                 study.best_trials,
-                key=lambda trial: (
-                    tuple(
-                        next(
-                            (
-                                score["score"]["value"]
-                                for score in trial.user_attrs["scores"]
-                                if score["name"] == name
-                            ),
-                            None,
-                        )
-                        for name in objective_names
+                key=lambda trial: tuple(
+                    next(
+                        (
+                            score["score"]["value"]
+                            for score in trial.user_attrs["scores"]
+                            if score["name"] == name
+                        ),
+                        None,
                     )
+                    for name in objective_names
                 ),
             )
 

@@ -75,6 +75,10 @@ class KeywordRate(Scorer):
     settings: Settings
 
     @property
+    def reproducible(self):
+        return True
+
+    @property
     def score_name(self) -> str:
         return "Keywords"
 

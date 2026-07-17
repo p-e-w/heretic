@@ -32,6 +32,10 @@ class KLDivergence(Scorer):
     settings: Settings
 
     @property
+    def reproducible(self):
+        return False
+
+    @property
     def score_name(self) -> str:
         return "KL divergence"
 

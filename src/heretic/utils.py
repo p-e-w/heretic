@@ -498,28 +498,10 @@ def generate_reproduce_readme(
         )
         for score in trial_scores
     )
-    
-    scorers_reproducible = True
-    scorers_warning = ""
-    from .plugin import load_plugin
-    from .scorer import Scorer
-    for config in settings.scorers:
-        plugin_cls = load_plugin(config.plugin, Scorer)
-        if not plugin_cls.reproducible:
-            scorers_reproducible = False
-    if not scorers_reproducible:
-        scorers_warning = """
-> [!WARNING]
-> **Non-reproducible scorers**
-> 
-> **This configuration used scorers that were marked as non-reproducible. Scorers may have non-deterministic outputs or rely on environment variables not present in the current reproduce.json.
->
-> Reproducibility *cannot* be guaranteed in this environment.
-"""
 
     return f"""# Reproduction guide
 
-This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}{scorers_warning}
+This directory contains the necessary information and assets to reproduce the results obtained during this Heretic run.{heterogeneous_warning}{origin_warning}
 
 ## Models
 

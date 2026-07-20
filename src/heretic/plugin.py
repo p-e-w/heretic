@@ -43,17 +43,6 @@ def get_plugin_namespace(
     return cur
 
 
-def is_builtin_plugin(name: str) -> bool:
-    """
-    Whether the plugin name refers to a plugin that ships with Heretic.
-
-    Only built-in plugins can be resolved when reproducing a model, so external
-    plugins (file paths or third-party import paths) disable the reproducibility
-    offer during upload.
-    """
-    return name.startswith("heretic.scorers.")
-
-
 def load_plugin(
     name: str,
     base_class: type[T],

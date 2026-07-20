@@ -159,6 +159,13 @@ class Evaluator:
 
         return merged_settings
 
+    def all_scorers_reproducible(self) -> bool:
+        """
+        Returns True if all scorers are reproducible,
+        False if not.
+        """
+        return all(entry.scorer.reproducible for entry in self._scorer_entries)
+
     def get_scores(self) -> list[tuple[str, Score]]:
         """
         Run all scorers and return their scores and names

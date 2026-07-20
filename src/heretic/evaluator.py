@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from .config import DatasetSpecification, ScorerConfig, Settings
 from .model import Model
-from .plugin import get_plugin_namespace, load_plugin
+from .plugin import get_plugin_namespace, is_builtin_plugin, load_plugin
 from .scorer import Context, Score, Scorer
 from .utils import deep_merge_dicts, parse_study_direction, print
 
@@ -165,6 +165,15 @@ class Evaluator:
         False if not.
         """
         return all(entry.scorer.reproducible for entry in self._scorer_entries)
+
+    def all_scorers_builtin(self) -> bool:
+        """
+        Returns True if all scorers are built-in,
+        i.e included in Heretic by default.
+        """
+        return all(
+            is_builtin_plugin(entry.config.plugin) for entry in self._scorer_entries
+        )
 
     def get_scores(self) -> list[tuple[str, Score]]:
         """

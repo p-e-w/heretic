@@ -1131,6 +1131,7 @@ def run():
                                     for specification in dataset_specifications
                                 )
                                 and evaluator.all_scorers_reproducible()
+                                and evaluator.all_scorers_builtin()
                                 and not reproduction_mode
                             )
 

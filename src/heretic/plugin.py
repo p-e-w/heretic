@@ -216,7 +216,7 @@ class Plugin:
         Defaults to True; override to False in your plugin class if any of the
         above apply. This surfaces a warning in the reproduce/ folder.
         """
-        return False
+        return True
 
     @classmethod
     def validate_contract(cls) -> None:

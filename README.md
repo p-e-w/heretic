@@ -135,7 +135,7 @@ provides features designed to support research into the semantics of model inter
 optional `research` extra:
 
 ```sh
-pip install -U heretic-llm[research]
+pip install -U 'heretic-llm[research]'
 ```
 
 This gives you access to the following functionality:

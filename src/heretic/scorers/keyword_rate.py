@@ -75,7 +75,7 @@ class KeywordRate(Scorer):
     settings: Settings
 
     @property
-    def reproducible(self):
+    def reproducible(self) -> bool:
         return True
 
     @property

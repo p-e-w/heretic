@@ -213,22 +213,6 @@ class Plugin:
         self.settings = settings
         self.heretic_settings = heretic_settings
 
-    @property
-    def reproducible(self) -> bool:
-        """
-        Whether runs using this plugin can be reproduced bit-for-bit.
-
-        Set to False when the plugin's behavior is not deterministic or depends on
-        state outside the pinned config, for example:
-        - It calls an external service (e.g. an LLM judge over the OpenAI API).
-        - It reads credentials or config from the environment (env vars, files).
-        - It is otherwise non-deterministic (network, wall-clock, unseeded RNG).
-
-        Defaults to True; override to False in your plugin class if any of the
-        above apply. This surfaces a warning in the reproduce/ folder.
-        """
-        return True
-
     @classmethod
     def validate_contract(cls) -> None:
         """

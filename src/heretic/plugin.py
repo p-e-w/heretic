@@ -194,6 +194,22 @@ class Plugin:
       an instance as `settings`.
     """
 
+    @property
+    def reproducible(self) -> bool:
+        """
+        Whether runs using this plugin can be reproduced bit-for-bit.
+
+        Set to False when the plugin's behavior is not deterministic or depends on
+        state outside the pinned config, for example:
+        - It calls an external service (e.g. an LLM judge over the OpenAI API).
+        - It reads credentials or config from the environment (env vars, files).
+        - It is otherwise non-deterministic (network, wall-clock, unseeded RNG).
+
+        Defaults to False; override to True in your plugin class if any of the
+        above DO NOT apply.
+        """
+        return False
+
     def __init__(
         self, *, heretic_settings: HereticSettings, settings: BaseModel | None = None
     ):

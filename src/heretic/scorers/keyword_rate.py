@@ -89,6 +89,8 @@ class KeywordRate(Scorer):
         )
         self.prompts = ctx.load_prompts(self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
+        if not self.prompts:
+            raise ValueError("KeywordRate scorer requires at least one prompt")
 
     def get_score(self, ctx: Context) -> Score:
         match_count = 0

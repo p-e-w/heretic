@@ -2,16 +2,21 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import math
+import shutil
+import time
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Type, TypeAlias, cast
 
 import bitsandbytes as bnb
+import huggingface_hub
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear
+from psutil import virtual_memory
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
 from torch.optim import LBFGS
@@ -30,8 +35,17 @@ from transformers import (
 from transformers.generation import (
     GenerateDecoderOnlyOutput,  # ty:ignore[possibly-missing-import]
 )
+from transformers.utils.peft_utils import find_adapter_config_file
 
 from .config import QuantizationMethod, RowNormalization, Settings
+from .tensor_check import (
+    Captures,
+    CheckpointIndex,
+    TensorCheckError,
+    capture_state,
+    read_checkpoint_index,
+    verify_checkpoint,
+)
 from .utils import Prompt, batchify, empty_cache, mean_distances_to_knn, print
 
 
@@ -71,10 +85,29 @@ class ARAParameters:
 ModuleIO: TypeAlias = list[dict[str, dict[int, tuple[Tensor, Tensor]]]]
 
 
+# Element sizes of the floating point dtypes that appear in safetensors headers.
+# Anything absent from this table is an integer or boolean tensor, whose size does
+# not change when the model is reloaded in another precision.
+FLOAT_DTYPE_SIZES = {
+    "F64": 8,
+    "F32": 4,
+    "F16": 2,
+    "BF16": 2,
+    "F8_E4M3": 1,
+    "F8_E5M2": 1,
+}
+
+
+def directory_size(directory: Path) -> int:
+    return sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
+
+
 class Model:
     model: PreTrainedModel | PeftModel
     tokenizer: PreTrainedTokenizerBase
     peft_config: LoraConfig
+    source_index: CheckpointIndex
+    check_captures: Captures
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -109,6 +142,20 @@ class Model:
         if self.settings.evaluate_model is not None:
             self.trusted_models[settings.evaluate_model] = settings.trust_remote_code
 
+        # Asking for loading info when the source is a PEFT adapter raises, because
+        # load_adapter() returns None where from_pretrained() expects an object to
+        # call to_dict() on. The exception would be caught by the dtype handler below,
+        # retried once per configured dtype at the cost of a full load each time, and
+        # finally reported as a dtype problem. This is the same test transformers
+        # itself uses to decide whether to take the adapter path, and anything it
+        # raises (a bad model ID, most importantly) means "not an adapter".
+        try:
+            adapter_source = find_adapter_config_file(settings.model) is not None
+        except Exception:
+            adapter_source = False
+
+        loading_info = None
+
         for dtype in settings.dtypes:
             print(f"* Trying dtype [bold]{dtype}[/]...")
 
@@ -121,14 +168,20 @@ class Model:
                 if quantization_config is not None:
                     extra_kwargs["quantization_config"] = quantization_config
 
-                self.model = get_model_class(settings.model).from_pretrained(
+                loaded = get_model_class(settings.model).from_pretrained(
                     settings.model,
                     dtype=dtype,
                     device_map=settings.device_map,
                     max_memory=self.max_memory,
                     trust_remote_code=self.trusted_models.get(settings.model),
+                    output_loading_info=not adapter_source,
                     **extra_kwargs,
                 )
+
+                if adapter_source:
+                    self.model = loaded
+                else:
+                    self.model, loading_info = loaded
 
                 # If we reach this point and the model requires trust_remote_code,
                 # either the user accepted, or settings.trust_remote_code is True.
@@ -161,8 +214,40 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
+        # The progress bars the loader leaves behind are only torn down when their
+        # objects are collected, and they erase themselves relative to wherever the
+        # cursor was when that happens. Anything that runs here shifts the moment of
+        # collection, which leaves the bars stranded on screen. Collecting now pins it
+        # to a point where the terminal is still where the loader left it.
+        empty_cache()
+
+        self._prepare_tensor_check(loading_info)
+
+        trial_target = self._trial_save_target()
+        if trial_target is not None and not self._announce_trial_save(trial_target):
+            trial_target = None
+
+        if trial_target == "loaded":
+            # Still the bare model here. Once _apply_lora has run, the targeted leaf
+            # modules are replaced in place by LoRA wrappers, and saving it would write
+            # adapter tensors rather than the model the save path produces.
+            assert isinstance(self.model, PreTrainedModel)
+            self._trial_save(self.model)
+
         if not settings.use_ara or settings.use_ara_lora:
             self._apply_lora()
+
+        # Only this configuration saves something that does not already exist:
+        # get_merged_model() reloads the base model in full precision and merges into
+        # that, discarding the quantized one. Serializing anything else here would be
+        # testing a path the run never takes.
+        if trial_target == "merged":
+            merged_model = self.get_merged_model()
+            try:
+                self._trial_save(merged_model)
+            finally:
+                del merged_model
+                empty_cache()
 
         # LoRA B matrices are initialized to zero by default in PEFT,
         # so we don't need to do anything manually.
@@ -177,6 +262,251 @@ class Model:
                 all_components[component] += len(modules)
         for component, count in all_components.items():
             print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
+
+    def _prepare_tensor_check(self, loading_info: dict[str, Any] | None):
+        """
+        Reads the tensor names of the source checkpoint, and records what the model
+        says about them, so that anything saved later can be compared against it.
+
+        Everything here is best effort. A source that cannot be resolved or read means
+        only that saves cannot be verified, which must not stop the run.
+        """
+        self.source_index = {}
+        self.check_captures = Captures()
+
+        if loading_info is None:
+            print(
+                "* Saved models cannot be verified (the source is a LoRA adapter)"
+            )
+            return
+
+        try:
+            source_directory = Path(self.settings.model)
+            if not source_directory.is_dir():
+                # Resolved after the load rather than before it. Before it, only the
+                # tokenizer has been fetched, so the snapshot holds configuration files
+                # and no weights to compare against.
+                source_directory = Path(
+                    huggingface_hub.snapshot_download(
+                        self.settings.model,
+                        local_files_only=True,
+                    )
+                )
+
+            self.source_index = read_checkpoint_index(source_directory)
+            self.check_captures = capture_state(
+                self.model,
+                loading_info["missing_keys"],
+                loading_info["unexpected_keys"],
+            )
+        except Exception as error:
+            self.source_index = {}
+            print(f"* Saved models cannot be verified ({error})")
+            return
+
+        if not self.source_index:
+            print(
+                "* Saved models cannot be verified (the source has no safetensors)"
+            )
+
+    def _trial_save_target(self) -> str | None:
+        """
+        Decides whether to save the model once before optimization starts, and which
+        object the eventual save would write.
+
+        Returns "loaded" for the model as loaded, "merged" for what get_merged_model()
+        produces, or None to skip the trial.
+        """
+        settings = self.settings
+
+        if not settings.preflight_save_check or not self.source_index:
+            return None
+
+        # An ARA-LoRA run writes an adapter, whose tensor names bear no relation to the
+        # source checkpoint, so a full-model trial would predict nothing about it.
+        if settings.use_ara and settings.use_ara_lora:
+            return None
+
+        # This run returns before it reaches a save.
+        if settings.evaluate_model is not None:
+            return None
+
+        # ARA edits full weights and cannot run against a quantized model at all, which
+        # is the reason use_ara_lora exists. Trialling this would serialize the
+        # bitsandbytes model and reject it over quantization state names, blaming the
+        # environment for a configuration problem abliteration reports properly.
+        if settings.use_ara and settings.quantization != QuantizationMethod.NONE:
+            return None
+
+        # Mirrors the dispatch of the save itself, which selects on use_ara.
+        if settings.use_ara or settings.quantization == QuantizationMethod.NONE:
+            return "loaded"
+
+        return "merged"
+
+    def _trial_directory(self) -> Path:
+        return (
+            Path(self.settings.preflight_directory)
+            / f"heretic-preflight-{Path(self.settings.model).name}"
+        )
+
+    def _source_payload_size(self) -> int:
+        return sum(nbytes for _, _, nbytes in self.source_index.values())
+
+    def _trial_save_size(self, model: PreTrainedModel | PeftModel) -> int:
+        """
+        Bytes the trial save is expected to write, over-reported rather than under.
+
+        Neither term is enough on its own. On the MXFP4 quantized path the expert
+        weights are deregistered as the checkpoint is read and only restored inside
+        save_pretrained, so state_dict() accounts for about a quarter of what is
+        actually written. On the dequantize path the source checkpoint accounts for
+        about a third of it, because the weights are expanded on the way out.
+        """
+        state_dict_size = sum(
+            tensor.numel() * tensor.element_size()
+            for tensor in model.state_dict().values()
+        )
+
+        return int(max(state_dict_size, self._source_payload_size()) * 1.05)
+
+    def _full_precision_size(self) -> int:
+        """
+        Bytes the base model occupies once it is reloaded in full precision.
+
+        Scaled per tensor rather than from one representative dtype, because real
+        checkpoints are mixed: gpt-oss is 363 BF16 tensors and 96 U8 ones, and treating
+        either as the whole is wrong by a factor of four in one direction or the other.
+        """
+        target_size = self.model.dtype.itemsize
+        total = 0
+
+        for dtype, _, nbytes in self.source_index.values():
+            source_size = FLOAT_DTYPE_SIZES.get(dtype)
+            total += (nbytes * target_size // source_size) if source_size else nbytes
+
+        return total
+
+    def _abort_run(self, message: str):
+        print()
+        print(f"[red]{message}[/]")
+        print(
+            "Pass [bold]--no-preflight-save-check[/] to skip this check, or press "
+            "Ctrl+C during the countdown to skip it for this run only."
+        )
+        raise Exception(message)
+
+    def _announce_trial_save(self, target: str) -> bool:
+        """
+        Explains the trial save and offers a moment to skip it.
+        Returns False if it should not run after all.
+        """
+        # Free, so it happens before anything that costs time or can end the run. An
+        # architecture Heretic cannot navigate must fail as that, rather than after a
+        # countdown and a full serialization that would read as a verdict on saving.
+        self.get_layers()
+
+        print()
+
+        if target == "merged":
+            # The memory goes on building the object, so there is nothing to measure
+            # yet and the requirement has to come from the source checkpoint. A full
+            # disk raises and can be explained; running out of RAM gets the process
+            # killed, so this one is checked rather than only disclosed.
+            required_ram = self._full_precision_size()
+            available_ram = virtual_memory().available
+
+            print(
+                "Merging into a quantized model reloads it in full precision first, "
+                f"which needs about [bold]{required_ram / 1024**3:.1f} GB[/] of RAM."
+            )
+
+            if available_ram < required_ram:
+                self._abort_run(
+                    "Not enough system RAM to check that this model can be saved: "
+                    f"{required_ram / 1024**3:.1f} GB needed, "
+                    f"{available_ram / 1024**3:.1f} GB available."
+                )
+
+            estimated_size = required_ram
+        else:
+            estimated_size = self._trial_save_size(self.model)
+
+        print(
+            "Checking that this environment can save the model correctly, before "
+            "spending any time on optimization."
+        )
+        print(
+            f"This writes about [bold]{estimated_size / 1024**3:.1f} GB[/] to "
+            f"[bold]{self._trial_directory()}[/], and removes it again afterwards."
+        )
+        print(
+            "Starting in 10 seconds. Press Ctrl+C to skip it, or pass "
+            "[bold]--no-preflight-save-check[/] to skip it in future runs."
+        )
+
+        try:
+            time.sleep(10)
+        except KeyboardInterrupt:
+            print("* Save check skipped")
+            return False
+
+        return True
+
+    def _trial_save(self, model: PreTrainedModel):
+        directory = self._trial_directory()
+
+        # Removed before the free space is measured, not after, so that a retry counts
+        # the space a previous attempt's leftovers are occupying as available.
+        if directory.exists():
+            shutil.rmtree(directory)
+
+        required_space = self._trial_save_size(model)
+        available_space = shutil.disk_usage(self.settings.preflight_directory).free
+
+        if available_space < required_space:
+            self._abort_run(
+                "Not enough free disk space to check that this model can be saved: "
+                f"{required_space / 1024**3:.1f} GB needed in "
+                f"{self.settings.preflight_directory}, "
+                f"{available_space / 1024**3:.1f} GB available."
+            )
+
+        try:
+            model.save_pretrained(directory)
+            verify_checkpoint(
+                directory,
+                self.source_index,
+                self.check_captures,
+                context="preflight",
+            )
+        except TensorCheckError as error:
+            # Model.__init__ is constructed outside any handler, so the diagnosis is
+            # printed here rather than left to the exception: raised from here it would
+            # reach the user as a traceback, or as nothing at all when the failure
+            # happened while handling a Ctrl+C. What propagates is a one-line summary,
+            # so the traceback does not repeat everything just printed.
+            print()
+            print(f"[red]{error}[/]")
+            print(
+                f"It occupies {directory_size(directory) / 1024**3:.1f} GB."
+            )
+            raise TensorCheckError(
+                "This environment does not save the model correctly (see above)."
+            ) from None
+        except Exception as error:
+            print()
+            print(
+                f"[red]This environment cannot save the model: {error}[/]"
+            )
+            print(
+                f"The incomplete save has been left at [bold]{directory}[/], "
+                f"occupying {directory_size(directory) / 1024**3:.1f} GB."
+            )
+            raise
+
+        shutil.rmtree(directory, ignore_errors=True)
+        print("* This environment saves the model correctly")
 
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.

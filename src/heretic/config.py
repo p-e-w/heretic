@@ -278,6 +278,29 @@ class Settings(BaseSettings):
         description="Directory to save and load study progress to/from.",
     )
 
+    preflight_save_check: bool = Field(
+        default=True,
+        description=(
+            "Whether to check that this environment can serialize the model correctly, "
+            "by saving it once before optimization starts. Turning this off skips only "
+            "the early warning; the model is still checked after saving and before uploading."
+        ),
+    )
+
+    # These default to the working directory rather than to a temporary one because
+    # /tmp is tmpfs on most modern Linux systems, which would put a trial save of a
+    # dequantized gpt-oss (about 39 GB) in RAM while the free space check reported
+    # tmpfs's nominal size and passed.
+    preflight_directory: str = Field(
+        default=".",
+        description="Directory to write the trial save to.",
+    )
+
+    upload_directory: str = Field(
+        default=".",
+        description="Directory to assemble the model in before uploading it.",
+    )
+
     benchmarks: list[BenchmarkSpecification] = Field(
         default=[
             BenchmarkSpecification(

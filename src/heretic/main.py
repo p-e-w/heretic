@@ -12,6 +12,7 @@ patch_tqdm()
 import logging
 import math
 import os
+import shutil
 import sys
 import time
 import warnings
@@ -37,6 +38,7 @@ from accelerate.utils import (
     is_xpu_available,
 )
 from huggingface_hub import ModelCard, ModelCardData
+from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -54,6 +56,7 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod, RowNormalization, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, ARAParameters, Model, get_model_class
+from .tensor_check import CheckResult, verify_checkpoint
 from .utils import (
     empty_cache,
     format_duration,
@@ -67,6 +70,103 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
+
+
+def verification_applies(settings: Settings) -> bool:
+    # An ARA-LoRA run writes an adapter, whose tensor names bear no relation to any
+    # source checkpoint. That case is excluded rather than given a second invariant.
+    return not (settings.use_ara and settings.use_ara_lora)
+
+
+def confirm_upload(result: CheckResult) -> bool:
+    return (
+        prompt_select(
+            f"Upload anyway, with {len(result.unclaimed_extra)} unexpected tensor(s)?",
+            choices=[
+                Choice(title="Upload the model", value="upload"),
+                Choice(title="Cancel", value="cancel"),
+            ],
+        )
+        == "upload"
+    )
+
+
+def compensating_model_card(repo_id: str, token: str) -> ModelCard:
+    """
+    The card push_to_hub would have written when Heretic has none of its own.
+
+    It loads the card already on the repository and only generates one when there is
+    none, which is what keeps an existing card from being overwritten. A repository
+    that does not exist counts as one without a card: the proposed name is usually new,
+    and it is created after verification rather than before it.
+    """
+    try:
+        return ModelCard.load(repo_id, token=token)
+    except (EntryNotFoundError, RepositoryNotFoundError):
+        return ModelCard.from_template(ModelCardData(library_name="transformers"))
+
+
+def stage_for_upload(model: Model, settings: Settings, card: ModelCard) -> Path:
+    """
+    Writes the model, the tokenizer and the card into a directory beside the one kept
+    from any previous upload, and swaps the new one into place once it is complete.
+
+    push_to_hub cannot be used here. It saves into a temporary directory that is
+    destroyed before it returns, and reading back what was actually written is the only
+    way to catch a serialization bug.
+
+    Anything already kept has to survive every step below, all of which can fail: a
+    full-precision reload that may exhaust memory, a save that raises part way through
+    on some transformers versions, a full disk, and Ctrl+C, which is a BaseException
+    and ends the session outright. So nothing is ever written into the kept directory.
+    """
+    staging = (
+        Path(settings.upload_directory) / f"heretic-upload-{Path(settings.model).name}"
+    )
+    incoming = staging.with_name(staging.name + ".new")
+    previous = staging.with_name(staging.name + ".old")
+
+    # If a previous attempt died between the two renames below, the kept directory is
+    # gone and this is the only complete copy left.
+    if previous.exists():
+        if staging.exists():
+            shutil.rmtree(previous)
+        else:
+            previous.rename(staging)
+
+    # Usually incomplete, and removed without asking whether it is. Left in place it
+    # would be written into by the save below and then uploaded along with it, which is
+    # how a stray adapter_config.json from an abandoned run gets published and makes
+    # the whole repository load as an adapter.
+    if incoming.exists():
+        shutil.rmtree(incoming)
+
+    if settings.use_ara:
+        print("Uploading model...")
+        merged_model = model.model
+    else:
+        print("Uploading merged model...")
+        merged_model = model.get_merged_model()
+
+    merged_model.save_pretrained(str(incoming))
+    del merged_model
+    empty_cache()
+    model.tokenizer.save_pretrained(str(incoming))
+
+    # After both saves. PeftModel.save_pretrained writes a README of its own, and it
+    # replaces the front matter wholesale, which would drop Heretic's tags.
+    card.save(incoming / huggingface_hub.constants.REPOCARD_NAME)
+
+    # Swapped in on completeness rather than on the verdict. A rejected artifact is
+    # still the user's abliterated model, and a failed check means "do not publish
+    # this", never "do not keep this".
+    if staging.exists():
+        staging.rename(previous)
+    incoming.rename(staging)
+    if previous.exists():
+        shutil.rmtree(previous)
+
+    return staging
 
 
 def obtain_merge_strategy(settings: Settings) -> str | None:
@@ -895,6 +995,13 @@ def run():
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
 
+                                if verification_applies(settings):
+                                    verify_checkpoint(
+                                        Path(save_directory),
+                                        model.source_index,
+                                        model.check_captures,
+                                    )
+
                             print(f"Model saved to [bold]{save_directory}[/].")
 
                         case "Upload the model to Hugging Face":
@@ -935,38 +1042,25 @@ def run():
                             if strategy is None:
                                 continue
 
-                            if strategy == "adapter":
-                                print("Uploading LoRA adapter...")
-                                model.model.push_to_hub(
-                                    repo_id,
-                                    private=private,
-                                    token=token,
-                                )
-                            else:
-                                if settings.use_ara:
-                                    print("Uploading model...")
-                                    merged_model = model.model
-                                else:
-                                    print("Uploading merged model...")
-                                    merged_model = model.get_merged_model()
-                                merged_model.push_to_hub(
-                                    repo_id,
-                                    private=private,
-                                    token=token,
-                                )
-                                del merged_model
-                                empty_cache()
-                                model.tokenizer.push_to_hub(
-                                    repo_id,
-                                    private=private,
-                                    token=token,
-                                )
+                            # create_repo normalizes this, but it does not run until
+                            # after the model has been checked, and the card below is
+                            # looked up before that. A name without a namespace would
+                            # not find the card already on the repository, and would
+                            # overwrite it with a generated one.
+                            if "/" not in repo_id:
+                                repo_id = f"{user['name']}/{repo_id}"
 
                             # If the model path exists locally and includes the
                             # card, use it directly. If the model path doesn't
                             # exist locally, it can be assumed to be a model
                             # hosted on the Hugging Face Hub, in which case
                             # we can retrieve the model card.
+                            #
+                            # This runs before the upload rather than after it, because
+                            # the card is now written into the folder that gets
+                            # uploaded. That turns the fetch below into something that
+                            # can fail before anything has been published, so a card
+                            # that cannot be read falls back rather than propagating.
                             model_path = Path(settings.model)
                             if model_path.exists():
                                 card_path = (
@@ -977,7 +1071,10 @@ def run():
                                 else:
                                     card = None
                             else:
-                                card = ModelCard.load(settings.model)
+                                try:
+                                    card = ModelCard.load(settings.model)
+                                except Exception:
+                                    card = None
                             if card is not None:
                                 if card.data is None:
                                     card.data = ModelCardData()
@@ -1004,7 +1101,54 @@ def run():
                                     )
                                     + card.text
                                 )
-                                card.push_to_hub(repo_id, token=token)
+
+                            if strategy == "adapter":
+                                print("Uploading LoRA adapter...")
+                                model.model.push_to_hub(
+                                    repo_id,
+                                    private=private,
+                                    token=token,
+                                )
+                                if card is not None:
+                                    card.push_to_hub(repo_id, token=token)
+                            else:
+                                staging_directory = stage_for_upload(
+                                    model,
+                                    settings,
+                                    card
+                                    if card is not None
+                                    else compensating_model_card(repo_id, token),
+                                )
+
+                                if verification_applies(settings):
+                                    verify_checkpoint(
+                                        staging_directory,
+                                        model.source_index,
+                                        model.check_captures,
+                                        context="upload",
+                                        confirm=confirm_upload,
+                                    )
+
+                                # Created only now, so that a model which fails the
+                                # check leaves nothing behind on the Hub. Every
+                                # argument here is one push_to_hub was supplying:
+                                # without exist_ok every upload to an existing
+                                # repository fails, without private the first upload of
+                                # a model marked private is published publicly, and
+                                # without token the upload falls back to an ambient
+                                # credential that Heretic deliberately never writes.
+                                repo_id = huggingface_hub.create_repo(
+                                    repo_id,
+                                    private=private,
+                                    token=token,
+                                    exist_ok=True,
+                                ).repo_id
+                                huggingface_hub.upload_folder(
+                                    repo_id=repo_id,
+                                    folder_path=staging_directory,
+                                    token=token,
+                                )
+                                shutil.rmtree(staging_directory, ignore_errors=True)
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 

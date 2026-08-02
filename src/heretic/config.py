@@ -189,7 +189,7 @@ class Settings(BaseSettings):
     )
 
     target_components: list[str] = Field(
-        default=["attn.o_proj"],
+        default=["attn.o_proj", "mlp.down_proj"],
         description=(
             "List of component names to target for abliteration. "
             'Currently supported values are "attn.o_proj" and "mlp.down_proj".'
@@ -197,7 +197,7 @@ class Settings(BaseSettings):
     )
 
     ara_convergence_threshold: float = Field(
-        default=1e-6,
+        default=1e-6, 
         description=(
             "L-BFGS early stopping threshold for ARA. If the loss between consecutive optimizer "
             "steps changes by less than this value, the optimization is considered converged and "

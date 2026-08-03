@@ -238,9 +238,12 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
 # For each vector in the 2D-tensor `a`, computes the mean Euclidean distance
 # to the `k` nearest neighbors of the vector among the vectors in the 2D-tensor `b`.
 def mean_distances_to_knn(a: Tensor, b: Tensor, k: int) -> Tensor:
-    distances = torch.cdist(a, b)
+    if b.shape[0] == 0:
+        return torch.zeros(a.shape[0], device=a.device)
+    k = min(k, b.shape[0])
+    distances = torch.cdist(a.float(), b.float())
     nearest_distances, _ = distances.topk(k, dim=1, largest=False)
-    return nearest_distances.mean(1)
+    return nearest_distances.mean(1).to(a.dtype)
 
 
 def empty_cache():

@@ -62,6 +62,29 @@ class ARAParameters:
     steer_bad_behavior_weight: float
     overcorrect_relative_weight: float
     neighbor_count: int
+    steer_core_weight: float | None = None
+    steer_late_weight: float | None = None
+
+    def get_steer_weight(self, layer_index: int) -> float:
+        """
+        Splits the active layer range into thirds:
+        - Early (first third):  steer_bad_behavior_weight
+        - Core  (middle third): steer_core_weight (falls back to steer_bad_behavior_weight)
+        - Late  (final third):  steer_late_weight (falls back to steer_bad_behavior_weight)
+        """
+        core = self.steer_core_weight if self.steer_core_weight is not None else self.steer_bad_behavior_weight
+        late = self.steer_late_weight if self.steer_late_weight is not None else self.steer_bad_behavior_weight
+
+        layer_range = self.end_layer_index - self.start_layer_index
+        core_start = self.start_layer_index + layer_range // 3
+        late_start = self.start_layer_index + (2 * layer_range) // 3
+
+        if layer_index < core_start:
+            return self.steer_bad_behavior_weight
+        elif layer_index < late_start:
+            return core
+        else:
+            return late
 
 
 # The list contains one element per layer.
@@ -80,6 +103,7 @@ class Model:
         self.settings = settings
         self.response_prefix = ""
         self.needs_reload = False
+        self._ara_weight_snapshot = None
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -225,6 +249,12 @@ class Model:
 
         # self.peft_config is a LoraConfig object rather than a dictionary,
         # so the result is a PeftModel rather than a PeftMixedModel.
+        if not hasattr(self.model, "prepare_inputs_for_generation"):
+            # Workaround for PEFT trying to proxy prepare_inputs_for_generation
+            # for CAUSAL_LM task types even if the underlying model lacks it 
+            # (e.g. DiffusionGemma block-diffusion models).
+            self.model.prepare_inputs_for_generation = lambda *args, **kwargs: {}
+            
         self.model = cast(PeftModel, get_peft_model(self.model, self.peft_config))
 
         display_targets = sorted({name.rsplit(".", 1)[-1] for name in target_modules})
@@ -314,16 +344,17 @@ class Model:
           performs full model reload with quantization config.
         """
         current_model = getattr(self.model.config, "name_or_path", None)
-        if (
-            current_model == self.settings.model
-            and not self.needs_reload
-            and (not self.settings.use_ara or self.settings.use_ara_lora)
-        ):
-            # Reset LoRA adapters to zero (identity transformation)
-            for name, module in self.model.named_modules():
-                if "lora_B" in name and hasattr(module, "weight"):
-                    torch.nn.init.zeros_(module.weight)
-            return
+        if current_model == self.settings.model and not self.needs_reload:
+            if not self.settings.use_ara or self.settings.use_ara_lora:
+                # Reset LoRA adapters to zero (identity transformation)
+                for name, module in self.model.named_modules():
+                    if "lora_B" in name and hasattr(module, "weight"):
+                        torch.nn.init.zeros_(module.weight)
+                return
+            elif self.settings.use_ara and getattr(self, "_ara_weight_snapshot", None) is not None:
+                self.restore_ara_weights()
+                return
+
 
         dtype = self.model.dtype
 
@@ -352,12 +383,48 @@ class Model:
 
         self.needs_reload = False
 
+    def _is_diffusion_gemma(self) -> bool:
+        return self.settings.model == "google/diffusiongemma-26B-A4B-it"
+
+    def _get_diffusion_gemma_encoder(self) -> Module:
+        """Extract the encoder model for DiffusionGemma."""
+        model = self.model
+        if isinstance(model, PeftModel):
+            model = model.base_model.model
+        return model.model.encoder.language_model
+
+    def snapshot_ara_weights(self) -> None:
+        """Snapshot weights of all abliterable modules to CPU for fast ARA reset."""
+        self._ara_weight_snapshot = {}
+        for layer_index in range(len(self.get_layers())):
+            for component, modules in self.get_layer_modules(layer_index).items():
+                for module_index, module in enumerate(modules):
+                    key = (layer_index, component, module_index)
+                    self._ara_weight_snapshot[key] = module.weight.data.detach().clone().cpu()
+        print(f"* Snapshotted {len(self._ara_weight_snapshot)} module weights for fast reset")
+
+    def restore_ara_weights(self) -> None:
+        """Restore weights from CPU snapshot instead of full model reload."""
+        assert self._ara_weight_snapshot is not None, "No ARA weight snapshot available"
+        for layer_index in range(len(self.get_layers())):
+            for component, modules in self.get_layer_modules(layer_index).items():
+                for module_index, module in enumerate(modules):
+                    key = (layer_index, component, module_index)
+                    if key in self._ara_weight_snapshot:
+                        module.weight.data.copy_(
+                            self._ara_weight_snapshot[key].to(module.weight.device)
+                        )
+        self.needs_reload = False
+
     def get_layers(self) -> ModuleList:
         model = self.model
 
         # Unwrap PeftModel (always true after _apply_lora)
         if isinstance(model, PeftModel):
             model = model.base_model.model
+
+        if self._is_diffusion_gemma():
+            return self._get_diffusion_gemma_encoder().layers
 
         # Most multimodal models.
         with suppress(Exception):
@@ -601,6 +668,11 @@ class Model:
                         else:
                             return matrix
 
+                    if module_index not in good_module_io[layer_index][component]:
+                        continue
+                    if module_index not in bad_module_io[layer_index][component]:
+                        continue
+
                     good_input, good_output = good_module_io[layer_index][component][
                         module_index
                     ]
@@ -622,32 +694,28 @@ class Model:
                             (new_good_output - good_output) ** 2
                         ).mean()
 
-                        steer_bad_behavior = (
-                            # Pull the outputs for "bad" prompts towards
-                            # the original outputs for "good" prompts.
-                            mean_distances_to_knn(
-                                new_bad_output,
-                                good_output,
-                                parameters.neighbor_count,
-                            ).mean()
-                            # Push the outputs for "bad" prompts away from
-                            # the original outputs for "bad" prompts.
-                            # In combination with the above, this overcorrects
-                            # away from the original residuals, which results
-                            # in stronger steering that can overcome more complex
-                            # refusal mechanisms.
-                            + parameters.overcorrect_relative_weight
-                            * -mean_distances_to_knn(
-                                new_bad_output,
-                                bad_output,
-                                parameters.neighbor_count,
-                            ).mean()
-                        )
+                        pull_dist = mean_distances_to_knn(
+                            new_bad_output,
+                            good_output,
+                            parameters.neighbor_count,
+                        ).mean()
+                        
+                        push_dist = mean_distances_to_knn(
+                            new_bad_output,
+                            bad_output,
+                            parameters.neighbor_count,
+                        ).mean()
+                        
+                        overcorrect_loss = parameters.overcorrect_relative_weight * -push_dist
+                        # Clamp overcorrection loss so it never pushes away harder than it pulls towards good
+                        overcorrect_loss = torch.clamp(overcorrect_loss, max=0)
+
+                        steer_bad_behavior = pull_dist + overcorrect_loss
 
                         return (
                             parameters.preserve_good_behavior_weight
                             * preserve_good_behavior
-                            + parameters.steer_bad_behavior_weight * steer_bad_behavior
+                            + parameters.get_steer_weight(layer_index) * steer_bad_behavior
                         )
 
                     optimizer = LBFGS(
@@ -664,12 +732,14 @@ class Model:
                         loss.backward()
                         return loss
 
+                    prev_loss = float("inf")
                     # Convergence usually happens within 2-3 steps, so this is more than enough.
                     for step in range(5):
                         loss = optimizer.step(closure)
-                        # print(
-                        #    f"\\[{layer_index}/{component}/{module_index}] Step: {step}, Loss: {loss.item():.6f}"
-                        # )
+                        loss_val = loss.item() if loss is not None else float("inf")
+                        if self.settings.ara_convergence_threshold > 0 and abs(prev_loss - loss_val) < self.settings.ara_convergence_threshold:
+                            break
+                        prev_loss = loss_val
 
                     with torch.no_grad():
                         matrix.copy_(get_matrix())
@@ -718,6 +788,11 @@ class Model:
 
                     # Data preparation.
                     # Move I/O tensors to the device of the adapter weights.
+                    if module_index not in good_module_io[layer_index][component]:
+                        continue
+                    if module_index not in bad_module_io[layer_index][component]:
+                        continue
+
                     good_input, good_output = good_module_io[layer_index][component][module_index]
                     bad_input, bad_output = bad_module_io[layer_index][component][module_index]
 
@@ -745,24 +820,27 @@ class Model:
                             (new_good_output - good_output) ** 2
                         ).mean()
 
-                        steer_bad_behavior = (
-                            mean_distances_to_knn(
-                                new_bad_output,
-                                good_output,
-                                parameters.neighbor_count,
-                            ).mean()
-                            + parameters.overcorrect_relative_weight
-                            * -mean_distances_to_knn(
-                                new_bad_output,
-                                bad_output,
-                                parameters.neighbor_count,
-                            ).mean()
-                        )
+                        pull_dist = mean_distances_to_knn(
+                            new_bad_output,
+                            good_output,
+                            parameters.neighbor_count,
+                        ).mean()
+                        
+                        push_dist = mean_distances_to_knn(
+                            new_bad_output,
+                            bad_output,
+                            parameters.neighbor_count,
+                        ).mean()
+                        
+                        overcorrect_loss = parameters.overcorrect_relative_weight * -push_dist
+                        overcorrect_loss = torch.clamp(overcorrect_loss, max=0)
+
+                        steer_bad_behavior = pull_dist + overcorrect_loss
 
                         return (
                             parameters.preserve_good_behavior_weight
                             * preserve_good_behavior
-                            + parameters.steer_bad_behavior_weight * steer_bad_behavior
+                            + parameters.get_steer_weight(layer_index) * steer_bad_behavior
                         )
 
                     # Optimization loop.
@@ -782,25 +860,23 @@ class Model:
                         loss.backward()
                         return loss
 
+                    prev_loss = float("inf")
                     # Run optimization steps.
                     for step in range(5):
-                        optimizer.step(closure)
+                        loss = optimizer.step(closure)
+                        loss_val = loss.item() if loss is not None else float("inf")
+                        if self.settings.ara_convergence_threshold > 0 and abs(prev_loss - loss_val) < self.settings.ara_convergence_threshold:
+                            break
+                        prev_loss = loss_val
 
-    def generate(
-        self,
-        prompts: list[Prompt],
-        **kwargs: Any,
-    ) -> tuple[BatchEncoding, GenerateDecoderOnlyOutput | LongTensor]:
-        chats = [
-            [
-                {"role": "system", "content": prompt.system},
-                {"role": "user", "content": prompt.user},
-            ]
-            for prompt in prompts
-        ]
+    def _get_inputs(self, prompts: list[Prompt]) -> dict[str, torch.Tensor]:
+        chats = []
+        for prompt in prompts:
+            chat = [{"role": "user", "content": prompt.user}]
+            if prompt.system:
+                chat.insert(0, {"role": "system", "content": prompt.system})
+            chats.append(chat)
 
-        # This cast is valid because list[str] is the return type
-        # for batched operation with tokenize=False.
         chat_prompts = cast(
             list[str],
             self.tokenizer.apply_chat_template(
@@ -811,16 +887,21 @@ class Model:
         )
 
         if self.response_prefix:
-            # Append the common response prefix to the prompts so that evaluation happens
-            # at the point where responses start to differ for different prompts.
             chat_prompts = [prompt + self.response_prefix for prompt in chat_prompts]
 
-        inputs = self.tokenizer(
+        return self.tokenizer(
             chat_prompts,
             return_tensors="pt",
             padding=True,
             return_token_type_ids=False,
         ).to(self.model.device)
+
+    def generate(
+        self,
+        prompts: list[Prompt],
+        **kwargs: Any,
+    ) -> tuple[BatchEncoding, GenerateDecoderOnlyOutput | LongTensor]:
+        inputs = self._get_inputs(prompts)
 
         # FIXME: The type checker has been disabled here because of the extremely complex
         #        interplay between different generate() signatures and dynamic delegation.
@@ -830,6 +911,9 @@ class Model:
             pad_token_id=self.tokenizer.pad_token_id,
             do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
         )  # ty:ignore[call-non-callable]
+
+        if not isinstance(outputs, Tensor):
+            outputs = outputs.sequences
 
         return inputs, outputs
 
@@ -1061,6 +1145,29 @@ class Model:
         # This cast is valid because GenerateDecoderOnlyOutput is the return type
         # of model.generate with return_dict_in_generate=True.
         outputs = cast(GenerateDecoderOnlyOutput, outputs)
+
+        if not hasattr(outputs, "scores") or outputs.scores is None:
+            # Fallback for models that do not output next-token distribution via generation (e.g. DiffusionGemma).
+            # We do a direct forward pass over a deterministic randomly-initialized canvas to compute a fixed proxy distribution.
+            inputs = self._get_inputs(prompts)
+            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+            
+            # For DiffusionGemma, providing decoder_input_ids bypasses the random initialization,
+            # ensuring a deterministic and comparable forward pass for KLD computation.
+            batch_size = inputs["input_ids"].shape[0]
+            canvas_length = getattr(self.model.config, "canvas_length", 256)
+            decoder_input_ids = torch.zeros((batch_size, canvas_length), dtype=torch.long, device=self.model.device)
+            inputs["decoder_input_ids"] = decoder_input_ids
+            
+            with torch.inference_mode():
+                out = self.model(**inputs)
+                
+            # Logits are [batch, canvas_length, vocab]
+            logits = out.logits
+            
+            # Average over the canvas length to get a [batch, vocab] distribution representation
+            logits = logits.mean(dim=1)
+            return F.log_softmax(logits, dim=-1)
 
         # Logits for the first (only) generated token.
         # This cast is valid because we passed output_scores=True above.

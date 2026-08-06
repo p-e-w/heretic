@@ -476,40 +476,69 @@ def run():
         print()
         print("Checking for common response prefix...")
         prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
-        responses = model.get_responses_batched(prefix_check_prompts)
 
-        # Despite being located in os.path, commonprefix actually performs
-        # a naive string operation without any path-specific logic,
-        # which is exactly what we need here. Trailing spaces are removed
-        # to avoid issues where multiple different tokens that all start
-        # with a space character lead to the common prefix ending with
-        # a space, which would result in an uncommon tokenization.
-        settings.response_prefix = commonprefix(responses).rstrip(" ")
+        # Detect if the model's chat template inserts a reasoning tag on its own
+        # in the end of user's prompt (e.g. <think>) by using a dummy prompt.
+        # If found, then we extract the end of it (e.g. </think>) as the response prefix.
+        # Otherwise we fall back to real prompts inference.
+        # LiquidAI's LFM models do this (Lfm2ForCausalLM).
+        dummy_prompt = model.tokenizer.apply_chat_template(
+            [{"role": "user", "content": ""}],
+            add_generation_prompt=True,
+            tokenize=False,
+        )
 
-        if settings.response_prefix:
-            print(f"* Prefix found: [bold]{settings.response_prefix!r}[/]")
+        cot_skip_applied = False
 
+        if isinstance(dummy_prompt, str):
             for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
-                if settings.response_prefix.startswith(cot_initializer):
-                    settings.response_prefix = closed_cot_block
+                if dummy_prompt.endswith(
+                    cot_initializer
+                ) and closed_cot_block.startswith(cot_initializer):
+                    settings.response_prefix = closed_cot_block[len(cot_initializer) :]
                     print(
                         f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
                     )
-
-                    # When using a Chain-of-Thought skip, we need to check that the prefix
-                    # is actually complete (e.g. not missing a trailing newline).
-                    print("* Rechecking with prefix...")
-                    responses = model.get_responses_batched(prefix_check_prompts)
-                    additional_prefix = commonprefix(responses).rstrip(" ")
-                    if additional_prefix:
-                        settings.response_prefix += additional_prefix
-                        print(
-                            f"* Extended prefix found: [bold]{settings.response_prefix!r}[/]"
-                        )
-
+                    cot_skip_applied = True
                     break
-        else:
-            print("* None found")
+
+        if settings.response_prefix is None:
+            responses = model.get_responses_batched(prefix_check_prompts)
+
+            # Despite being located in os.path, commonprefix actually performs
+            # a naive string operation without any path-specific logic,
+            # which is exactly what we need here. Trailing spaces are removed
+            # to avoid issues where multiple different tokens that all start
+            # with a space character lead to the common prefix ending with
+            # a space, which would result in an uncommon tokenization.
+            settings.response_prefix = commonprefix(responses).rstrip(" ")
+
+            if settings.response_prefix:
+                print(f"* Prefix found: [bold]{settings.response_prefix!r}[/]")
+
+                for (
+                    cot_initializer,
+                    closed_cot_block,
+                ) in settings.chain_of_thought_skips:
+                    if settings.response_prefix.startswith(cot_initializer):
+                        settings.response_prefix = closed_cot_block
+                        print(
+                            f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
+                        )
+                        cot_skip_applied = True
+                        break
+            else:
+                print("* None found")
+
+        if cot_skip_applied:
+            # When using a Chain-of-Thought skip, we need to check that the prefix
+            # is actually complete (e.g. not missing a trailing newline).
+            print("* Rechecking with prefix...")
+            responses = model.get_responses_batched(prefix_check_prompts)
+            additional_prefix = commonprefix(responses).rstrip(" ")
+            if additional_prefix:
+                settings.response_prefix += additional_prefix
+                print(f"* Extended prefix found: [bold]{settings.response_prefix!r}[/]")
 
     evaluator = Evaluator(settings, model)
 

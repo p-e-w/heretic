@@ -492,6 +492,7 @@ def run():
 
         # Some chat-templates add whitespace after the tag (e.g. Qwen3.5 adds "<think>\n"),
         # so we just strip any whitespace from the end before checking.
+        assert isinstance(dummy_prompt, str)
         dummy_prompt_stripped = dummy_prompt.rstrip()
 
         for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:

@@ -490,17 +490,18 @@ def run():
 
         cot_skip_applied = False
 
-        if isinstance(dummy_prompt, str):
-            for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
-                if dummy_prompt.endswith(
-                    cot_initializer
-                ) and closed_cot_block.startswith(cot_initializer):
-                    settings.response_prefix = closed_cot_block[len(cot_initializer) :]
-                    print(
-                        f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
-                    )
-                    cot_skip_applied = True
-                    break
+        # Some chat-templates add whitespace after the tag (e.g. Qwen3.5 adds "<think>\n"),
+        # so we just strip any whitespace from the end before checking.
+        dummy_prompt_stripped = dummy_prompt.rstrip()
+
+        for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
+            if dummy_prompt_stripped.endswith(cot_initializer):
+                settings.response_prefix = closed_cot_block[len(cot_initializer) :]
+                print(
+                    f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
+                )
+                cot_skip_applied = True
+                break
 
         if settings.response_prefix is None:
             responses = model.get_responses_batched(prefix_check_prompts)

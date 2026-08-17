@@ -23,7 +23,9 @@ script_directory = Path(__file__).resolve().parent
 
 project_directory = script_directory.parent
 
-tests_failed = False
+# For tracking failures as (test_name, [failed_files]) and successful runs.
+failed_tests: list[tuple[str, list[str]]] = []
+passed_tests: list[str] = []
 
 for test_directory in script_directory.iterdir():
     if test_directory.is_dir():
@@ -65,6 +67,8 @@ for test_directory in script_directory.iterdir():
 
                             valid_hashes[filename].append(sha256.lower())
 
+            # Track which specific files failed within this test directory.
+            failed_files: list[str] = []
             for filename in valid_hashes:
                 sha256 = get_file_sha256(test_directory / "model" / filename)
 
@@ -79,9 +83,20 @@ for test_directory in script_directory.iterdir():
                             f"{sha256}\n"
                         )
                     )
-                    tests_failed = True
+                    failed_files.append(filename)
 
-if tests_failed:
+            if failed_files:
+                failed_tests.append((test_directory.name, failed_files))
+            else:
+                passed_tests.append(test_directory.name)
+
+if failed_tests:
+    print("#" * 50)
+    print("Summary of test failures:")
+    for test_name, files in failed_tests:
+        files_str = ", ".join(files)
+        print(f"- {test_name} (failed files: {files_str})")
+    print("#" * 50)
     sys.exit("Tests failed.")
 else:
     print("All tests passed.")

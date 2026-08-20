@@ -524,7 +524,9 @@ def run():
             settings.response_prefix = commonprefix(responses).rstrip(" ")
 
             if settings.response_prefix:
-                print(f"* Prefix found: [bold]{settings.response_prefix!r}[/]")
+                print(
+                    f"* Prefix found: [bold]{escape(repr(settings.response_prefix))}[/]"
+                )
 
                 for (
                     cot_initializer,
@@ -533,7 +535,7 @@ def run():
                     if settings.response_prefix.startswith(cot_initializer):
                         settings.response_prefix = closed_cot_block
                         print(
-                            f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
+                            f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
                         )
                         cot_skip_applied = True
                         break
@@ -548,7 +550,9 @@ def run():
             additional_prefix = commonprefix(responses).rstrip(" ")
             if additional_prefix:
                 settings.response_prefix += additional_prefix
-                print(f"* Extended prefix found: [bold]{settings.response_prefix!r}[/]")
+                print(
+                    f"* Extended prefix found: [bold]{escape(repr(settings.response_prefix))}[/]"
+                )
 
     evaluator = Evaluator(settings, model)
 

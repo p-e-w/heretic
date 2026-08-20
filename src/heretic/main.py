@@ -38,6 +38,7 @@ patch_tqdm()
 import logging
 import math
 import os
+import re
 import random
 import time
 import warnings
@@ -493,11 +494,17 @@ def run():
         # Some chat-templates add whitespace after the tag (e.g. Qwen3.5 adds "<think>\n"),
         # so we just strip any whitespace from the end before checking.
         assert isinstance(dummy_prompt, str)
-        dummy_prompt_stripped = dummy_prompt.rstrip()
 
         for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
-            if dummy_prompt_stripped.endswith(cot_initializer):
-                settings.response_prefix = closed_cot_block[len(cot_initializer) :]
+            # Match the tag and capture any text or whitespace following it in the end.
+            pattern = rf"{re.escape(cot_initializer)}(.*)$"
+            match = re.search(pattern, dummy_prompt, re.DOTALL)
+
+            if match:
+                trailing_content = match.group(1)
+                # Get the closing tag and add the spaces or newlines found.
+                base_closed_block = closed_cot_block[len(cot_initializer) :]
+                settings.response_prefix = base_closed_block + trailing_content
                 print(
                     f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
                 )

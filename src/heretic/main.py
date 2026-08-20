@@ -66,6 +66,7 @@ from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
 from optuna.trial import FrozenTrial, TrialState, create_trial
 from pydantic import ValidationError
 from questionary import Choice, Style
+from rich.markup import escape
 from rich.table import Table
 from rich.traceback import install
 
@@ -506,7 +507,7 @@ def run():
                 base_closed_block = closed_cot_block[len(cot_initializer) :]
                 settings.response_prefix = base_closed_block + trailing_content
                 print(
-                    f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
+                    f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
                 )
                 cot_skip_applied = True
                 break

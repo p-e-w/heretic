@@ -38,8 +38,8 @@ patch_tqdm()
 import logging
 import math
 import os
-import re
 import random
+import re
 import time
 import warnings
 from dataclasses import asdict

@@ -77,7 +77,13 @@ from .reproduce import (
     collect_reproducibles,
     load_reproduction_information,
 )
-from .system import empty_cache, get_accelerator_info
+from .system import (
+    _get_tpu_core_count_from_env,
+    detect_tpu,
+    empty_cache,
+    get_accelerator_info,
+    setup_tpu_environment,
+)
 from .utils import (
     ask_if_unset,
     format_duration,
@@ -268,6 +274,24 @@ def run():
         settings.seed = random.randint(0, 2**32 - 1)
 
     transformers.set_seed(settings.seed)
+
+    # Set up TPU environment if needed (must be done before loading model)
+    if detect_tpu():
+        # Resolve the TPU parallelism configuration from environment variables
+        # (not the XLA client - reading the client would initialize it before
+        # the SPMD flag is set, which breaks multi-core FSDP).
+        if settings.tpu_cores is None:
+            settings.tpu_cores = _get_tpu_core_count_from_env() or 1
+        if settings.tpu_use_fsdp is None:
+            settings.tpu_use_fsdp = settings.tpu_cores > 1
+        setup_tpu_environment(
+            enable_spmd=settings.tpu_use_fsdp and settings.tpu_cores > 1
+        )
+        print("[bold green]TPU detected - XLA environment configured[/]")
+
+    # Resolve auto-detected settings (TPU core count, FSDP) after the
+    # environment is configured but before any device access happens.
+    settings = settings.adjust_for_tpu()
 
     print(get_accelerator_info())
 

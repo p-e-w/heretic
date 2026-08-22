@@ -23,6 +23,139 @@ from accelerate.utils import (
 )
 
 
+def _is_torch_xla_available() -> bool:
+    """Check if torch_xla is available without initializing it."""
+    try:
+        import torch_xla  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+# Public alias for __init__.py export
+is_torch_xla_available = _is_torch_xla_available
+
+
+def detect_tpu() -> bool:
+    """Detect if running on TPU (PyTorch/XLA)."""
+    if not _is_torch_xla_available():
+        return False
+    # Check PJRT_DEVICE env var (set by TPU VMs)
+    if os.environ.get("PJRT_DEVICE", "").upper() == "TPU":
+        return True
+    # Check if XLA device is available
+    try:
+        import torch_xla.core.xla_model as xm
+        return xm.xla_device_hw(xm.xla_device()) == "TPU"
+    except Exception:
+        return False
+
+
+def _get_tpu_core_count_from_env() -> int:
+    """Total TPU chips: product(TPU_CHIPS_PER_HOST_BOUNDS) * product(TPU_HOST_BOUNDS)."""
+    import math
+
+    total = 1
+    for var in ("TPU_CHIPS_PER_HOST_BOUNDS", "TPU_HOST_BOUNDS"):
+        val = os.environ.get(var)
+        if val:
+            try:
+                total *= math.prod(int(dim) for dim in val.split(","))
+            except ValueError:
+                pass
+    return total
+
+
+def _ensure_spmd_if_multichip(enable: bool = False) -> None:
+    """Enable SPMD mode before the XLA client initializes.
+
+    torch_xla 2.8: when a single process drives multiple TPU chips, SPMD must
+    be active from the moment the XLA client starts. Setting XLA_USE_SPMD=1
+    in the environment (before any device access) makes the client initialize
+    in SPMD mode; calling use_spmd() after client init goes through the
+    "force replication" path, which segfaults in PjRtComputationClient::
+    ExecuteReplicated (a plain sharded matmul is enough to reproduce).
+    Safe to call repeatedly and on non-TPU hosts (no-op).
+
+    Only called with enable=True for the single-process multi-core FSDP path.
+    Single-core runs must stay in plain multi-device mode: the SPMD virtual
+    device breaks memory probing (memory_info asserts on SPMD:0) and its
+    deviceless tensor fetch accumulates per step until executions start
+    failing with null tensor data ("Check failed: data->tensor_data").
+    """
+    if not enable or not _is_torch_xla_available():
+        return
+    try:
+        os.environ.setdefault("XLA_USE_SPMD", "1")
+        import torch_xla.runtime as xr
+
+        if xr.is_spmd():
+            return
+        if xr.process_count() == 1 and _get_tpu_core_count_from_env() > 1:
+            xr.use_spmd()
+    except Exception:
+        pass
+
+
+def get_xla_device(core_id: int = 0, enable_spmd: bool = False) -> torch.device:
+    """Get the XLA device for the given core ID."""
+    if not _is_torch_xla_available():
+        raise RuntimeError("torch_xla not available")
+    _ensure_spmd_if_multichip(enable=enable_spmd)
+    import torch_xla.core.xla_model as xm
+    return xm.xla_device(n=core_id)
+
+
+def get_xla_device_count() -> int:
+    """Get the number of available XLA devices (TPU cores)."""
+    if not _is_torch_xla_available():
+        return 0
+    try:
+        import torch_xla.runtime as xr
+
+        count = xr.global_device_count()
+        if count > 1:
+            return count
+        # torch_xla 2.8 in SPMD mode (single process, multi-chip) reports one
+        # virtual device; derive the physical core count from TPU env vars.
+        from_env = _get_tpu_core_count_from_env()
+        return from_env if from_env > 1 else count
+    except Exception:
+        return 0
+
+
+def setup_tpu_environment(enable_spmd: bool = False) -> None:
+    """Set up environment variables for optimal TPU performance."""
+    os.environ.setdefault("PJRT_DEVICE", "TPU")
+    os.environ.setdefault("XLA_USE_BF16", "1")
+    os.environ.setdefault("XLA_DOWNCAST_BF16", "1")
+    # SPMD must be active before the XLA client initializes (see
+    # _ensure_spmd_if_multichip); set the flag early for the FSDP path.
+    if enable_spmd:
+        os.environ.setdefault("XLA_USE_SPMD", "1")
+    # Disable tokenizers parallelism to avoid warnings
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+
+def mark_step() -> None:
+    """Mark a step for XLA lazy execution. Call after each forward pass on TPU.
+
+    wait=True is critical on torch_xla 2.8: with the default wait=False,
+    execution is dispatched asynchronously and tensor device data is not
+    attached yet when control returns. Downstream ops like torch.cat that
+    inspect shapes eagerly (result_type -> dim) then hit
+    "Check failed: data->tensor_data" inside XLATensor::shape(). Waiting
+    makes each step fully materialize before returning.
+    """
+    if not _is_torch_xla_available():
+        return
+    try:
+        import torch_xla.core.xla_model as xm
+        xm.mark_step(wait=True)
+    except Exception:
+        pass
+
+
 def empty_cache():
     """Clears the backend cache and collects garbage."""
 
@@ -43,6 +176,20 @@ def empty_cache():
         torch.musa.empty_cache()  # ty:ignore[unresolved-attribute]
     elif torch.backends.mps.is_available():
         torch.mps.empty_cache()
+    elif _is_torch_xla_available():
+        # On TPU, clear the XLA compilation cache to free system RAM.
+        # XLA caches compiled HLO graphs which accumulate across trials.
+        try:
+            import torch_xla.runtime as xr
+            xr.reset_spmd()
+        except Exception:
+            pass
+        try:
+            import torch_xla.core.xla_model as xm
+            xm.mark_step()
+        except Exception:
+            pass
+        gc.collect()
 
     gc.collect()
 
@@ -237,8 +384,42 @@ def get_heretic_version_info() -> HereticVersionInfo:
     )
 
 
+def get_tpu_info_dict() -> dict[str, Any]:
+    """Get TPU-specific information."""
+    if not detect_tpu():
+        return {"type": None}
+
+    try:
+        import torch_xla
+        import torch_xla.runtime as xr
+
+        device_count = get_xla_device_count()
+        devices = []
+        for i in range(device_count):
+            devices.append({
+                "name": f"TPU Core {i}",
+                "ordinal": i,
+                "device": f"xla:{i}",
+            })
+
+        return {
+            "type": "TPU",
+            "api_name": "PJRT",
+            "api_version": getattr(torch_xla, "__version__", "unknown"),
+            "driver_version": None,
+            "devices": devices,
+            "world_size": xr.global_ordinal() + 1 if xr.process_count() > 1 else 1,
+        }
+    except Exception as e:
+        return {"type": "TPU", "error": str(e)}
+
+
 def get_accelerator_info_dict() -> dict[str, Any]:
     """Retrieves raw accelerator info (CUDA, ROCm, etc) directly into structured keys."""
+
+    # Check TPU first (before CUDA since TPU VMs may have CUDA visible)
+    if detect_tpu():
+        return get_tpu_info_dict()
 
     if torch.cuda.is_available():
         count = torch.cuda.device_count()

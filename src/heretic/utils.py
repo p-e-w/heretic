@@ -176,7 +176,18 @@ def load_prompts(
     path = specification.dataset
     split_str = specification.split
 
-    if os.path.isfile(path):
+    if specification.provenance is not None:
+        if split_str is None:
+            raise ValueError(f'The "split" field is required for datasets: {path}')
+
+        if specification.column is None:
+            raise ValueError(f'The "column" field is required for datasets: {path}')
+
+        dataset = load_verified_dataset(specification)
+        start, end = get_split_slice(split_str, len(dataset))
+        dataset = dataset[start:end]
+        prompts = list(dataset[specification.column])
+    elif os.path.isfile(path):
         # Plain text file with one prompt per line. Empty lines are ignored.
         with open(path, encoding="utf-8") as file:
             prompts = [line.strip() for line in file if line.strip()]
@@ -195,11 +206,7 @@ def load_prompts(
         if specification.column is None:
             raise ValueError(f'The "column" field is required for datasets: {path}')
 
-        if specification.provenance is not None:
-            dataset = load_verified_dataset(specification)
-            start, end = get_split_slice(split_str, len(dataset))
-            dataset = dataset[start:end]
-        elif is_hf_path(path):
+        if is_hf_path(path):
             # Pin to the latest commit if not already set, so the exact dataset
             # version is recorded for reproducibility.
             if specification.commit is None:
@@ -390,6 +397,25 @@ def format_hf_link(
     return link
 
 
+def format_reproduction_dataset_link(
+    specification: DatasetSpecification,
+) -> str:
+    """Link to the reconstructable source without exposing a local path."""
+
+    if specification.provenance is not None:
+        return format_hf_link(
+            specification.provenance.dataset,
+            specification.provenance.revision,
+            is_dataset=True,
+        )
+
+    return format_hf_link(
+        specification.dataset,
+        specification.commit,
+        is_dataset=True,
+    )
+
+
 def generate_reproduce_readme(
     settings: Settings,
     checkpoint_filename: str,
@@ -527,8 +553,8 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## Datasets
 
-- **Good prompts:** {format_hf_link(settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
-- **Bad prompts:** {format_hf_link(settings.bad_prompts.dataset, settings.bad_prompts.commit, is_dataset=True)}
+- **Good prompts:** {format_reproduction_dataset_link(settings.good_prompts)}
+- **Bad prompts:** {format_reproduction_dataset_link(settings.bad_prompts)}
 
 ## Selected trial
 

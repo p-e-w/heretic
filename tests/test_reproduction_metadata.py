@@ -5,6 +5,7 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from datasets import Dataset, NamedSplit
@@ -21,6 +22,7 @@ from heretic.dataset_provenance import (
 )
 from heretic.reproduce import is_supported_reproduction_version
 from heretic.utils import (
+    generate_reproduce_readme,
     generate_reproduce_json,
     generate_reproduction_config_toml,
 )
@@ -52,6 +54,7 @@ def make_trial() -> FrozenTrial:
         values=[],
         user_attrs={
             "direction_index": None,
+            "index": 0,
             "parameters": {},
             "scores": [],
         },
@@ -96,7 +99,17 @@ class DatasetReproducibilityEligibilityTests(unittest.TestCase):
                 provenance=make_provenance(),
             )
 
-            with patch("heretic.dataset_provenance.load_dataset", return_value=source):
+            with (
+                patch(
+                    "heretic.dataset_provenance.huggingface_hub.dataset_info",
+                    return_value=SimpleNamespace(
+                        sha="a" * 40,
+                        private=False,
+                        gated=False,
+                    ),
+                ),
+                patch("heretic.dataset_provenance.load_dataset", return_value=source),
+            ):
                 error = get_dataset_reproducibility_error(specification)
 
         self.assertIsNone(error)
@@ -118,14 +131,51 @@ class DatasetReproducibilityEligibilityTests(unittest.TestCase):
                 provenance=make_provenance(),
             )
 
-            with patch(
-                "heretic.dataset_provenance.load_dataset",
-                return_value=changed_source,
+            with (
+                patch(
+                    "heretic.dataset_provenance.huggingface_hub.dataset_info",
+                    return_value=SimpleNamespace(
+                        sha="a" * 40,
+                        private=False,
+                        gated=False,
+                    ),
+                ),
+                patch(
+                    "heretic.dataset_provenance.load_dataset",
+                    return_value=changed_source,
+                ),
             ):
                 error = get_dataset_reproducibility_error(specification)
 
         self.assertIsNotNone(error)
         self.assertIn("does not match its public source", error or "")
+
+    def test_rejects_private_provenance_source(self) -> None:
+        source = Dataset.from_dict(
+            {"prompt": ["alpha\nbeta", "gamma"]}, split=NamedSplit("train")
+        )
+        specification = DatasetSpecification(
+            dataset="source/public",
+            split="train[:]",
+            column="prompt",
+            provenance=make_provenance(),
+        )
+
+        with (
+            patch(
+                "heretic.dataset_provenance.huggingface_hub.dataset_info",
+                return_value=SimpleNamespace(
+                    sha="a" * 40,
+                    private=True,
+                    gated=False,
+                ),
+            ),
+            patch("heretic.dataset_provenance.load_dataset", return_value=source),
+        ):
+            error = get_dataset_reproducibility_error(specification)
+
+        self.assertIsNotNone(error)
+        self.assertIn("not public", error or "")
 
 
 class ReproductionSerializationTests(unittest.TestCase):
@@ -191,6 +241,26 @@ class ReproductionSerializationTests(unittest.TestCase):
         self.assertNotIn(local_path, contents)
         self.assertIn('dataset = "source/public"', contents)
         self.assertIn("[good_prompts.provenance]", contents)
+
+    def test_reproduction_readme_links_to_public_source(self) -> None:
+        local_path = "/private/users/alice/materialized-prompts"
+        specification = DatasetSpecification(
+            dataset=local_path,
+            split="train[:]",
+            column="prompt",
+            provenance=make_provenance(),
+        )
+
+        contents = generate_reproduce_readme(
+            make_settings(specification),
+            "study.log",
+            make_trial(),
+            include_system_information=False,
+        )
+
+        self.assertNotIn(local_path, contents)
+        self.assertIn("source/public", contents)
+        self.assertIn("a" * 40, contents)
 
     def test_sanitizes_nested_plugin_dataset_path(self) -> None:
         raw_settings = {

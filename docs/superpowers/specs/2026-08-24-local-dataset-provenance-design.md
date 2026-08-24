@@ -31,16 +31,18 @@ column = "prompt"
 [good_prompts.provenance]
 dataset = "fka/awesome-chatgpt-prompts"
 revision = "ca0bf873b687e093f27beaddce8421f92d8ea7b4"
+# configuration = "optional-dataset-configuration"
 split = "train"
 indices = [3, 104]
 column = "prompt"
-content_sha256 = "383dc9e12acf9ea26fb2f85837bb88eae9465d4da740cab9082b9093a3950dd6"
+content_sha256 = "b4dab93108fc06d1c03fafbbf8c000274c6777964124bccc24681f42e0f41558"
 ```
 
 The fields mean:
 
 - `dataset`: public Hugging Face dataset ID.
 - `revision`: exact 40-character commit SHA; branches and tags are rejected.
+- `configuration`: optional Hugging Face dataset configuration/name.
 - `split`: original split or Hugging Face split slice.
 - `indices`: optional ordered row indices applied after loading `split`.
   Omitting it materializes the complete selected split.

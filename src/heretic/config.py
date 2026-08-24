@@ -7,6 +7,7 @@ from typing import Dict, Literal
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     NonNegativeInt,
     PositiveInt,
@@ -47,12 +48,20 @@ class ExportStrategy(str, Enum):
 
 
 class HuggingFaceDatasetProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     dataset: str = Field(
         description="Public Hugging Face dataset ID used to create the local dataset."
     )
 
     revision: str = Field(
         description="Exact 40-character Hugging Face commit SHA of the source dataset."
+    )
+
+    configuration: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Optional Hugging Face dataset configuration name.",
     )
 
     split: str = Field(

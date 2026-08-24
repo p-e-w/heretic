@@ -40,6 +40,29 @@ class PromptContentHashTests(unittest.TestCase):
 
 
 class VerifiedDatasetLoadingTests(unittest.TestCase):
+    def test_rejects_plain_text_file_claiming_dataset_provenance(self) -> None:
+        with TemporaryDirectory() as temp_directory:
+            text_path = Path(temp_directory) / "prompts.txt"
+            text_path.write_text("alpha\nbeta\n", encoding="utf-8")
+            specification = DatasetSpecification(
+                dataset=str(text_path),
+                split="train[:]",
+                column="prompt",
+                provenance=HuggingFaceDatasetProvenance(
+                    dataset="source/public",
+                    revision="a" * 40,
+                    split="train",
+                    column="prompt",
+                    content_sha256="b" * 64,
+                ),
+            )
+
+            with self.assertRaisesRegex(ValueError, "save_to_disk"):
+                load_prompts(
+                    Settings.model_construct(system_prompt="System"),
+                    specification,
+                )
+
     def test_rejects_source_and_local_column_disagreement(self) -> None:
         specification = DatasetSpecification(
             dataset="source/public",
@@ -48,6 +71,7 @@ class VerifiedDatasetLoadingTests(unittest.TestCase):
             provenance=HuggingFaceDatasetProvenance(
                 dataset="source/public",
                 revision="a" * 40,
+                configuration="default",
                 split="train",
                 column="prompt",
                 content_sha256="b" * 64,
@@ -131,6 +155,7 @@ class VerifiedDatasetLoadingTests(unittest.TestCase):
             provenance=HuggingFaceDatasetProvenance(
                 dataset="source/public",
                 revision="a" * 40,
+                configuration="default",
                 split="train",
                 indices=[2, 0],
                 column="prompt",
@@ -153,6 +178,7 @@ class VerifiedDatasetLoadingTests(unittest.TestCase):
         )
         load_dataset_mock.assert_called_once_with(
             "source/public",
+            name="default",
             revision="a" * 40,
             split="train",
         )

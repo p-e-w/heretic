@@ -17,6 +17,7 @@ class HuggingFaceDatasetProvenanceTests(unittest.TestCase):
         provenance = HuggingFaceDatasetProvenance(
             dataset="fka/awesome-chatgpt-prompts",
             revision="a" * 40,
+            configuration="default",
             split="train",
             indices=[3, 104],
             column="prompt",
@@ -31,6 +32,7 @@ class HuggingFaceDatasetProvenanceTests(unittest.TestCase):
         )
 
         self.assertEqual(specification.provenance, provenance)
+        self.assertEqual(provenance.configuration, "default")
 
     def test_rejects_non_commit_revision(self) -> None:
         with self.assertRaisesRegex(ValidationError, "40-character commit SHA"):
@@ -72,6 +74,17 @@ class HuggingFaceDatasetProvenanceTests(unittest.TestCase):
                 indices=[],
                 column="prompt",
                 content_sha256="b" * 64,
+            )
+
+    def test_rejects_unsupported_materialization_parameters(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "transformation"):
+            HuggingFaceDatasetProvenance(
+                dataset="fka/awesome-chatgpt-prompts",
+                revision="a" * 40,
+                split="train",
+                column="prompt",
+                content_sha256="b" * 64,
+                transformation={"map": "arbitrary-code"},  # type: ignore[call-arg]
             )
 
 

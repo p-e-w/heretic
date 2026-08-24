@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+import huggingface_hub
 from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from huggingface_hub.utils import validate_repo_id
@@ -48,6 +49,7 @@ def materialize_source_dataset(
 
     dataset = load_dataset(
         provenance.dataset,
+        name=provenance.configuration,
         revision=provenance.revision,
         split=provenance.split,
     )
@@ -130,6 +132,26 @@ def get_dataset_reproducibility_error(
                 "local materialized dataset could not be verified "
                 f"({type(error).__name__})"
             )
+
+    try:
+        source_info = huggingface_hub.dataset_info(
+            provenance.dataset,
+            revision=provenance.revision,
+        )
+    except Exception as error:
+        return (
+            f"public provenance source {provenance.dataset}@{provenance.revision} "
+            f"could not be inspected ({type(error).__name__})"
+        )
+
+    if source_info.sha != provenance.revision:
+        return (
+            "public provenance revision did not resolve to the declared commit "
+            f"(expected {provenance.revision}, got {source_info.sha})"
+        )
+
+    if source_info.private is not False or source_info.gated is not False:
+        return "provenance source is not public and ungated"
 
     try:
         source_dataset = materialize_source_dataset(provenance)

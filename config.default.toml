@@ -138,6 +138,25 @@ system_prompt = "You are a helpful assistant."
 # For text files, "column" is ignored and "split" is optional; when given, it selects
 # a subset of the lines using slice notation (e.g. "[:400]").
 
+# A directory created with datasets.save_to_disk() can carry verified provenance
+# from an exact public, ungated Hugging Face source. Keep the enclosing prompt
+# table's `dataset` pointed at the local directory; the optional table below
+# describes how to rebuild and verify its complete ordered prompt column. Express
+# selection through `split` and optional ordered `indices`; arbitrary transformations
+# are not supported.
+#
+# [good_prompts.provenance]
+# dataset = "fka/awesome-chatgpt-prompts"
+# revision = "ca0bf873b687e093f27beaddce8421f92d8ea7b4"
+# configuration = "optional-dataset-configuration"
+# split = "train"
+# indices = [3, 104]
+# column = "prompt"
+# content_sha256 = "b4dab93108fc06d1c03fafbbf8c000274c6777964124bccc24681f42e0f41558"
+#
+# Compute the hash with:
+# heretic.dataset_provenance.get_dataset_content_sha256(dataset, "prompt")
+
 # Dataset of prompts that tend to not result in refusals (used for calculating residual directions).
 [good_prompts]
 dataset = "mlabonne/harmless_alpaca"

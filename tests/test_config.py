@@ -5,7 +5,74 @@ import unittest
 
 from pydantic import ValidationError
 
-from heretic.config import ScorerConfig
+from heretic.config import (
+    DatasetSpecification,
+    HuggingFaceDatasetProvenance,
+    ScorerConfig,
+)
+
+
+class HuggingFaceDatasetProvenanceTests(unittest.TestCase):
+    def test_accepts_exact_public_source_selection(self) -> None:
+        provenance = HuggingFaceDatasetProvenance(
+            dataset="fka/awesome-chatgpt-prompts",
+            revision="a" * 40,
+            split="train",
+            indices=[3, 104],
+            column="prompt",
+            content_sha256="b" * 64,
+        )
+
+        specification = DatasetSpecification(
+            dataset="/data/materialized-prompts",
+            split="train[:]",
+            column="prompt",
+            provenance=provenance,
+        )
+
+        self.assertEqual(specification.provenance, provenance)
+
+    def test_rejects_non_commit_revision(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "40-character commit SHA"):
+            HuggingFaceDatasetProvenance(
+                dataset="fka/awesome-chatgpt-prompts",
+                revision="main",
+                split="train",
+                column="prompt",
+                content_sha256="b" * 64,
+            )
+
+    def test_rejects_malformed_content_hash(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "64-character SHA-256"):
+            HuggingFaceDatasetProvenance(
+                dataset="fka/awesome-chatgpt-prompts",
+                revision="a" * 40,
+                split="train",
+                column="prompt",
+                content_sha256="not-a-hash",
+            )
+
+    def test_rejects_negative_indices(self) -> None:
+        with self.assertRaises(ValidationError):
+            HuggingFaceDatasetProvenance(
+                dataset="fka/awesome-chatgpt-prompts",
+                revision="a" * 40,
+                split="train",
+                indices=[-1],
+                column="prompt",
+                content_sha256="b" * 64,
+            )
+
+    def test_rejects_explicit_empty_indices(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "at least one row index"):
+            HuggingFaceDatasetProvenance(
+                dataset="fka/awesome-chatgpt-prompts",
+                revision="a" * 40,
+                split="train",
+                indices=[],
+                column="prompt",
+                content_sha256="b" * 64,
+            )
 
 
 class ScorerConfigTests(unittest.TestCase):

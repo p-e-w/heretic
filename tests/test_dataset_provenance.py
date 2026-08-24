@@ -2,8 +2,19 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
+from datasets import Dataset
+
+from heretic.config import (
+    DatasetSpecification,
+    HuggingFaceDatasetProvenance,
+    Settings,
+)
 from heretic.dataset_provenance import get_prompt_content_sha256
+from heretic.utils import load_prompts
 
 
 class PromptContentHashTests(unittest.TestCase):
@@ -25,6 +36,102 @@ class PromptContentHashTests(unittest.TestCase):
         self.assertNotEqual(
             get_prompt_content_sha256(["first", "second"]),
             get_prompt_content_sha256(["second", "first"]),
+        )
+
+
+class VerifiedDatasetLoadingTests(unittest.TestCase):
+    def test_loads_verified_save_to_disk_dataset_with_multiline_prompts(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temp_directory:
+            dataset_path = Path(temp_directory) / "dataset"
+            Dataset.from_dict(
+                {"prompt": ["alpha\nbeta", "gamma"]}, split="train"
+            ).save_to_disk(dataset_path)
+            specification = DatasetSpecification(
+                dataset=str(dataset_path),
+                split="train[:]",
+                column="prompt",
+                provenance=HuggingFaceDatasetProvenance(
+                    dataset="source/public",
+                    revision="a" * 40,
+                    split="train",
+                    column="prompt",
+                    content_sha256="c271e718182a2ca383440ee2105f65c15546a4d03f8f906fed0e38223144c31b",
+                ),
+            )
+            settings = Settings.model_construct(
+                model="unused/model",
+                system_prompt="You are a helpful assistant.",
+                good_prompts=specification,
+            )
+
+            prompts = load_prompts(settings, specification)
+
+        self.assertEqual([prompt.user for prompt in prompts], ["alpha\nbeta", "gamma"])
+
+    def test_rejects_changed_local_content(self) -> None:
+        with TemporaryDirectory() as temp_directory:
+            dataset_path = Path(temp_directory) / "dataset"
+            Dataset.from_dict(
+                {"prompt": ["alpha\nCHANGED", "gamma"]}, split="train"
+            ).save_to_disk(dataset_path)
+            specification = DatasetSpecification(
+                dataset=str(dataset_path),
+                split="train[:]",
+                column="prompt",
+                provenance=HuggingFaceDatasetProvenance(
+                    dataset="source/public",
+                    revision="a" * 40,
+                    split="train",
+                    column="prompt",
+                    content_sha256="c271e718182a2ca383440ee2105f65c15546a4d03f8f906fed0e38223144c31b",
+                ),
+            )
+            settings = Settings.model_construct(
+                model="unused/model",
+                system_prompt="You are a helpful assistant.",
+                good_prompts=specification,
+            )
+
+            with self.assertRaisesRegex(ValueError, "content hash"):
+                load_prompts(settings, specification)
+
+    def test_rematerializes_ordered_source_indices(self) -> None:
+        source = Dataset.from_dict(
+            {"prompt": ["row0\nline2", "row1", "row2\nline2"]}, split="train"
+        )
+        specification = DatasetSpecification(
+            dataset="source/public",
+            split="train[:]",
+            column="prompt",
+            provenance=HuggingFaceDatasetProvenance(
+                dataset="source/public",
+                revision="a" * 40,
+                split="train",
+                indices=[2, 0],
+                column="prompt",
+                content_sha256="d79e92c036c2bbd14afa53ef9dc9745f679d6997c358fcd254d3fef711450b71",
+            ),
+        )
+        settings = Settings.model_construct(
+            model="unused/model",
+            system_prompt="You are a helpful assistant.",
+            good_prompts=specification,
+        )
+
+        with patch(
+            "heretic.dataset_provenance.load_dataset", return_value=source
+        ) as load_dataset_mock:
+            prompts = load_prompts(settings, specification)
+
+        self.assertEqual(
+            [prompt.user for prompt in prompts], ["row2\nline2", "row0\nline2"]
+        )
+        load_dataset_mock.assert_called_once_with(
+            "source/public",
+            revision="a" * 40,
+            split="train",
         )
 
 

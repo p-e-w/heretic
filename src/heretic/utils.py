@@ -29,6 +29,7 @@ from questionary import Question
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
+from .dataset_provenance import load_verified_dataset
 from .system import (
     get_accelerator_info_dict,
     get_cpu_info_dict,
@@ -191,7 +192,11 @@ def load_prompts(
         if specification.column is None:
             raise ValueError(f'The "column" field is required for datasets: {path}')
 
-        if is_hf_path(path):
+        if specification.provenance is not None:
+            dataset = load_verified_dataset(specification)
+            start, end = get_split_slice(split_str, len(dataset))
+            dataset = dataset[start:end]
+        elif is_hf_path(path):
             # Pin to the latest commit if not already set, so the exact dataset
             # version is recorded for reproducibility.
             if specification.commit is None:

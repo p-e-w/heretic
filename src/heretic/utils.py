@@ -29,7 +29,10 @@ from questionary import Question
 from rich.console import Console
 
 from .config import DatasetSpecification, Settings
-from .dataset_provenance import load_verified_dataset
+from .dataset_provenance import (
+    load_verified_dataset,
+    sanitize_dataset_provenance_paths,
+)
 from .system import (
     get_accelerator_info_dict,
     get_cpu_info_dict,
@@ -353,6 +356,15 @@ def generate_config_toml(settings: Settings) -> str:
     return tomli_w.dumps(settings.model_dump(exclude_none=True))
 
 
+def generate_reproduction_config_toml(settings: Settings) -> str:
+    """Serialize reproducible settings without provenance-backed local paths."""
+
+    sanitized_settings, _ = sanitize_dataset_provenance_paths(
+        settings.model_dump(exclude_none=True)
+    )
+    return tomli_w.dumps(sanitized_settings)
+
+
 def generate_requirements_txt() -> str:
     """Collects direct project dependencies as a formatted string."""
 
@@ -570,9 +582,14 @@ def generate_reproduce_json(
 
     version_info = get_heretic_version_info()
 
+    reproduction_settings, has_materialized_provenance = (
+        sanitize_dataset_provenance_paths(settings.model_dump())
+    )
+
     data = {
         # Version 3: plugin-based schema with generic scores/baseline scores.
-        "version": "3",
+        # Version 4: version 3 plus reconstructable materialized dataset provenance.
+        "version": "4" if has_materialized_provenance else "3",
         "timestamp": timestamp,
         "system": None,  # Defined here to preserve insertion order.
         "environment": {
@@ -584,7 +601,7 @@ def generate_reproduce_json(
             "pytorch_version": torch.__version__,
             "requirements": get_requirements_dict(),
         },
-        "settings": settings.model_dump(),
+        "settings": reproduction_settings,
         "parameters": {
             "direction_index": trial.user_attrs["direction_index"],
             "abliteration_parameters": trial.user_attrs["parameters"],
@@ -660,7 +677,7 @@ def create_reproduce_folder(
     )
 
     (reproduce_dir / "config.toml").write_text(
-        generate_config_toml(settings),
+        generate_reproduction_config_toml(settings),
         encoding="utf-8",
     )
 

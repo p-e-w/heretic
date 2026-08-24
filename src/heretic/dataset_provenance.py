@@ -4,9 +4,11 @@
 import hashlib
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
+from huggingface_hub.utils import validate_repo_id
 
 from .config import DatasetSpecification, HuggingFaceDatasetProvenance
 
@@ -94,3 +96,88 @@ def load_verified_dataset(specification: DatasetSpecification) -> Dataset:
         )
 
     return dataset
+
+
+def get_dataset_reproducibility_error(
+    specification: DatasetSpecification,
+) -> str | None:
+    """Return why a dataset cannot be reproduced, or None when it can be."""
+
+    path = Path(specification.dataset)
+    provenance = specification.provenance
+
+    if provenance is None:
+        if path.exists():
+            return "local dataset has no verified public provenance"
+
+        try:
+            validate_repo_id(specification.dataset)
+        except ValueError:
+            return "local dataset has no verified public provenance"
+
+        if specification.commit is None:
+            return "Hugging Face dataset is not pinned to a commit"
+        return None
+
+    if path.exists():
+        try:
+            load_verified_dataset(specification)
+        except Exception as error:
+            message = str(error)
+            if "content hash" in message or "column" in message:
+                return message
+            return (
+                "local materialized dataset could not be verified "
+                f"({type(error).__name__})"
+            )
+
+    try:
+        source_dataset = materialize_source_dataset(provenance)
+        source_sha256 = get_dataset_content_sha256(
+            source_dataset,
+            provenance.column,
+        )
+    except Exception as error:
+        return (
+            f"public provenance source {provenance.dataset}@{provenance.revision} "
+            f"could not be materialized ({type(error).__name__})"
+        )
+
+    if source_sha256 != provenance.content_sha256:
+        return (
+            "materialized dataset does not match its public source "
+            f"(expected {provenance.content_sha256}, got {source_sha256})"
+        )
+
+    return None
+
+
+def sanitize_dataset_provenance_paths(value: Any) -> tuple[Any, bool]:
+    """Copy settings data while replacing provenance-backed local paths."""
+
+    if isinstance(value, list):
+        sanitized_items = []
+        has_provenance = False
+        for item in value:
+            sanitized, item_has_provenance = sanitize_dataset_provenance_paths(item)
+            sanitized_items.append(sanitized)
+            has_provenance = has_provenance or item_has_provenance
+        return sanitized_items, has_provenance
+
+    if not isinstance(value, dict):
+        return value, False
+
+    sanitized_dict = {}
+    has_provenance = False
+    for key, item in value.items():
+        sanitized, item_has_provenance = sanitize_dataset_provenance_paths(item)
+        sanitized_dict[key] = sanitized
+        has_provenance = has_provenance or item_has_provenance
+
+    raw_provenance = sanitized_dict.get("provenance")
+    if "dataset" in sanitized_dict and raw_provenance is not None:
+        provenance = HuggingFaceDatasetProvenance.model_validate(raw_provenance)
+        sanitized_dict["dataset"] = provenance.dataset
+        has_provenance = True
+
+    return sanitized_dict, has_provenance

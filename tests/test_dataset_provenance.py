@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from datasets import Dataset
+from datasets import Dataset, NamedSplit
 
 from heretic.config import (
     DatasetSpecification,
@@ -40,13 +40,34 @@ class PromptContentHashTests(unittest.TestCase):
 
 
 class VerifiedDatasetLoadingTests(unittest.TestCase):
+    def test_rejects_source_and_local_column_disagreement(self) -> None:
+        specification = DatasetSpecification(
+            dataset="source/public",
+            split="train[:]",
+            column="local_prompt",
+            provenance=HuggingFaceDatasetProvenance(
+                dataset="source/public",
+                revision="a" * 40,
+                split="train",
+                column="prompt",
+                content_sha256="b" * 64,
+            ),
+        )
+
+        with self.assertRaisesRegex(ValueError, "does not match.*column"):
+            load_prompts(
+                Settings.model_construct(system_prompt="System"),
+                specification,
+            )
+
     def test_loads_verified_save_to_disk_dataset_with_multiline_prompts(
         self,
     ) -> None:
         with TemporaryDirectory() as temp_directory:
             dataset_path = Path(temp_directory) / "dataset"
             Dataset.from_dict(
-                {"prompt": ["alpha\nbeta", "gamma"]}, split="train"
+                {"prompt": ["alpha\nbeta", "gamma"]},
+                split=NamedSplit("train"),
             ).save_to_disk(dataset_path)
             specification = DatasetSpecification(
                 dataset=str(dataset_path),
@@ -74,7 +95,8 @@ class VerifiedDatasetLoadingTests(unittest.TestCase):
         with TemporaryDirectory() as temp_directory:
             dataset_path = Path(temp_directory) / "dataset"
             Dataset.from_dict(
-                {"prompt": ["alpha\nCHANGED", "gamma"]}, split="train"
+                {"prompt": ["alpha\nCHANGED", "gamma"]},
+                split=NamedSplit("train"),
             ).save_to_disk(dataset_path)
             specification = DatasetSpecification(
                 dataset=str(dataset_path),
@@ -99,7 +121,8 @@ class VerifiedDatasetLoadingTests(unittest.TestCase):
 
     def test_rematerializes_ordered_source_indices(self) -> None:
         source = Dataset.from_dict(
-            {"prompt": ["row0\nline2", "row1", "row2\nline2"]}, split="train"
+            {"prompt": ["row0\nline2", "row1", "row2\nline2"]},
+            split=NamedSplit("train"),
         )
         specification = DatasetSpecification(
             dataset="source/public",

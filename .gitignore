@@ -24,6 +24,6 @@ wheels/
 # Residual plots
 /plots/
 
-# Trial saves and upload staging
+# Preflight saves and upload staging
 /heretic-preflight-*/
 /heretic-upload-*/

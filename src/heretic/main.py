@@ -56,7 +56,7 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod, RowNormalization, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, ARAParameters, Model, get_model_class
-from .tensor_check import CheckResult, verify_checkpoint
+from .tensor_check import CheckResult, CheckSite, Verdict, compare_checkpoint
 from .utils import (
     empty_cache,
     format_duration,
@@ -73,32 +73,43 @@ from .utils import (
 
 
 def verification_applies(settings: Settings) -> bool:
-    # An ARA-LoRA run writes an adapter, whose tensor names bear no relation to any
-    # source checkpoint. That case is excluded rather than given a second invariant.
+    # An ARA-LoRA run writes an adapter, whose names bear no relation to the source.
     return not (settings.use_ara and settings.use_ara_lora)
 
 
 def confirm_upload(result: CheckResult) -> bool:
-    return (
-        prompt_select(
-            f"Upload anyway, with {len(result.unclaimed_extra)} unexpected tensor(s)?",
+    if result.verdict == Verdict.NO_WEIGHTS:
+        message = (
+            f"The staged model contains no weights ({result.reason}). Upload anyway?"
+        )
+    else:
+        message = (
+            "The staged model differs from the source checkpoint "
+            f"({len(result.absent)} absent, {len(result.extra)} extra, "
+            f"{len(result.shape_mismatches)} shape). Upload anyway?"
+        )
+
+    # Cancel first: bare Enter must not publish. questionary turns Ctrl+C into None
+    # and a closed input raises EOFError; both cancel.
+    try:
+        choice = prompt_select(
+            message,
             choices=[
-                Choice(title="Upload the model", value="upload"),
                 Choice(title="Cancel", value="cancel"),
+                Choice(title="Upload the model anyway", value="upload"),
             ],
         )
-        == "upload"
-    )
+    except (KeyboardInterrupt, EOFError):
+        choice = None
+
+    return choice == "upload"
 
 
-def compensating_model_card(repo_id: str, token: str) -> ModelCard:
+def fallback_model_card(repo_id: str, token: str) -> ModelCard:
     """
-    The card push_to_hub would have written when Heretic has none of its own.
-
-    It loads the card already on the repository and only generates one when there is
-    none, which is what keeps an existing card from being overwritten. A repository
-    that does not exist counts as one without a card: the proposed name is usually new,
-    and it is created after verification rather than before it.
+    Loads the card already on the repository, generating one only when there is
+    none, so an existing remote card is never overwritten. A missing repository
+    counts as no card: it is created only after verification.
     """
     try:
         return ModelCard.load(repo_id, token=token)
@@ -108,38 +119,14 @@ def compensating_model_card(repo_id: str, token: str) -> ModelCard:
 
 def stage_for_upload(model: Model, settings: Settings, card: ModelCard) -> Path:
     """
-    Writes the model, the tokenizer and the card into a directory beside the one kept
-    from any previous upload, and swaps the new one into place once it is complete.
-
-    push_to_hub cannot be used here. It saves into a temporary directory that is
-    destroyed before it returns, and reading back what was actually written is the only
-    way to catch a serialization bug.
-
-    Anything already kept has to survive every step below, all of which can fail: a
-    full-precision reload that may exhaust memory, a save that raises part way through
-    on some transformers versions, a full disk, and Ctrl+C, which is a BaseException
-    and ends the session outright. So nothing is ever written into the kept directory.
+    Writes the model, the tokenizer and the card into a local staging directory.
+    push_to_hub saves into a temporary directory destroyed before it returns, and
+    reading back what was actually written is the only way to catch a serialization
+    bug.
     """
     staging = (
-        Path(settings.upload_directory) / f"heretic-upload-{Path(settings.model).name}"
+        Path(settings.scratch_directory) / f"heretic-upload-{Path(settings.model).name}"
     )
-    incoming = staging.with_name(staging.name + ".new")
-    previous = staging.with_name(staging.name + ".old")
-
-    # If a previous attempt died between the two renames below, the kept directory is
-    # gone and this is the only complete copy left.
-    if previous.exists():
-        if staging.exists():
-            shutil.rmtree(previous)
-        else:
-            previous.rename(staging)
-
-    # Usually incomplete, and removed without asking whether it is. Left in place it
-    # would be written into by the save below and then uploaded along with it, which is
-    # how a stray adapter_config.json from an abandoned run gets published and makes
-    # the whole repository load as an adapter.
-    if incoming.exists():
-        shutil.rmtree(incoming)
 
     if settings.use_ara:
         print("Uploading model...")
@@ -148,23 +135,19 @@ def stage_for_upload(model: Model, settings: Settings, card: ModelCard) -> Path:
         print("Uploading merged model...")
         merged_model = model.get_merged_model()
 
-    merged_model.save_pretrained(str(incoming))
+    # Cleared only once the merge product exists, so a failed merge cannot cost a
+    # retained artifact; a fresh directory keeps leftovers from being uploaded.
+    if staging.exists():
+        shutil.rmtree(staging)
+
+    merged_model.save_pretrained(str(staging))
     del merged_model
     empty_cache()
-    model.tokenizer.save_pretrained(str(incoming))
+    model.tokenizer.save_pretrained(str(staging))
 
-    # After both saves. PeftModel.save_pretrained writes a README of its own, and it
-    # replaces the front matter wholesale, which would drop Heretic's tags.
-    card.save(incoming / huggingface_hub.constants.REPOCARD_NAME)
-
-    # Swapped in on completeness rather than on the verdict. A rejected artifact is
-    # still the user's abliterated model, and a failed check means "do not publish
-    # this", never "do not keep this".
-    if staging.exists():
-        staging.rename(previous)
-    incoming.rename(staging)
-    if previous.exists():
-        shutil.rmtree(previous)
+    # After both saves: PeftModel.save_pretrained writes a README of its own,
+    # replacing the front matter and dropping Heretic's tags.
+    card.save(staging / huggingface_hub.constants.REPOCARD_NAME)
 
     return staging
 
@@ -996,11 +979,23 @@ def run():
                                 model.tokenizer.save_pretrained(save_directory)
 
                                 if verification_applies(settings):
-                                    verify_checkpoint(
-                                        Path(save_directory),
-                                        model.source_index,
-                                        model.check_captures,
+                                    result = compare_checkpoint(
+                                        Path(save_directory), model.source_index
                                     )
+                                    if result.verdict == Verdict.UNAVAILABLE:
+                                        print(
+                                            f"* Tensor check skipped: {result.reason}"
+                                        )
+                                    elif result.verdict == Verdict.CLEAN:
+                                        print(
+                                            "* Saved model structure matches the "
+                                            "source checkpoint"
+                                        )
+                                    else:
+                                        report = result.describe(
+                                            CheckSite.POST_SAVE, Path(save_directory)
+                                        )
+                                        print(f"[yellow]{report}[/]")
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -1042,11 +1037,9 @@ def run():
                             if strategy is None:
                                 continue
 
-                            # create_repo normalizes this, but it does not run until
-                            # after the model has been checked, and the card below is
-                            # looked up before that. A name without a namespace would
-                            # not find the card already on the repository, and would
-                            # overwrite it with a generated one.
+                            # The card lookup below runs before create_repo can
+                            # normalize the id; a bare name would miss the existing
+                            # remote card and overwrite it.
                             if "/" not in repo_id:
                                 repo_id = f"{user['name']}/{repo_id}"
 
@@ -1056,11 +1049,8 @@ def run():
                             # hosted on the Hugging Face Hub, in which case
                             # we can retrieve the model card.
                             #
-                            # This runs before the upload rather than after it, because
-                            # the card is now written into the folder that gets
-                            # uploaded. That turns the fetch below into something that
-                            # can fail before anything has been published, so a card
-                            # that cannot be read falls back rather than propagating.
+                            # Runs before the upload now, so a failed card fetch must
+                            # fall back rather than propagate and kill the upload.
                             model_path = Path(settings.model)
                             if model_path.exists():
                                 card_path = (
@@ -1117,26 +1107,32 @@ def run():
                                     settings,
                                     card
                                     if card is not None
-                                    else compensating_model_card(repo_id, token),
+                                    else fallback_model_card(repo_id, token),
                                 )
 
                                 if verification_applies(settings):
-                                    verify_checkpoint(
-                                        staging_directory,
-                                        model.source_index,
-                                        model.check_captures,
-                                        context="upload",
-                                        confirm=confirm_upload,
+                                    result = compare_checkpoint(
+                                        staging_directory, model.source_index
                                     )
+                                    if result.verdict == Verdict.UNAVAILABLE:
+                                        print(
+                                            f"* Tensor check skipped: {result.reason}"
+                                        )
+                                    elif result.verdict != Verdict.CLEAN:
+                                        report = result.describe(
+                                            CheckSite.UPLOAD, staging_directory
+                                        )
+                                        print(f"[yellow]{report}[/]")
+                                        if not confirm_upload(result):
+                                            print(
+                                                "Upload cancelled. The model is "
+                                                f"still at [bold]{staging_directory}[/]."
+                                            )
+                                            continue
 
-                                # Created only now, so that a model which fails the
-                                # check leaves nothing behind on the Hub. Every
-                                # argument here is one push_to_hub was supplying:
-                                # without exist_ok every upload to an existing
-                                # repository fails, without private the first upload of
-                                # a model marked private is published publicly, and
-                                # without token the upload falls back to an ambient
-                                # credential that Heretic deliberately never writes.
+                                # Created only after the check, so a cancelled upload
+                                # leaves nothing on the Hub. exist_ok, private and
+                                # token are all arguments push_to_hub was supplying.
                                 repo_id = huggingface_hub.create_repo(
                                     repo_id,
                                     private=private,

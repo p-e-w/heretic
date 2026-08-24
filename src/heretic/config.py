@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-from enum import Enum
 import re
+from enum import Enum
 from typing import Dict, Literal
 
+from huggingface_hub.utils import validate_repo_id
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -21,7 +22,6 @@ from pydantic_settings import (
     SettingsConfigDict,
     TomlConfigSettingsSource,
 )
-from huggingface_hub.utils import validate_repo_id
 
 # !!!IMPORTANT!!!
 #
@@ -45,6 +45,10 @@ class RowNormalization(str, Enum):
 class ExportStrategy(str, Enum):
     MERGE = "merge"
     ADAPTER = "adapter"
+
+
+def is_exact_commit_sha(value: str) -> bool:
+    return re.fullmatch(r"[0-9a-fA-F]{40}", value) is not None
 
 
 class HuggingFaceDatasetProvenance(BaseModel):
@@ -92,10 +96,9 @@ class HuggingFaceDatasetProvenance(BaseModel):
     @field_validator("revision")
     @classmethod
     def validate_revision(cls, value: str) -> str:
-        value = value.lower()
-        if re.fullmatch(r"[0-9a-f]{40}", value) is None:
+        if not is_exact_commit_sha(value):
             raise ValueError("must be an exact 40-character commit SHA")
-        return value
+        return value.lower()
 
     @field_validator("indices")
     @classmethod

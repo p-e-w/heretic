@@ -24,7 +24,6 @@ from heretic.dataset_provenance import (
 )
 from heretic.utils import generate_reproduce_json, load_prompts
 
-
 DATASET_ID = "fka/awesome-chatgpt-prompts"
 REVISION = "ca0bf873b687e093f27beaddce8421f92d8ea7b4"
 INDICES = [3, 104]
@@ -72,9 +71,7 @@ class PublicDatasetProvenanceIntegrationTests(unittest.TestCase):
             )
 
             local_prompts = load_prompts(settings, local_specification)
-            self.assertIsNone(
-                get_dataset_reproducibility_error(local_specification)
-            )
+            self.assertIsNone(get_dataset_reproducibility_error(local_specification))
 
             manifest_contents = generate_reproduce_json(
                 settings,

@@ -20,13 +20,13 @@ from heretic.dataset_provenance import (
     get_dataset_reproducibility_error,
     sanitize_dataset_provenance_paths,
 )
+from heretic.main import run
 from heretic.reproduce import is_supported_reproduction_version
 from heretic.utils import (
-    generate_reproduce_readme,
     generate_reproduce_json,
+    generate_reproduce_readme,
     generate_reproduction_config_toml,
 )
-
 
 CONTENT_SHA256 = "c271e718182a2ca383440ee2105f65c15546a4d03f8f906fed0e38223144c31b"
 
@@ -84,6 +84,21 @@ class DatasetReproducibilityEligibilityTests(unittest.TestCase):
         )
 
         self.assertIsNone(get_dataset_reproducibility_error(specification))
+
+    def test_rejects_hugging_face_dataset_without_exact_commit_sha(self) -> None:
+        for commit in ["main", "", "g" * 40, "a" * 39]:
+            with self.subTest(commit=commit):
+                specification = DatasetSpecification(
+                    dataset="source/public",
+                    commit=commit,
+                    split="train[:2]",
+                    column="prompt",
+                )
+
+                error = get_dataset_reproducibility_error(specification)
+
+                self.assertIsNotNone(error)
+                self.assertIn("exact commit SHA", error or "")
 
     def test_accepts_local_dataset_matching_public_source(self) -> None:
         source = Dataset.from_dict(
@@ -296,6 +311,24 @@ class ReproductionVersionTests(unittest.TestCase):
         for version in ["2", 5, None]:
             with self.subTest(version=version):
                 self.assertFalse(is_supported_reproduction_version(version))
+
+    def test_run_rejects_manifest_without_version_cleanly(self) -> None:
+        settings = SimpleNamespace(
+            collect_reproducibles=None,
+            reproduce="missing-version.json",
+        )
+
+        with (
+            patch("heretic.main.Settings", return_value=settings),
+            patch("heretic.main.load_reproduction_information", return_value={}),
+            patch("heretic.main.print") as print_mock,
+        ):
+            run()
+
+        output = " ".join(
+            str(call.args[0]) for call in print_mock.call_args_list if call.args
+        )
+        self.assertIn("Unsupported file format version", output)
 
 
 if __name__ == "__main__":

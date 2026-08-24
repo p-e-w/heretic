@@ -70,9 +70,9 @@ from rich.traceback import install
 
 from .analyzer import Analyzer
 from .config import ExportStrategy, QuantizationMethod
+from .dataset_provenance import get_dataset_reproducibility_error
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
-from .dataset_provenance import get_dataset_reproducibility_error
 from .reproduce import (
     check_environment,
     collect_reproducibles,
@@ -244,16 +244,15 @@ def run():
         # FIXME: "Reproduction"/"reproducibility" name inconsistency!
         reproduction_information = load_reproduction_information(settings.reproduce)
 
-        # Version 3 is the plugin-era schema, which stores generic scorer
+        # Versions 3 and 4 are plugin-era schemas, which store generic scorer
         # `scores`/`baseline_scores`. It is intentionally NOT compatible with the
         # pre-plugin v1/v2 schema (hardcoded refusals/KL `metrics`), so those are
         # rejected rather than silently failing on a missing key later.
-        if not is_supported_reproduction_version(
-            reproduction_information.get("version")
-        ):
+        reproduction_version = reproduction_information.get("version")
+        if not is_supported_reproduction_version(reproduction_version):
             print(
                 (
-                    f"[red]Unsupported file format version: [bold]{reproduction_information['version']}[/].[/] "
+                    f"[red]Unsupported file format version: [bold]{reproduction_version}[/].[/] "
                     "This version of Heretic reads version 3 and 4 (plugin scorer) reproduce.json files. "
                     "Older files were produced before the scorer-plugin refactor and are not supported. "
                     "Please install Heretic 1.4 to use these files."

@@ -11,8 +11,11 @@ from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 from datasets.config import DATASET_STATE_JSON_FILENAME
 from huggingface_hub.utils import validate_repo_id
 
-from .config import DatasetSpecification, HuggingFaceDatasetProvenance
-
+from .config import (
+    DatasetSpecification,
+    HuggingFaceDatasetProvenance,
+    is_exact_commit_sha,
+)
 
 _PROMPT_CONTENT_HASH_DOMAIN = b"heretic-prompt-content-v1\0"
 
@@ -117,8 +120,10 @@ def get_dataset_reproducibility_error(
         except ValueError:
             return "local dataset has no verified public provenance"
 
-        if specification.commit is None:
-            return "Hugging Face dataset is not pinned to a commit"
+        if specification.commit is None or not is_exact_commit_sha(
+            specification.commit
+        ):
+            return "Hugging Face dataset is not pinned to an exact commit SHA"
         return None
 
     if path.exists():

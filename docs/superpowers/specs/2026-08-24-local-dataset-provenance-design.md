@@ -34,7 +34,7 @@ revision = "ca0bf873b687e093f27beaddce8421f92d8ea7b4"
 split = "train"
 indices = [3, 104]
 column = "prompt"
-content_sha256 = "..."
+content_sha256 = "383dc9e12acf9ea26fb2f85837bb88eae9465d4da740cab9082b9093a3950dd6"
 ```
 
 The fields mean:

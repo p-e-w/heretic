@@ -47,6 +47,33 @@ def get_model_class(
         return AutoModelForCausalLM
 
 
+NON_RETRYABLE_DTYPE_ERROR_MARKERS = (
+    "cannot be imported",
+    "has no attribute",
+    "is required by",
+    "model type should be one of",
+    "no module named",
+    "not a valid torch dtype",
+    "not supported",
+    "unexpected keyword argument 'dtype'",
+    "unknown dtype",
+    "unrecognized configuration class",
+    "unsupported",
+)
+
+
+def classify_dtype_load_error(error: Exception) -> str:
+    """Classify whether trying another dtype can plausibly recover the load."""
+    if isinstance(error, ImportError):
+        return "non-retryable"
+
+    message = format_exception(error).lower()
+    if any(marker in message for marker in NON_RETRYABLE_DTYPE_ERROR_MARKERS):
+        return "non-retryable"
+
+    return "retryable"
+
+
 @dataclass
 class AbliterationParameters:
     max_weight: float
@@ -105,6 +132,8 @@ class Model:
 
         self.trusted_models = set()
 
+        failures: list[tuple[str, str, str]] = []
+
         for dtype in settings.dtypes:
             print(f"* Trying dtype [bold]{dtype}[/]...")
 
@@ -153,10 +182,18 @@ class Model:
                 empty_cache()
 
                 formatted = format_exception(error)
+                failure_class = classify_dtype_load_error(error)
+                failures.append((dtype, failure_class, formatted))
                 if "\n" in formatted:
                     print(f"* [red]Failed:\n{formatted}[/]")
                 else:
                     print(f"* [red]Failed ({formatted})[/]")
+
+                if failure_class == "non-retryable":
+                    print(
+                        f"* [yellow]Stopping dtype fallback: {failure_class} error[/]"
+                    )
+                    break
 
                 continue
 
@@ -166,7 +203,13 @@ class Model:
             break
 
         if self.model is None:
-            raise Exception("Failed to load model with all configured dtypes.")
+            details = "\n".join(
+                f"- {dtype} [{failure_class}]: {reason}"
+                for dtype, failure_class, reason in failures
+            )
+            raise Exception(
+                "Failed to load model with all configured dtypes:\n" + details
+            )
 
         self._apply_lora()
 

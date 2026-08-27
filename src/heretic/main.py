@@ -497,15 +497,17 @@ def run():
         assert isinstance(dummy_prompt, str)
 
         for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
-            # Match the tag and capture any text or whitespace following it in the end.
-            pattern = rf"{re.escape(cot_initializer)}(.*)$"
+            # Match the tag and capture only whitespace following it in the end.
+            # Some chat templates like mistral-3 contain additional text/instructions
+            # after the tag, so it is better that they fallback on inference.
+            pattern = rf"{re.escape(cot_initializer)}(\s*)$"
             match = re.search(pattern, dummy_prompt, re.DOTALL)
 
             if match:
-                trailing_content = match.group(1)
-                # Get the closing tag and add the spaces or newlines found.
-                base_closed_block = closed_cot_block[len(cot_initializer) :]
-                settings.response_prefix = base_closed_block + trailing_content
+                trailing_whitespace = match.group(1)
+                # Join the closed CoT block with template's formatting
+                # like whitespaces used by Qwen3.5 etc.
+                settings.response_prefix = closed_cot_block + trailing_whitespace
                 print(
                     f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
                 )

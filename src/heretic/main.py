@@ -481,7 +481,7 @@ def run():
 
         # Detect if the model's chat template inserts a reasoning tag on its own
         # in the end of user's prompt (e.g. <think>) by using a dummy prompt.
-        # If found, then we extract the end of it (e.g. </think>) as the response prefix.
+        # If found, then we use the full Closed CoT as the response prefix.
         # Otherwise we fall back to real prompts inference.
         # LiquidAI's LFM models do this (Lfm2ForCausalLM).
         dummy_prompt = model.tokenizer.apply_chat_template(
@@ -492,8 +492,6 @@ def run():
 
         cot_skip_applied = False
 
-        # Some chat-templates add whitespace after the tag (e.g. Qwen3.5 adds "<think>\n"),
-        # so we just strip any whitespace from the end before checking.
         assert isinstance(dummy_prompt, str)
 
         for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:

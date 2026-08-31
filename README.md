@@ -311,3 +311,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 **By contributing to this project, you agree to release your
 contributions under the same license.**
+
+this repo is amazing

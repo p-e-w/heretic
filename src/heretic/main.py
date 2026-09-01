@@ -20,6 +20,7 @@ from dataclasses import asdict
 from importlib.metadata import version
 from os.path import commonprefix
 from pathlib import Path
+from tempfile import mkdtemp
 from typing import Any
 
 import huggingface_hub
@@ -38,7 +39,6 @@ from accelerate.utils import (
     is_xpu_available,
 )
 from huggingface_hub import ModelCard, ModelCardData
-from huggingface_hub.errors import EntryNotFoundError, RepositoryNotFoundError
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -56,7 +56,7 @@ from .analyzer import Analyzer
 from .config import QuantizationMethod, RowNormalization, Settings
 from .evaluator import Evaluator
 from .model import AbliterationParameters, ARAParameters, Model, get_model_class
-from .tensor_check import CheckResult, CheckSite, Verdict, compare_checkpoint
+from .tensor_check import check_tensors
 from .utils import (
     empty_cache,
     format_duration,
@@ -70,86 +70,6 @@ from .utils import (
     prompt_select,
     prompt_text,
 )
-
-
-def verification_applies(settings: Settings) -> bool:
-    # An ARA-LoRA run writes an adapter, whose names bear no relation to the source.
-    return not (settings.use_ara and settings.use_ara_lora)
-
-
-def confirm_upload(result: CheckResult) -> bool:
-    if result.verdict == Verdict.NO_WEIGHTS:
-        message = (
-            f"The staged model contains no weights ({result.reason}). Upload anyway?"
-        )
-    else:
-        message = (
-            "The staged model differs from the source checkpoint "
-            f"({len(result.absent)} absent, {len(result.extra)} extra, "
-            f"{len(result.shape_mismatches)} shape). Upload anyway?"
-        )
-
-    # Cancel first: bare Enter must not publish. questionary turns Ctrl+C into None
-    # and a closed input raises EOFError; both cancel.
-    try:
-        choice = prompt_select(
-            message,
-            choices=[
-                Choice(title="Cancel", value="cancel"),
-                Choice(title="Upload the model anyway", value="upload"),
-            ],
-        )
-    except (KeyboardInterrupt, EOFError):
-        choice = None
-
-    return choice == "upload"
-
-
-def fallback_model_card(repo_id: str, token: str) -> ModelCard:
-    """
-    Loads the card already on the repository, generating one only when there is
-    none, so an existing remote card is never overwritten. A missing repository
-    counts as no card: it is created only after verification.
-    """
-    try:
-        return ModelCard.load(repo_id, token=token)
-    except (EntryNotFoundError, RepositoryNotFoundError):
-        return ModelCard.from_template(ModelCardData(library_name="transformers"))
-
-
-def stage_for_upload(model: Model, settings: Settings, card: ModelCard) -> Path:
-    """
-    Writes the model, the tokenizer and the card into a local staging directory.
-    push_to_hub saves into a temporary directory destroyed before it returns, and
-    reading back what was actually written is the only way to catch a serialization
-    bug.
-    """
-    staging = (
-        Path(settings.scratch_directory) / f"heretic-upload-{Path(settings.model).name}"
-    )
-
-    if settings.use_ara:
-        print("Uploading model...")
-        merged_model = model.model
-    else:
-        print("Uploading merged model...")
-        merged_model = model.get_merged_model()
-
-    # Cleared only once the merge product exists, so a failed merge cannot cost a
-    # retained artifact; a fresh directory keeps leftovers from being uploaded.
-    if staging.exists():
-        shutil.rmtree(staging)
-
-    merged_model.save_pretrained(str(staging))
-    del merged_model
-    empty_cache()
-    model.tokenizer.save_pretrained(str(staging))
-
-    # After both saves: PeftModel.save_pretrained writes a README of its own,
-    # replacing the front matter and dropping Heretic's tags.
-    card.save(staging / huggingface_hub.constants.REPOCARD_NAME)
-
-    return staging
 
 
 def obtain_merge_strategy(settings: Settings) -> str | None:
@@ -978,24 +898,7 @@ def run():
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)
 
-                                if verification_applies(settings):
-                                    result = compare_checkpoint(
-                                        Path(save_directory), model.source_index
-                                    )
-                                    if result.verdict == Verdict.UNAVAILABLE:
-                                        print(
-                                            f"* Tensor check skipped: {result.reason}"
-                                        )
-                                    elif result.verdict == Verdict.CLEAN:
-                                        print(
-                                            "* Saved model structure matches the "
-                                            "source checkpoint"
-                                        )
-                                    else:
-                                        report = result.describe(
-                                            CheckSite.POST_SAVE, Path(save_directory)
-                                        )
-                                        print(f"[yellow]{report}[/]")
+                                check_tensors(model.source_shapes, save_directory)
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
@@ -1037,20 +940,49 @@ def run():
                             if strategy is None:
                                 continue
 
-                            # The card lookup below runs before create_repo can
-                            # normalize the id; a bare name would miss the existing
-                            # remote card and overwrite it.
-                            if "/" not in repo_id:
-                                repo_id = f"{user['name']}/{repo_id}"
+                            if strategy == "adapter":
+                                print("Uploading LoRA adapter...")
+                                model.model.push_to_hub(
+                                    repo_id,
+                                    private=private,
+                                    token=token,
+                                )
+                            else:
+                                if settings.use_ara:
+                                    print("Uploading model...")
+                                    merged_model = model.model
+                                else:
+                                    print("Uploading merged model...")
+                                    merged_model = model.get_merged_model()
+
+                                if model.source_shapes:
+                                    try:
+                                        staging = mkdtemp("", "heretic-upload-", ".")
+                                        print(f"Verifying {staging}...", markup=False)
+                                        merged_model.save_pretrained(staging)
+                                        if check_tensors(model.source_shapes, staging):
+                                            shutil.rmtree(staging, ignore_errors=True)
+                                    except Exception as error:
+                                        print(f"* Check skipped: {error}", markup=False)
+
+                                merged_model.push_to_hub(
+                                    repo_id,
+                                    private=private,
+                                    token=token,
+                                )
+                                del merged_model
+                                empty_cache()
+                                model.tokenizer.push_to_hub(
+                                    repo_id,
+                                    private=private,
+                                    token=token,
+                                )
 
                             # If the model path exists locally and includes the
                             # card, use it directly. If the model path doesn't
                             # exist locally, it can be assumed to be a model
                             # hosted on the Hugging Face Hub, in which case
                             # we can retrieve the model card.
-                            #
-                            # Runs before the upload now, so a failed card fetch must
-                            # fall back rather than propagate and kill the upload.
                             model_path = Path(settings.model)
                             if model_path.exists():
                                 card_path = (
@@ -1061,10 +993,7 @@ def run():
                                 else:
                                     card = None
                             else:
-                                try:
-                                    card = ModelCard.load(settings.model)
-                                except Exception:
-                                    card = None
+                                card = ModelCard.load(settings.model)
                             if card is not None:
                                 if card.data is None:
                                     card.data = ModelCardData()
@@ -1091,60 +1020,7 @@ def run():
                                     )
                                     + card.text
                                 )
-
-                            if strategy == "adapter":
-                                print("Uploading LoRA adapter...")
-                                model.model.push_to_hub(
-                                    repo_id,
-                                    private=private,
-                                    token=token,
-                                )
-                                if card is not None:
-                                    card.push_to_hub(repo_id, token=token)
-                            else:
-                                staging_directory = stage_for_upload(
-                                    model,
-                                    settings,
-                                    card
-                                    if card is not None
-                                    else fallback_model_card(repo_id, token),
-                                )
-
-                                if verification_applies(settings):
-                                    result = compare_checkpoint(
-                                        staging_directory, model.source_index
-                                    )
-                                    if result.verdict == Verdict.UNAVAILABLE:
-                                        print(
-                                            f"* Tensor check skipped: {result.reason}"
-                                        )
-                                    elif result.verdict != Verdict.CLEAN:
-                                        report = result.describe(
-                                            CheckSite.UPLOAD, staging_directory
-                                        )
-                                        print(f"[yellow]{report}[/]")
-                                        if not confirm_upload(result):
-                                            print(
-                                                "Upload cancelled. The model is "
-                                                f"still at [bold]{staging_directory}[/]."
-                                            )
-                                            continue
-
-                                # Created only after the check, so a cancelled upload
-                                # leaves nothing on the Hub. exist_ok, private and
-                                # token are all arguments push_to_hub was supplying.
-                                repo_id = huggingface_hub.create_repo(
-                                    repo_id,
-                                    private=private,
-                                    token=token,
-                                    exist_ok=True,
-                                ).repo_id
-                                huggingface_hub.upload_folder(
-                                    repo_id=repo_id,
-                                    folder_path=staging_directory,
-                                    token=token,
-                                )
-                                shutil.rmtree(staging_directory, ignore_errors=True)
+                                card.push_to_hub(repo_id, token=token)
 
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 

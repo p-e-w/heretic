@@ -278,24 +278,11 @@ class Settings(BaseSettings):
         description="Directory to save and load study progress to/from.",
     )
 
-    preflight_save_check: bool = Field(
+    preflight_check: bool = Field(
         default=True,
         description=(
-            "Whether to verify that this environment saves the model faithfully, by "
-            "writing a preflight save before optimization and comparing it to the "
-            "source checkpoint. A difference prompts whether to continue; turning "
-            "this off skips only the preflight save, not the checks after saving "
-            "and before uploading."
-        ),
-    )
-
-    # Defaults to the working directory rather than a temporary one: /tmp is usually
-    # tmpfs, which would put a multi-gigabyte model copy in RAM.
-    scratch_directory: str = Field(
-        default=".",
-        description=(
-            "Directory where temporary model copies (the preflight save and upload "
-            "staging) are written."
+            "Whether to check that this environment can save the model faithfully, "
+            "by writing a throwaway save before optimization."
         ),
     )
 

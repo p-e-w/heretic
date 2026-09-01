@@ -2,21 +2,17 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import math
-import shutil
-import time
 from contextlib import suppress
 from dataclasses import dataclass
-from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Callable, Type, TypeAlias, cast
 
 import bitsandbytes as bnb
-import huggingface_hub
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
 from peft.tuners.lora.layer import Linear
-from questionary import Choice
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
 from torch.optim import LBFGS
@@ -37,21 +33,8 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, RowNormalization, Settings
-from .tensor_check import (
-    CheckpointIndex,
-    CheckSite,
-    Verdict,
-    compare_checkpoint,
-    read_checkpoint_index,
-)
-from .utils import (
-    Prompt,
-    batchify,
-    empty_cache,
-    mean_distances_to_knn,
-    print,
-    prompt_select,
-)
+from .tensor_check import check_tensors, tensor_shapes
+from .utils import Prompt, batchify, empty_cache, mean_distances_to_knn, print
 
 
 def get_model_class(
@@ -90,15 +73,11 @@ class ARAParameters:
 ModuleIO: TypeAlias = list[dict[str, dict[int, tuple[Tensor, Tensor]]]]
 
 
-def directory_size(directory: Path) -> int:
-    return sum(path.stat().st_size for path in directory.rglob("*") if path.is_file())
-
-
 class Model:
     model: PreTrainedModel | PeftModel
     tokenizer: PreTrainedTokenizerBase
     peft_config: LoraConfig
-    source_index: CheckpointIndex
+    source_shapes: dict[str, tuple[int, ...]]
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -185,36 +164,28 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        # Collect the loader's progress bars now; collected later, they erase
-        # themselves relative to wherever the cursor has moved to.
-        empty_cache()
+        adapter_save = self.model._hf_peft_config_loaded or (
+            settings.use_ara and settings.use_ara_lora
+        )
+        # An adapter save writes names bearing no relation to the source checkpoint.
+        self.source_shapes = {} if adapter_save else tensor_shapes(settings.model)
 
-        self._prepare_tensor_check()
-
-        preflight_target = self._preflight_save_target()
-        if preflight_target is not None and not self._announce_preflight_save(
-            preflight_target
+        # A quantized load serializes bitsandbytes state the source has no names for.
+        if (
+            settings.preflight_check
+            and self.source_shapes
+            and settings.evaluate_model is None
+            and settings.quantization == QuantizationMethod.NONE
         ):
-            preflight_target = None
-
-        if preflight_target == "loaded":
-            # Before _apply_lora: a LoRA-wrapped tree serializes adapter names,
-            # not the model's.
-            assert isinstance(self.model, PreTrainedModel)
-            self._preflight_save(self.model)
+            try:
+                with TemporaryDirectory(dir=".", prefix="heretic-preflight-") as path:
+                    self.model.save_pretrained(path)
+                    check_tensors(self.source_shapes, path)
+            except Exception as error:
+                print(f"* Preflight save failed: {error}", markup=False)
 
         if not settings.use_ara or settings.use_ara_lora:
             self._apply_lora()
-
-        # The save on this path writes get_merged_model()'s product, not anything
-        # already in memory.
-        if preflight_target == "merged":
-            merged_model = self.get_merged_model()
-            try:
-                self._preflight_save(merged_model)
-            finally:
-                del merged_model
-                empty_cache()
 
         # LoRA B matrices are initialized to zero by default in PEFT,
         # so we don't need to do anything manually.
@@ -229,219 +200,6 @@ class Model:
                 all_components[component] += len(modules)
         for component, count in all_components.items():
             print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
-
-    def _prepare_tensor_check(self):
-        """
-        Reads the source checkpoint's tensor names, so saves can be compared to them.
-        Best effort: a source that cannot be read must not stop the run.
-        """
-        self.source_index = {}
-
-        # save_pretrained on a PEFT-loaded model (full weights beside the adapter
-        # config included) writes only the adapter, so there is no model save to
-        # verify.
-        if self.model._hf_peft_config_loaded:
-            print(
-                "* Saved models cannot be verified (this source loads as a PEFT "
-                "adapter, so saving writes the adapter, not the model)"
-            )
-            return
-
-        try:
-            source_directory = Path(self.settings.model)
-            if not source_directory.is_dir():
-                # Only after the load is the cached snapshot known to hold weights.
-                source_directory = Path(
-                    huggingface_hub.snapshot_download(
-                        self.settings.model,
-                        local_files_only=True,
-                    )
-                )
-
-            self.source_index = read_checkpoint_index(source_directory)
-        except Exception as error:
-            self.source_index = {}
-            print(f"* Saved models cannot be verified ({error})")
-            return
-
-        if not self.source_index:
-            print("* Saved models cannot be verified (the source has no safetensors)")
-
-    def _preflight_save_target(self) -> str | None:
-        """
-        Returns "loaded" for the model as loaded, "merged" for what get_merged_model()
-        produces, or None to skip the preflight save.
-        """
-        settings = self.settings
-
-        if not settings.preflight_save_check or not self.source_index:
-            return None
-
-        # An ARA-LoRA run writes an adapter; a full-model preflight save would
-        # predict nothing about it.
-        if settings.use_ara and settings.use_ara_lora:
-            return None
-
-        # This run returns before it reaches a save.
-        if settings.evaluate_model is not None:
-            return None
-
-        # A preflight save here would flag the bitsandbytes model's quantization
-        # state as differences, on a configuration ARA rejects on its own anyway.
-        if settings.use_ara and settings.quantization != QuantizationMethod.NONE:
-            return None
-
-        # Mirrors the dispatch of the save itself, which selects on use_ara.
-        if settings.use_ara or settings.quantization == QuantizationMethod.NONE:
-            return "loaded"
-
-        return "merged"
-
-    def _preflight_save_directory(self) -> Path:
-        return (
-            Path(self.settings.scratch_directory)
-            / f"heretic-preflight-{Path(self.settings.model).name}"
-        )
-
-    def _source_payload_size(self) -> int:
-        return sum(nbytes for _, nbytes in self.source_index.values())
-
-    def _preflight_save_size(self, model: PreTrainedModel | PeftModel) -> int:
-        # Each term alone under-reports: state_dict misses MXFP4 expert weights
-        # (deregistered until save_pretrained restores them), and the source payload
-        # misses the expansion of a dequantized write.
-        state_dict_size = sum(
-            tensor.numel() * tensor.element_size()
-            for tensor in model.state_dict().values()
-        )
-
-        return int(max(state_dict_size, self._source_payload_size()) * 1.05)
-
-    def _announce_preflight_save(self, target: str) -> bool:
-        """
-        Explains the preflight save; returns False if it should not run after all.
-        """
-        # An unsupported architecture must fail here, not after a countdown and a
-        # full serialization.
-        self.get_layers()
-
-        print()
-
-        if target == "merged":
-            # Warned rather than guarded, matching the save-time merge prompt.
-            print(
-                "Merging into a quantized model reloads it in full precision on "
-                "CPU first. [yellow]This can lead to system freezes if you run "
-                "out of memory.[/]"
-            )
-            estimated_size = self._source_payload_size()
-        else:
-            estimated_size = self._preflight_save_size(self.model)
-
-        print(
-            "Checking that this environment can save the model correctly, before "
-            "spending any time on optimization."
-        )
-        print(
-            f"This writes about [bold]{estimated_size / 1024**3:.1f} GB[/] to "
-            f"[bold]{self._preflight_save_directory()}[/], and removes it again "
-            "afterwards."
-        )
-        print(
-            "Starting in 10 seconds. Press Ctrl+C to skip it, or pass "
-            "[bold]--no-preflight-save-check[/] to skip it in future runs."
-        )
-
-        try:
-            time.sleep(10)
-        except KeyboardInterrupt:
-            print("* Save check skipped")
-            return False
-
-        return True
-
-    def _confirm_continue(self, message: str, continue_title: str) -> bool:
-        # questionary turns Ctrl+C into None and a closed input raises EOFError;
-        # anything but an explicit continue must stop.
-        try:
-            choice = prompt_select(
-                message,
-                [
-                    Choice(title="Stop (recommended)", value="stop"),
-                    Choice(title=continue_title, value="continue"),
-                ],
-            )
-        except (KeyboardInterrupt, EOFError):
-            choice = None
-
-        return choice == "continue"
-
-    def _preflight_save(self, model: PreTrainedModel):
-        directory = self._preflight_save_directory()
-
-        # A stale artifact from an earlier stopped run must not pollute the
-        # comparison; save_pretrained does not clear a directory.
-        if directory.exists():
-            shutil.rmtree(directory)
-
-        try:
-            model.save_pretrained(directory)
-            result = compare_checkpoint(directory, self.source_index)
-        except Exception as error:
-            # Transformers can swallow a Ctrl+C and raise something else; re-raise
-            # so main() sees the interrupt instead of this prompting a user who
-            # just aborted.
-            if isinstance(error.__context__, KeyboardInterrupt):
-                raise
-            print()
-            print(f"[red]This environment cannot save the model: {error}[/]")
-            result = None
-
-        if result is not None and result.verdict == Verdict.CLEAN:
-            shutil.rmtree(directory, ignore_errors=True)
-            print("* This environment saves the model correctly")
-            return
-
-        # Nothing catches exceptions from Model.__init__, so the diagnosis is
-        # printed here and only a one-line summary propagates into the traceback.
-        if result is not None:
-            print()
-            print(f"[red]{result.describe(CheckSite.PREFLIGHT, directory)}[/]")
-            print(f"It occupies {directory_size(directory) / 1024**3:.1f} GB.")
-
-        cannot_save = result is None or result.verdict == Verdict.NO_WEIGHTS
-
-        if cannot_save:
-            continue_run = self._confirm_continue(
-                "Saving will fail the same way at the end of the run. Continue anyway?",
-                "Continue without a working save",
-            )
-        else:
-            continue_run = self._confirm_continue(
-                "The optimized model would be saved by this same environment. "
-                "Continue anyway?",
-                "Continue anyway",
-            )
-
-        if continue_run:
-            shutil.rmtree(directory, ignore_errors=True)
-            return
-
-        if result is None:
-            print(
-                f"The incomplete save has been left at [bold]{directory}[/], "
-                f"occupying {directory_size(directory) / 1024**3:.1f} GB."
-            )
-
-        if cannot_save:
-            raise Exception(
-                "This environment does not save the model correctly (see above)."
-            )
-
-        raise Exception(
-            "Run stopped: the preflight save differs from the source checkpoint "
-            "(see above)."
-        )
 
     def _apply_lora(self):
         # Guard against calling this method at the wrong time.

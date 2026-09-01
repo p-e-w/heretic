@@ -479,10 +479,9 @@ def run():
         print("Checking for common response prefix...")
         prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
 
-        # Detect if the model's chat template inserts a reasoning tag on its own
+        # Case 1: Detect if the model's chat template inserts a reasoning tag on its own
         # in the end of user's prompt (e.g. <think>) by using a dummy prompt.
-        # If found, then we use the full Closed CoT as the response prefix.
-        # Otherwise we fall back to real prompts inference.
+        # If found in the response, then we use the full closed CoT as the response prefix.
         # LiquidAI's LFM models do this (Lfm2ForCausalLM).
         dummy_prompt = model.tokenizer.apply_chat_template(
             [{"role": "user", "content": ""}],
@@ -495,9 +494,10 @@ def run():
         assert isinstance(dummy_prompt, str)
 
         for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
-            # Match the tag and capture only whitespace following it in the end.
-            # Some chat templates like mistral-3 contain additional text/instructions
-            # after the tag, so it is better that they fallback on inference.
+            # Match the tag and capture only whitespace characters following it in the end
+            # (if any), including spaces, tabs, and linebreaks. This is required for models
+            # having whitespaces after the tags.
+            # Example: '<think></think>\n' or '<think></think>\n\n' etc.
             pattern = rf"{re.escape(cot_initializer)}(\s*)$"
             match = re.search(pattern, dummy_prompt, re.DOTALL)
 
@@ -506,6 +506,27 @@ def run():
                 # Join the closed CoT block with template's formatting
                 # like whitespaces used by Qwen3.5 etc.
                 settings.response_prefix = closed_cot_block + trailing_whitespace
+                print(
+                    f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
+                )
+                cot_skip_applied = True
+                break
+
+            # Case 2: Some chat templates like mistral-3 contain additional
+            # text/instructions about "how they should respond with reasoning".
+            # If those tags are explicitly dictated in the instructions,
+            # then we assume the model to generate the response with those tags as well.
+            # For example, it happens with the mistral-3 models.
+            # Instead of having tags inserted during the generation time
+            # like previous Case 1, these models are instructed about reasoning in
+            # their system prompt and needs inference for detecting the tags.
+            #
+            # It's worth knowing that most of these models usually have a different
+            # set of thinking tags.
+            # Example: '[THINK][/THINK]' (for mistral-3) or '<|channel|>analysis<|message|>...'
+            # (for GPT-OSS) instead of the widely common '<think></think>' tags.
+            elif cot_initializer in dummy_prompt:
+                settings.response_prefix = closed_cot_block
                 print(
                     f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
                 )

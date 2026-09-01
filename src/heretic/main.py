@@ -523,8 +523,8 @@ def run():
             #
             # It's worth knowing that most of these models usually have a different
             # set of thinking tags.
-            # Example: '[THINK][/THINK]' (for mistral-3) or '<|channel|>analysis<|message|>...'
-            # (for GPT-OSS) instead of the widely common '<think></think>' tags.
+            # Example: '[THINK][/THINK]' (for mistral-3) instead of
+            # the widely common '<think></think>' tags.
             elif cot_initializer in dummy_prompt:
                 settings.response_prefix = closed_cot_block
                 print(

@@ -163,6 +163,8 @@ class Model:
 
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
+        # Collect the loader's progress bars now; collected later they erase output.
+        empty_cache()
 
         adapter_save = self.model._hf_peft_config_loaded or (
             settings.use_ara and settings.use_ara_lora

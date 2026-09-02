@@ -208,7 +208,7 @@ def load_prompts(
                     )
             dataset = load_dataset(
                 path,
-                config_name=specification.config,
+                specification.config,
                 revision=specification.commit,
                 split=split_str,
             )
@@ -226,7 +226,7 @@ def load_prompts(
             # Path should be a local directory.
             dataset = load_dataset(
                 path,
-                config_name=specification.config,
+                specification.config,
                 split=split_str,
                 # Don't require the number of examples (lines) per split to be pre-defined.
                 verification_mode=VerificationMode.NO_CHECKS,

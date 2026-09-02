@@ -49,6 +49,14 @@ class DatasetSpecification(BaseModel):
         description="Hugging Face dataset ID, or path to dataset on disk."
     )
 
+    config: str | None = Field(
+        default=None,
+        description=(
+            "Dataset config/subset name. Each config can have its own split. "
+            "Used to load a specific config of a dataset that has multiple configurations."
+        ),
+    )
+
     commit: str | None = Field(
         default=None,
         description="Hugging Face commit hash of the dataset.",

@@ -46,7 +46,7 @@ from dataclasses import asdict
 from importlib.metadata import version
 from os.path import commonprefix
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import huggingface_hub
 import lm_eval
@@ -480,32 +480,34 @@ def run():
         prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
 
         # Case 1: Detect if the model's chat template inserts a reasoning tag on its own
-        # in the end of user's prompt (e.g. <think>) by using a dummy prompt.
-        # If found in the response, then we use the full closed CoT as the response prefix.
+        # at the end of user's prompt (e.g. <think>) by using a dummy prompt.
+        # If found, then we use the full closed CoT as the response prefix.
         # LiquidAI's LFM models do this (Lfm2ForCausalLM).
-        dummy_prompt = model.tokenizer.apply_chat_template(
-            [{"role": "user", "content": ""}],
-            add_generation_prompt=True,
-            tokenize=False,
+
+        # This cast is valid because str is the return type
+        # for a single chat operation with tokenize=False.
+        dummy_prompt = cast(
+            str,
+            model.tokenizer.apply_chat_template(
+                [{"role": "user", "content": ""}],
+                add_generation_prompt=True,
+                tokenize=False,
+            ),
         )
 
         cot_skip_applied = False
 
-        assert isinstance(dummy_prompt, str)
-
         for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
-            # Match the tag and capture only whitespace characters following it in the end
+            # Match the tag and ignore any whitespace characters following it at the end
             # (if any), including spaces, tabs, and linebreaks. This is required for models
             # having whitespaces after the tags.
-            # Example: '<think></think>\n' or '<think></think>\n\n' etc.
-            pattern = rf"{re.escape(cot_initializer)}(\s*)$"
-            match = re.search(pattern, dummy_prompt, re.DOTALL)
+            pattern = rf"{re.escape(cot_initializer)}\s*$"
+            match = re.search(pattern, dummy_prompt)
 
             if match:
-                trailing_whitespace = match.group(1)
-                # Join the closed CoT block with template's formatting
-                # like whitespaces used by Qwen3.5 etc.
-                settings.response_prefix = closed_cot_block + trailing_whitespace
+                # We use only the closed CoT block here. Any whitespaces
+                # will be handled by the 'Rechecking with prefix' logic below.
+                settings.response_prefix = closed_cot_block
                 print(
                     f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
                 )
@@ -518,8 +520,10 @@ def run():
             # then we assume the model to generate the response with those tags as well.
             # For example, it happens with the mistral-3 models.
             # Instead of having tags inserted during the generation time
-            # like previous Case 1, these models are instructed about reasoning in
-            # their system prompt and needs inference for detecting the tags.
+            # like Case 1, these models are instructed about reasoning in
+            # their system prompt, which sets up their expected response tags from the
+            # default system prompt which is added into the empty dummy_prompt string due to
+            # apply_chat_template.
             #
             # It's worth knowing that most of these models usually have a different
             # set of thinking tags.

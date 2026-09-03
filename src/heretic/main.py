@@ -521,9 +521,11 @@ def run():
             # For example, it happens with the mistral-3 models.
             # Instead of having tags inserted during the generation time
             # like Case 1, these models are instructed about reasoning in
-            # their system prompt, which sets up their expected response tags from the
-            # default system prompt which is added into the empty dummy_prompt string due to
-            # apply_chat_template.
+            # their default system prompt. Which is added into the empty dummy_prompt
+            # string due to apply_chat_template. And it sets up the expected thinking tags.
+            # This is required for the tests/ folder models to work, because untrained
+            # tiny models cannot understand these instructions about generating the
+            # tags in the response. Otherwise, we might get: Prefix found: 'Ġ'.
             #
             # It's worth knowing that most of these models usually have a different
             # set of thinking tags.

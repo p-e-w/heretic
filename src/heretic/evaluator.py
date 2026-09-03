@@ -40,9 +40,11 @@ class Evaluator:
         print("Loading and initializing scorers...")
         self._load_and_init_scorers()
 
-        # Establish baseline scores (pre-abliteration).
+        print()
+        print("Getting baseline scores...")
         self.baseline_scores = self.get_baseline_scores()
-        self._print_baseline()
+        for name, score in self.baseline_scores:
+            print(f"* Baseline [bold]{name}:[/] [green]{score.rich_display}[/]")
 
     def _load_and_init_scorers(self) -> None:
         """
@@ -107,11 +109,6 @@ class Evaluator:
 
         for entry in self._scorer_entries:
             entry.scorer.init(ctx)
-
-    def _print_baseline(self) -> None:
-        """Print baseline scores summary."""
-        for name, score in self.baseline_scores:
-            print(f"* Baseline {name}: [bold]{score.rich_display}[/]")
 
     def get_dataset_specifications(self) -> list[DatasetSpecification]:
         """

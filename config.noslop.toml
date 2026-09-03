@@ -24,6 +24,8 @@ residual_plot_label = "Slop-inducing prompts"
 residual_plot_color = "darkorange"
 
 [scorer.KeywordRate]
+score_name = "Responses with slop"
+
 keyword_markers = [
     "Eldoria",
     "Lumina",

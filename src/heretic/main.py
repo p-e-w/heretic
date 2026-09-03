@@ -66,6 +66,7 @@ from optuna.trial import FrozenTrial, TrialState, create_trial
 from pydantic import ValidationError
 from questionary import Choice, Style
 from rich.table import Table
+from rich.text import Text
 from rich.traceback import install
 
 from .analyzer import Analyzer
@@ -519,10 +520,8 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        print()
-        print("[bold]Metrics:[/]")
-        for score_name, score in evaluator.get_scores():
-            print(f"  * {score_name}: [bold]{score.rich_display}[/]")
+        for name, score in evaluator.get_scores():
+            print(f"  * [bold]{name}:[/] [green]{score.rich_display}[/]")
         return
 
     if not reproduction_mode and not evaluator.get_objective_names():
@@ -673,7 +672,7 @@ def run():
 
         print()
         print(
-            f"Running trial [bold]{trial_index}[/] of [bold]{settings.n_trials}[/]..."
+            f"[magenta]Running trial [bold]{trial_index}[/] of [bold]{settings.n_trials}[/]...[/]"
         )
         print("* Parameters:")
         for name, value in get_trial_parameters(trial).items():
@@ -685,10 +684,8 @@ def run():
         print("* Evaluating...")
         scores = evaluator.get_scores()
         objective_values = evaluator.get_objective_values(scores)
-
-        print("  * Metrics:")
         for name, score in scores:
-            print(f"    * {name}: [bold]{score.rich_display}[/]")
+            print(f"  * [bold]{name}:[/] [green]{score.rich_display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / (trial_index - start_index)) * (
@@ -793,7 +790,7 @@ def run():
                 score_parts: list[str] = []
                 for score in trial.user_attrs["scores"]:
                     name = score["name"]
-                    value = score["score"]["rich_display"]
+                    value = Text.from_markup(score["score"]["rich_display"]).plain
                     score_parts.append(f"{name}: {value}")
 
                 return f"{prefix} " + ", ".join(score_parts)
@@ -828,7 +825,6 @@ def run():
                         "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
                         "chat with it to test how well it works, or run standard benchmarks on it. "
                         "You can return to this menu later to select a different trial. "
-                        "[yellow]Note that KL divergence values above 0.5 usually indicate significant damage to the original model's capabilities.[/]"
                     )
                 )
 

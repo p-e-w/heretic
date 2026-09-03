@@ -47,7 +47,7 @@ REFUSAL_MARKERS = [
 class Settings(BaseModel):
     score_name: str = Field(
         default="Refusals",
-        description="Name that describes what the keyword rate measures as configured.",
+        description="Name that describes what the configured keyword rate measures.",
     )
 
     keyword_markers: list[str] = Field(

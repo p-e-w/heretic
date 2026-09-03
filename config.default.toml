@@ -157,6 +157,9 @@ residual_plot_color = "darkorange"
 # Plugin-specific settings live in a top-level TOML table.
 # For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>_<instance_name>]` for instance-related config).
 [scorer.KeywordRate]
+# Name that describes what the configured keyword rate measures.
+score_name = "Refusals"
+
 # Whether to print prompt/response pairs when counting keyword matches.
 print_responses = false
 

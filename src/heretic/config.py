@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import re
 from enum import Enum
 from typing import Dict, Literal
 
+from huggingface_hub.utils import validate_repo_id
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     NonNegativeInt,
     PositiveInt,
@@ -44,6 +47,77 @@ class ExportStrategy(str, Enum):
     ADAPTER = "adapter"
 
 
+def is_exact_commit_sha(value: str) -> bool:
+    return re.fullmatch(r"[0-9a-fA-F]{40}", value) is not None
+
+
+class HuggingFaceDatasetProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dataset: str = Field(
+        description="Public Hugging Face dataset ID used to create the local dataset."
+    )
+
+    revision: str = Field(
+        description="Exact 40-character Hugging Face commit SHA of the source dataset."
+    )
+
+    configuration: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Optional Hugging Face dataset configuration name.",
+    )
+
+    split: str = Field(
+        min_length=1,
+        description="Original source split or split slice materialized from the dataset.",
+    )
+
+    indices: list[NonNegativeInt] | None = Field(
+        default=None,
+        description="Optional ordered row indices selected after loading the source split.",
+    )
+
+    column: str = Field(
+        min_length=1,
+        description="Source column containing the prompts.",
+    )
+
+    content_sha256: str = Field(
+        description="SHA-256 of the ordered materialized prompt content."
+    )
+
+    @field_validator("dataset")
+    @classmethod
+    def validate_dataset(cls, value: str) -> str:
+        validate_repo_id(value)
+        return value
+
+    @field_validator("revision")
+    @classmethod
+    def validate_revision(cls, value: str) -> str:
+        if not is_exact_commit_sha(value):
+            raise ValueError("must be an exact 40-character commit SHA")
+        return value.lower()
+
+    @field_validator("indices")
+    @classmethod
+    def validate_indices(
+        cls, value: list[NonNegativeInt] | None
+    ) -> list[NonNegativeInt] | None:
+        if value == []:
+            raise ValueError("must contain at least one row index when set")
+        return value
+
+    @field_validator("content_sha256")
+    @classmethod
+    def validate_content_sha256(cls, value: str) -> str:
+        value = value.lower()
+        if re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError("must be a 64-character SHA-256 digest")
+        return value
+
+
 class DatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
@@ -52,6 +126,13 @@ class DatasetSpecification(BaseModel):
     commit: str | None = Field(
         default=None,
         description="Hugging Face commit hash of the dataset.",
+    )
+
+    provenance: HuggingFaceDatasetProvenance | None = Field(
+        default=None,
+        description=(
+            "Verified public source information for a locally materialized dataset."
+        ),
     )
 
     split: str | None = Field(

@@ -70,11 +70,13 @@ from rich.traceback import install
 
 from .analyzer import Analyzer
 from .config import ExportStrategy, QuantizationMethod
+from .dataset_provenance import get_dataset_reproducibility_error
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .reproduce import (
     check_environment,
     collect_reproducibles,
+    is_supported_reproduction_version,
     load_reproduction_information,
 )
 from .system import empty_cache, get_accelerator_info
@@ -242,15 +244,16 @@ def run():
         # FIXME: "Reproduction"/"reproducibility" name inconsistency!
         reproduction_information = load_reproduction_information(settings.reproduce)
 
-        # Version 3 is the plugin-era schema, which stores generic scorer
+        # Versions 3 and 4 are plugin-era schemas, which store generic scorer
         # `scores`/`baseline_scores`. It is intentionally NOT compatible with the
         # pre-plugin v1/v2 schema (hardcoded refusals/KL `metrics`), so those are
         # rejected rather than silently failing on a missing key later.
-        if reproduction_information["version"] != "3":
+        reproduction_version = reproduction_information.get("version")
+        if not is_supported_reproduction_version(reproduction_version):
             print(
                 (
-                    f"[red]Unsupported file format version: [bold]{reproduction_information['version']}[/].[/] "
-                    "This version of Heretic reads version 3 (plugin scorer) reproduce.json files. "
+                    f"[red]Unsupported file format version: [bold]{reproduction_version}[/].[/] "
+                    "This version of Heretic reads version 3 and 4 (plugin scorer) reproduce.json files. "
                     "Older files were produced before the scorer-plugin refactor and are not supported. "
                     "Please install Heretic 1.4 to use these files."
                 )
@@ -1110,28 +1113,50 @@ def run():
                             if strategy is None:
                                 continue
 
-                            # Reproducibility requires that the model and all datasets
-                            # are available on the Hugging Face Hub (not local paths),
-                            # that all datasets are pinned to a commit (an unpinned
-                            # dataset was likely loaded from a local cache), and that
-                            # only built-in scorer plugins are used (external plugins
-                            # cannot be resolved when reproducing).
+                            # Reproducibility requires a Hub model, datasets that are
+                            # either commit-pinned Hub inputs or verified
+                            # materializations of public sources, and built-in scorer
+                            # plugins (external plugins cannot be resolved when
+                            # reproducing).
                             dataset_specifications = [
-                                settings.good_prompts,
-                                settings.bad_prompts,
-                                *evaluator.get_dataset_specifications(),
+                                ("good prompts", settings.good_prompts),
+                                ("bad prompts", settings.bad_prompts),
+                                *[
+                                    (f"scorer dataset {index}", specification)
+                                    for index, specification in enumerate(
+                                        evaluator.get_dataset_specifications(),
+                                        start=1,
+                                    )
+                                ],
                             ]
-                            is_reproducible = (
+                            other_reproducibility_requirements_met = (
                                 is_hf_path(settings.model)
-                                and all(
-                                    is_hf_path(specification.dataset)
-                                    and specification.commit is not None
-                                    for specification in dataset_specifications
-                                )
                                 and evaluator.all_scorers_reproducible()
                                 and evaluator.all_scorers_builtin()
                                 and not reproduction_mode
                             )
+                            dataset_reproducibility_errors = []
+                            if other_reproducibility_requirements_met:
+                                for label, specification in dataset_specifications:
+                                    error = get_dataset_reproducibility_error(
+                                        specification
+                                    )
+                                    if error is not None:
+                                        dataset_reproducibility_errors.append(
+                                            (label, error)
+                                        )
+
+                            is_reproducible = (
+                                other_reproducibility_requirements_met
+                                and not dataset_reproducibility_errors
+                            )
+
+                            if dataset_reproducibility_errors:
+                                print(
+                                    "[yellow]Reproducibility information cannot be added because:[/]"
+                                )
+                                for label, error in dataset_reproducibility_errors:
+                                    print(f"* [bold]{label}:[/] {error}")
 
                             if is_reproducible:
                                 if settings.upload_reproducibility_information is None:

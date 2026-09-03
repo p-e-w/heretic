@@ -31,6 +31,12 @@ from .system import (
 )
 from .utils import ask_if_unset, print
 
+SUPPORTED_REPRODUCTION_VERSIONS = frozenset({"3", "4"})
+
+
+def is_supported_reproduction_version(version: Any) -> bool:
+    return isinstance(version, str) and version in SUPPORTED_REPRODUCTION_VERSIONS
+
 
 def collect_reproducibles(path: str):
     print(

@@ -518,7 +518,7 @@ def run():
         # Fallback to inference for models like mistral-3 which are specifically
         # instructed to generate thinking tags using the system prompt in their
         # chat template, instead of inserting a prefix tag (e.g. <think>) at
-        # the end of user prompt like the above case. We expect the model to
+        # the end of user prompt like the case above. We expect the model to
         # generate those tags.
         if settings.response_prefix is None:
             responses = model.get_responses_batched(prefix_check_prompts)

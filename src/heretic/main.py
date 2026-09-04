@@ -480,7 +480,7 @@ def run():
         print("Checking for common response prefix...")
         prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
 
-        # Case 1: Detect if the model's chat template inserts a reasoning tag on its own
+        # Detect if the model's chat template inserts a reasoning tag on its own
         # at the end of user's prompt (e.g. <think>) by using a dummy prompt.
         # If found, then we use the full closed CoT as the response prefix.
         # LiquidAI's LFM models do this (Lfm2ForCausalLM).
@@ -508,31 +508,6 @@ def run():
             if match:
                 # We use only the closed CoT block here. Any whitespaces
                 # will be handled by the 'Rechecking with prefix' logic below.
-                settings.response_prefix = closed_cot_block
-                print(
-                    f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
-                )
-                cot_skip_applied = True
-                break
-
-            # Case 2: Some chat templates like mistral-3 contain additional
-            # text/instructions about "how they should respond with reasoning".
-            # If those tags are explicitly dictated in the instructions,
-            # then we assume the model to generate the response with those tags as well.
-            # For example, it happens with the mistral-3 models.
-            # Instead of having tags inserted during the generation time
-            # like Case 1, these models are instructed about reasoning in
-            # their default system prompt. Which is added into the empty dummy_prompt
-            # string due to apply_chat_template. And it sets up the expected thinking tags.
-            # This is required for the tests/ folder models to work, because untrained
-            # tiny models cannot understand these instructions about generating the
-            # tags in the response. Otherwise, we might get: Prefix found: 'Ġ'.
-            #
-            # It's worth knowing that most of these models usually have a different
-            # set of thinking tags.
-            # Example: '[THINK][/THINK]' (for mistral-3) instead of
-            # the widely common '<think></think>' tags.
-            elif cot_initializer in dummy_prompt:
                 settings.response_prefix = closed_cot_block
                 print(
                     f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"

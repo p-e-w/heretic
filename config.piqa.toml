@@ -2,6 +2,6 @@
 # that you run Heretic from, and edit the configuration to your liking.
 
 scorers = [
-    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize"},
-    { plugin = "heretic.scorers.benchmark_score.BenchmarkScore", optimization = "maximize"},
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.benchmark_score.BenchmarkScore", optimization = "maximize" },
 ]

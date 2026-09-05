@@ -149,12 +149,8 @@ def load_plugin(
 
 class Context:
     """
-    Runtime context passed to plugins
-
-    Provides plugin-safe access to the model.
-
-    Plugins must use `get_responses(...)`, `get_logits(...)`, etc.
-    Direct access to the underlying Model is intentionally not exposed.
+    Runtime context passed to plugins.
+    Acts as a quasi-API for plugins to access Heretic functionality.
     """
 
     def __init__(self, settings: HereticSettings, model: Model) -> None:
@@ -179,6 +175,13 @@ class Context:
 
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
         return self._model.get_residuals_batched(prompts)
+
+    def get_model(self) -> Model:
+        """
+        Prefer managed methods (`get_responses` etc.) unless you
+        actually need access to the model object.
+        """
+        return self._model
 
     def load_prompts(self, specification: DatasetSpecification) -> list[Prompt]:
         return load_prompts(self._settings, specification)
@@ -211,8 +214,11 @@ class Plugin:
         return False
 
     def __init__(
-        self, *, heretic_settings: HereticSettings, settings: BaseModel | None = None
-    ):
+        self,
+        *,
+        heretic_settings: HereticSettings,
+        settings: BaseModel | None = None,
+    ) -> None:
         # Plugins that declare a settings schema should always receive
         # validated plugin settings from the evaluator.
         settings_model = self.__class__.get_settings_model()

@@ -43,8 +43,6 @@ T = TypeVar("T")
 
 print = Console(highlight=False).print
 
-T = TypeVar("T")
-
 
 def deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """

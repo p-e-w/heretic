@@ -10,6 +10,7 @@ from pydantic import (
     NonNegativeInt,
     PositiveInt,
     field_validator,
+    model_validator,
 )
 from pydantic_settings import (
     BaseSettings,
@@ -224,6 +225,33 @@ class Settings(BaseSettings):
             '"none" (no quantization), '
             '"bnb_4bit" (4-bit quantization using bitsandbytes).'
         ),
+    )
+
+    # TPU settings
+    tpu_cores: int | None = Field(
+        default=None,
+        description=(
+            "Number of TPU cores to use (1 for single device, 8 for full v5e-8). "
+            "Unset (default): auto-detected on TPU (all available cores), 1 otherwise."
+        ),
+        exclude=True,
+        ge=0,
+    )
+
+    tpu_use_fsdp: bool | None = Field(
+        default=None,
+        description=(
+            "Whether to use FSDP (Fully Sharded Data Parallel) for model parallelism "
+            "on multi-core TPU. Unset (default): enabled automatically whenever more "
+            "than one TPU core is used."
+        ),
+        exclude=True,
+    )
+
+    tpu_fsdp_config: str | None = Field(
+        default=None,
+        description="Path to FSDP configuration JSON file for TPU training.",
+        exclude=True,
     )
 
     device_map: str | Dict[str, int | str] = Field(
@@ -568,6 +596,65 @@ class Settings(BaseSettings):
         ),
         description="Dataset of prompts that tend to result in refusals (used for calculating refusal directions).",
     )
+
+    @model_validator(mode="after")
+    def adjust_for_tpu(self) -> "Settings":
+        """Auto-adjust settings when running on TPU.
+
+        Called once at startup (and again defensively in Model.__init__) to
+        resolve TPU-specific settings that default to "auto":
+
+        * tpu_cores: None -> number of available TPU cores
+        * tpu_use_fsdp: None -> enabled whenever more than one core is used
+
+        Also forces TPU-compatible model loading (bfloat16, no quantization,
+        no device map when FSDP is used). Idempotent; safe to call on non-TPU
+        hosts (no-op).
+        """
+        try:
+            from heretic.system import detect_tpu, get_xla_device_count
+
+            if not detect_tpu():
+                return self
+
+            # Force bfloat16 on TPU
+            if self.dtypes is None or "auto" in self.dtypes:
+                self.dtypes = ["bfloat16"]
+            elif "bfloat16" not in self.dtypes:
+                self.dtypes = ["bfloat16"] + self.dtypes
+
+            # Disable bitsandbytes quantization on TPU
+            if self.quantization == QuantizationMethod.BNB_4BIT:
+                import warnings
+
+                warnings.warn(
+                    "bitsandbytes quantization not supported on TPU. "
+                    "Disabling quantization and using bfloat16.",
+                    UserWarning,
+                )
+                self.quantization = QuantizationMethod.NONE
+
+            # Resolve auto-detected parallelism settings. Core count is
+            # fit-based (fewest power-of-two cores that hold the model): FSDP
+            # all-gather overhead per XLA execution grows with the mesh size,
+            # so small models run much faster on fewer cores (a 3B model is
+            # ~9x faster to generate on 4 cores than 8; single core is
+            # avoided because plain-mode XLA tensor fetches are unreliable
+            # on v5e).
+            if self.tpu_cores is None:
+                try:
+                    # Lazy import: model.py imports config.py, so this must
+                    # resolve at call time, not module load time.
+                    from heretic.model import Model
+
+                    self.tpu_cores = Model.auto_tpu_cores(self)
+                except Exception:
+                    self.tpu_cores = get_xla_device_count() or 1
+            if self.tpu_use_fsdp is None:
+                self.tpu_use_fsdp = self.tpu_cores > 1
+        except (ImportError, ModuleNotFoundError):
+            pass
+        return self
 
     # We intentionally allow extra keys so users can provide plugin-specific
     # configuration in TOML tables like `[scorer.KeywordRate]` which are later

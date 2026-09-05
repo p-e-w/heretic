@@ -52,6 +52,9 @@ research = [
     "pacmap~=0.8",
     "scikit-learn~=1.7",
 ]
+tpu = [
+    "torch_xla",
+]
 
 [dependency-groups]
 dev = [

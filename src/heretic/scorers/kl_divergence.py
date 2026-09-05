@@ -46,6 +46,8 @@ class KLDivergence(Scorer):
         )
         self.prompts = ctx.load_prompts(self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
+        if not self.prompts:
+            raise ValueError("KLDivergence scorer requires at least one prompt")
 
         print("* Obtaining baseline first-token probability distributions...")
         baseline_logits = ctx.get_logits(self.prompts)

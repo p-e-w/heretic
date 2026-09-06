@@ -490,6 +490,15 @@ class Settings(BaseSettings):
         description="Maximum size for individual safetensors files generated when exporting a model.",
     )
 
+    preflight_check: bool = Field(
+        default=True,
+        description=(
+            "Whether to check that this environment can save the model faithfully, "
+            "by writing a throwaway save before optimization."
+        ),
+        exclude=True,
+    )
+
     export_strategy: ExportStrategy | None = Field(
         default=None,
         description='How to export the model: "merge", "adapter", or unset to prompt the user.',

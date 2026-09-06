@@ -1221,6 +1221,7 @@ def run():
                             else:
                                 reproducibility_information = "none"
 
+                            differences = None
                             if strategy == ExportStrategy.ADAPTER:
                                 print("Uploading LoRA adapter...")
                                 model.model.push_to_hub(
@@ -1251,7 +1252,9 @@ def run():
                                         private=private,
                                         token=token,
                                     )
-                                check_tensors(model.source_shapes, repo_id, token=token)
+                                differences = check_tensors(
+                                    model.source_shapes, repo_id, token=token
+                                )
                                 reset_trial_model()
 
                             if is_hf_path(settings.model):
@@ -1304,6 +1307,7 @@ def run():
                                         include_system_information=(
                                             reproducibility_information == "full"
                                         ),
+                                        tensor_differences=differences,
                                     )
                                 finally:
                                     settings.export_strategy = current_export_strategy

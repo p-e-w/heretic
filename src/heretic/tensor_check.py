@@ -34,24 +34,26 @@ def tensor_shapes(
 
 def check_tensors(
     source: dict[str, tuple[int, ...]], location: str, token: str | None = None
-) -> None:
+) -> dict[str, list[tuple[int, ...] | None]] | None:
     if not source:
-        return
+        return None
     written = tensor_shapes(location, token=token)
     if not written:
-        return
+        return None
     names = sorted(set(source) | set(written))
-    differences = [
-        f"{name}: {source.get(name, 'absent')} -> {written.get(name, 'absent')}"
+    differences = {
+        name: [source.get(name), written.get(name)]
         for name in names
         if source.get(name) != written.get(name)
-    ]
-    if not differences:
+    }
+    if differences:
+        print(
+            f"[yellow]* Model differs from the source checkpoint at [bold]"
+            f"{len(differences)}[/] of {len(names)} names (source -> saved):[/]"
+        )
+        for name in list(differences)[:10]:
+            before, after = source.get(name, "absent"), written.get(name, "absent")
+            print(f"[yellow]    {escape(f'{name}: {before} -> {after}')}[/]")
+    else:
         print("* Model matches the source checkpoint")
-        return
-    print(
-        f"[yellow]* Model differs from the source checkpoint at [bold]"
-        f"{len(differences)}[/] of {len(names)} names (source -> saved):[/]"
-    )
-    for difference in differences[:10]:
-        print(f"[yellow]    {escape(difference)}[/]")
+    return differences

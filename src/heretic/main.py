@@ -81,6 +81,7 @@ from .reproduce import (
     load_reproduction_information,
 )
 from .system import empty_cache, get_accelerator_info
+from .tensor_check import check_tensors
 from .utils import (
     ask_if_unset,
     format_duration,
@@ -1067,6 +1068,7 @@ def run():
                                 model.tokenizer.save_pretrained(save_directory)
                                 if model.processor is not None:
                                     model.processor.save_pretrained(save_directory)
+                                check_tensors(model.source_shapes, save_directory)
                                 reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")
@@ -1130,6 +1132,8 @@ def run():
                             )
                             if not repo_id:
                                 continue
+                            if "/" not in repo_id:
+                                repo_id = f"{user['name']}/{repo_id}"
 
                             visibility = ask_if_unset(
                                 None
@@ -1247,6 +1251,7 @@ def run():
                                         private=private,
                                         token=token,
                                     )
+                                check_tensors(model.source_shapes, repo_id, token=token)
                                 reset_trial_model()
 
                             if is_hf_path(settings.model):

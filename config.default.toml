@@ -130,6 +130,9 @@ study_checkpoint_dir = "checkpoints"
 # Maximum size for individual safetensors files generated when exporting a model.
 max_shard_size = "5GB"
 
+# Whether to check that this environment can save the model faithfully (throwaway save).
+preflight_check = true
+
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 

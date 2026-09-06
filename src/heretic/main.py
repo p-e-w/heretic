@@ -76,6 +76,7 @@ from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .reproduce import (
+    check_differences,
     check_environment,
     collect_reproducibles,
     load_reproduction_information,
@@ -1050,6 +1051,7 @@ def run():
                             if strategy is None:
                                 continue
 
+                            differences = None
                             if strategy == ExportStrategy.ADAPTER:
                                 print("Saving LoRA adapter...")
                                 model.model.save_pretrained(
@@ -1068,12 +1070,15 @@ def run():
                                 model.tokenizer.save_pretrained(save_directory)
                                 if model.processor is not None:
                                     model.processor.save_pretrained(save_directory)
-                                check_tensors(model.source_shapes, save_directory)
+                                differences = check_tensors(
+                                    model.source_shapes, save_directory
+                                )
                                 reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
                             if reproduction_mode:
+                                check_differences(differences, reproduction_information)
                                 print("Verifying hashes of weight files...")
 
                                 for (
@@ -1315,6 +1320,7 @@ def run():
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 
                             if reproduction_mode:
+                                check_differences(differences, reproduction_information)
                                 print("Verifying hashes of weight files...")
 
                                 api = HfApi()

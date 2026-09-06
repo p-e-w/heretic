@@ -11,7 +11,7 @@ from .utils import print
 
 def tensor_shapes(
     location: str, revision: str | None = None, token: str | None = None
-) -> dict[str, tuple[int, ...]]:
+) -> dict[str, list[int]]:
     try:
         if token is not None:
             metadata = huggingface_hub.get_safetensors_metadata(location, token=token)
@@ -26,15 +26,15 @@ def tensor_shapes(
         print(f"* Could not read {location}: {error}", markup=False)
         return {}
     return {
-        name: tuple(info.shape)
+        name: info.shape
         for file in metadata.files_metadata.values()
         for name, info in file.tensors.items()
     }
 
 
 def check_tensors(
-    source: dict[str, tuple[int, ...]], location: str, token: str | None = None
-) -> dict[str, list[tuple[int, ...] | None]] | None:
+    source: dict[str, list[int]], location: str, token: str | None = None
+) -> dict[str, list[list[int] | None]] | None:
     if not source:
         return None
     written = tensor_shapes(location, token=token)

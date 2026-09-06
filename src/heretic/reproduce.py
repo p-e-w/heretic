@@ -389,3 +389,14 @@ def check_environment(
     else:
         # There are no mismatches at all, so there is nothing to confirm.
         return True
+
+
+def check_differences(
+    differences: dict[str, Any] | None, reproduction_information: dict[str, Any]
+) -> None:
+    recorded = reproduction_information.get("tensor_differences")
+    if differences is not None and recorded is not None:
+        if differences == recorded:
+            print("[green]Tensor differences match the original run[/]")
+        else:
+            print("[yellow]Tensor differences don't match the original run[/]")

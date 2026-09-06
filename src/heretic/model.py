@@ -63,7 +63,7 @@ class Model:
     # Set for multimodal models, None for text-only ones.
     processor: ProcessorMixin | None
     peft_config: LoraConfig
-    source_shapes: dict[str, tuple[int, ...]]
+    source_shapes: dict[str, list[int]]
     dtype: torch.dtype
 
     def __init__(self, settings: Settings):

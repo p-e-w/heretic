@@ -105,68 +105,7 @@ class Model:
 
         self.trusted_models = set()
 
-        for dtype in settings.dtypes:
-            print(f"* Trying dtype [bold]{dtype}[/]...")
-
-            try:
-                quantization_config = self._get_quantization_config(dtype)
-
-                extra_kwargs = {}
-                # Only include quantization_config if it's not None
-                # (some models like gpt-oss have issues with explicit None).
-                if quantization_config is not None:
-                    extra_kwargs["quantization_config"] = quantization_config
-
-                self.model = get_model_class(settings.model).from_pretrained(
-                    settings.model,
-                    dtype=dtype,
-                    device_map=settings.device_map,
-                    max_memory=self.max_memory,
-                    trust_remote_code=True
-                    if settings.model in self.trusted_models
-                    else None,
-                    **self.revision_kwargs,
-                    **extra_kwargs,
-                )
-
-                self.dtype = self.model.dtype
-
-                # If we reach this point and the model requires trust_remote_code,
-                # the user must have agreed when prompted to execute remote code,
-                # because from_pretrained raises an exception otherwise.
-                self.trusted_models.add(settings.model)
-
-                # A test run can reveal dtype-related problems such as the infamous
-                # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
-                # (https://github.com/meta-llama/llama/issues/380).
-                self.generate(
-                    [
-                        Prompt(
-                            system=settings.system_prompt,
-                            user="What is 1+1?",
-                        )
-                    ],
-                    max_new_tokens=1,
-                )
-            except Exception as error:
-                self.model = None  # ty:ignore[invalid-assignment]
-                empty_cache()
-
-                formatted = format_exception(error)
-                if "\n" in formatted:
-                    print(f"* [red]Failed:\n{formatted}[/]")
-                else:
-                    print(f"* [red]Failed ({formatted})[/]")
-
-                continue
-
-            if settings.quantization == QuantizationMethod.BNB_4BIT:
-                print("* Quantized to 4-bit precision")
-
-            break
-
-        if self.model is None:
-            raise Exception("Failed to load model with all configured dtypes.")
+        self._load_model_with_dtype_fallback()
 
         self._apply_lora()
 
@@ -237,6 +176,77 @@ class Model:
         print(
             f"* LoRA adapters initialized (target types: {', '.join(display_targets)})"
         )
+
+    def _load_model_with_dtype_fallback(self) -> None:
+        failures: list[tuple[str, str]] = []
+
+        for dtype in self.settings.dtypes:
+            print(f"* Trying dtype [bold]{dtype}[/]...")
+
+            try:
+                quantization_config = self._get_quantization_config(dtype)
+
+                extra_kwargs = {}
+                # Only include quantization_config if it's not None
+                # (some models like gpt-oss have issues with explicit None).
+                if quantization_config is not None:
+                    extra_kwargs["quantization_config"] = quantization_config
+
+                self.model = get_model_class(self.settings.model).from_pretrained(
+                    self.settings.model,
+                    dtype=dtype,
+                    device_map=self.settings.device_map,
+                    max_memory=self.max_memory,
+                    trust_remote_code=True
+                    if self.settings.model in self.trusted_models
+                    else None,
+                    **self.revision_kwargs,
+                    **extra_kwargs,
+                )
+
+                self.dtype = self.model.dtype
+
+                # If we reach this point and the model requires trust_remote_code,
+                # the user must have agreed when prompted to execute remote code,
+                # because from_pretrained raises an exception otherwise.
+                self.trusted_models.add(self.settings.model)
+
+                # A test run can reveal dtype-related problems such as the infamous
+                # "RuntimeError: probability tensor contains either `inf`, `nan` or element < 0"
+                # (https://github.com/meta-llama/llama/issues/380).
+                self.generate(
+                    [
+                        Prompt(
+                            system=self.settings.system_prompt,
+                            user="What is 1+1?",
+                        )
+                    ],
+                    max_new_tokens=1,
+                )
+            except Exception as error:
+                self.model = None  # ty:ignore[invalid-assignment]
+                empty_cache()
+
+                formatted = format_exception(error)
+                failures.append((dtype, formatted))
+
+                if "\n" in formatted:
+                    print(f"* [red]Failed:\n{formatted}[/]")
+                else:
+                    print(f"* [red]Failed ({formatted})[/]")
+
+                continue
+
+            if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+                print("* Quantized to 4-bit precision")
+
+            break
+
+        if self.model is None:
+            details = "\n".join(f"- {dtype}: {reason}" for dtype, reason in failures)
+            raise Exception(
+                "Failed to load model with all configured dtypes:\n" + details
+            )
 
     def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
         """

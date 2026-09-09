@@ -148,7 +148,7 @@ class Model:
                     ],
                     max_new_tokens=1,
                 )
-            except Exception as error:
+            except (RuntimeError, ValueError, TypeError) as error:
                 self.model = None  # ty:ignore[invalid-assignment]
                 empty_cache()
 

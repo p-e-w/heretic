@@ -139,6 +139,7 @@ system_prompt = "You are a helpful assistant."
 # a subset of the lines using slice notation (e.g. "[:400]").
 # "config" specifies a dataset's specific config/subset name (e.g. "english", "hindi").
 # Leave unset for datasets with a single configuration.
+# For a local dataset, "source_dataset" names an identical Hugging Face dataset used in reproduction files; its commit, config, split, and column must match.
 
 # Dataset of prompts that tend to not result in refusals (used for calculating residual directions).
 [good_prompts]

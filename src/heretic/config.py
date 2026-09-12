@@ -49,6 +49,8 @@ class DatasetSpecification(BaseModel):
         description="Hugging Face dataset ID, or path to dataset on disk."
     )
 
+    source_dataset: str | None = None
+
     commit: str | None = Field(
         default=None,
         description="Hugging Face commit hash of the dataset.",

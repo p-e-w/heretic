@@ -142,6 +142,26 @@ def is_hf_path(path: str) -> bool:
     return True
 
 
+def get_reproduction_dataset(dataset: str, source_dataset: str | None) -> str | None:
+    try:
+        if is_hf_path(dataset):
+            return dataset
+    except ValueError:
+        pass
+    try:
+        validate_repo_id(source_dataset or "")
+    except ValueError:
+        return None
+    return source_dataset
+
+
+def is_dataset_reproducible(specification: DatasetSpecification) -> bool:
+    dataset = get_reproduction_dataset(
+        specification.dataset, specification.source_dataset
+    )
+    return dataset is not None and specification.commit is not None
+
+
 @dataclass
 class Prompt:
     system: str
@@ -344,10 +364,29 @@ def get_readme_intro(
 """
 
 
-def generate_config_toml(settings: Settings) -> str:
-    """Serializes the full Settings object to TOML."""
+def get_reproduction_settings(
+    settings: Settings, *, exclude_none: bool = False
+) -> dict[str, Any]:
+    data = settings.model_dump(exclude_none=exclude_none)
+    stack: list[Any] = [data]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            if "dataset" in value and "source_dataset" in value:
+                source = value.pop("source_dataset")
+                dataset = get_reproduction_dataset(value["dataset"], source)
+                if dataset is not None:
+                    value["dataset"] = dataset
+            stack.extend(value.values())
+        elif isinstance(value, list):
+            stack.extend(value)
+    return data
 
-    return tomli_w.dumps(settings.model_dump(exclude_none=True))
+
+def generate_config_toml(settings: Settings) -> str:
+    """Serializes Settings for reproduction to TOML."""
+
+    return tomli_w.dumps(get_reproduction_settings(settings, exclude_none=True))
 
 
 def generate_requirements_txt() -> str:
@@ -512,8 +551,8 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## Datasets
 
-- **Good prompts:** {format_hf_link(settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
-- **Bad prompts:** {format_hf_link(settings.bad_prompts.dataset, settings.bad_prompts.commit, is_dataset=True)}
+- **Good prompts:** {format_hf_link(get_reproduction_dataset(settings.good_prompts.dataset, settings.good_prompts.source_dataset) or settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
+- **Bad prompts:** {format_hf_link(get_reproduction_dataset(settings.bad_prompts.dataset, settings.bad_prompts.source_dataset) or settings.bad_prompts.dataset, settings.bad_prompts.commit, is_dataset=True)}
 
 ## Selected trial
 
@@ -581,7 +620,7 @@ def generate_reproduce_json(
             "pytorch_version": torch.__version__,
             "requirements": get_requirements_dict(),
         },
-        "settings": settings.model_dump(),
+        "settings": get_reproduction_settings(settings),
         "parameters": {
             "direction_index": trial.user_attrs["direction_index"],
             "abliteration_parameters": trial.user_attrs["parameters"],

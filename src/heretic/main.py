@@ -88,6 +88,7 @@ from .utils import (
     get_file_sha256,
     get_readme_intro,
     get_trial_parameters,
+    is_dataset_reproducible,
     is_hf_path,
     load_prompts,
     print,
@@ -1170,8 +1171,7 @@ def run():
                             is_reproducible = (
                                 is_hf_path(settings.model)
                                 and all(
-                                    is_hf_path(specification.dataset)
-                                    and specification.commit is not None
+                                    is_dataset_reproducible(specification)
                                     for specification in dataset_specifications
                                 )
                                 and evaluator.all_scorers_reproducible()

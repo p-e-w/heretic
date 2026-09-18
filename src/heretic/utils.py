@@ -344,10 +344,122 @@ def get_readme_intro(
 """
 
 
-def generate_config_toml(settings: Settings) -> str:
-    """Serializes the full Settings object to TOML."""
+def _strip_logger_settings(data: dict[str, Any]) -> dict[str, Any]:
+    """Remove local logger configuration from serialized settings."""
+    return {
+        key: value for key, value in data.items() if key not in {"logger", "loggers"}
+    }
 
-    return tomli_w.dumps(settings.model_dump(exclude_none=True))
+
+def _get_reproduction_settings(
+    settings: Settings, *, exclude_none: bool = False
+) -> dict[str, Any]:
+    """Return settings safe to embed in a portable reproduction package."""
+    data = settings.model_dump(exclude={"loggers"}, exclude_none=exclude_none)
+    # Logger plugin namespaces are extra settings on the root model, so they
+    # need to be removed separately from the typed `loggers` field.
+    return _strip_logger_settings(data)
+
+
+def _sanitize_checkpoint_for_reproduction(
+    checkpoint_path: str | Path, destination_path: str | Path
+) -> None:
+    """Copy an Optuna journal without local logger settings.
+
+    The live journal retains the complete settings record so an interrupted run
+    can resume with its configured loggers. Only the copy bundled with a public
+    reproduction package is sanitized.
+    """
+    source = Path(checkpoint_path)
+    destination = Path(destination_path)
+    if source.resolve() == destination.resolve():
+        raise ValueError("Checkpoint source and reproduction destination must differ")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            with source.open("r", encoding="utf-8") as checkpoint_file:
+                for line_number, line in enumerate(checkpoint_file, start=1):
+                    if not line.strip():
+                        temporary_file.write("\n")
+                        continue
+
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError as error:
+                        raise ValueError(
+                            f"Invalid Optuna journal record at line {line_number}"
+                        ) from error
+
+                    if not isinstance(record, dict):
+                        raise ValueError(
+                            f"Invalid Optuna journal record at line {line_number}: expected an object"
+                        )
+
+                    user_attributes = record.get("user_attr")
+                    if (
+                        isinstance(user_attributes, dict)
+                        and "settings" in user_attributes
+                    ):
+                        serialized_settings = user_attributes["settings"]
+                        if isinstance(serialized_settings, str):
+                            try:
+                                settings = json.loads(serialized_settings)
+                            except json.JSONDecodeError as error:
+                                raise ValueError(
+                                    "Invalid serialized settings in Optuna journal "
+                                    f"record at line {line_number}"
+                                ) from error
+                        elif isinstance(serialized_settings, dict):
+                            settings = serialized_settings
+                        else:
+                            raise ValueError(
+                                "Invalid serialized settings in Optuna journal "
+                                f"record at line {line_number}: expected an object"
+                            )
+
+                        if not isinstance(settings, dict):
+                            raise ValueError(
+                                "Invalid serialized settings in Optuna journal "
+                                f"record at line {line_number}: expected an object"
+                            )
+
+                        record = dict(record)
+                        record["user_attr"] = dict(user_attributes)
+                        if isinstance(serialized_settings, str):
+                            record["user_attr"]["settings"] = json.dumps(
+                                _strip_logger_settings(settings),
+                                separators=(",", ":"),
+                            )
+                        else:
+                            record["user_attr"]["settings"] = _strip_logger_settings(
+                                settings
+                            )
+
+                    temporary_file.write(json.dumps(record, separators=(",", ":")))
+                    temporary_file.write("\n")
+
+        temporary_path.replace(destination)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def generate_config_toml(settings: Settings) -> str:
+    """Serializes settings for a reproduction config, excluding local loggers."""
+
+    return tomli_w.dumps(_get_reproduction_settings(settings, exclude_none=True))
 
 
 def generate_requirements_txt() -> str:
@@ -581,7 +693,7 @@ def generate_reproduce_json(
             "pytorch_version": torch.__version__,
             "requirements": get_requirements_dict(),
         },
-        "settings": settings.model_dump(),
+        "settings": _get_reproduction_settings(settings),
         "parameters": {
             "direction_index": trial.user_attrs["direction_index"],
             "abliteration_parameters": trial.user_attrs["parameters"],
@@ -691,7 +803,10 @@ def create_reproduce_folder(
     # Copy Optuna study journal.
     checkpoint_file = Path(checkpoint_path)
     if checkpoint_file.exists():
-        (reproduce_dir / checkpoint_file.name).write_bytes(checkpoint_file.read_bytes())
+        _sanitize_checkpoint_for_reproduction(
+            checkpoint_file,
+            reproduce_dir / checkpoint_file.name,
+        )
 
 
 def upload_reproduce_folder(

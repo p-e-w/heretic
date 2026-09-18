@@ -95,6 +95,12 @@ scorers = [
     { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize"},
 ]
 
+# List of logger plugins to invoke after each baseline/evaluation phase.
+# Each entry is an object: { plugin = <plugin>, instance_name = <optional> }
+# loggers = [
+#     { plugin = "heretic.loggers.jsonl.JSONL" },
+# ]
+
 # Whether to adjust the residual directions so that only the component that is
 # orthogonal to the good direction is subtracted during abliteration.
 orthogonalize_direction = true
@@ -161,6 +167,10 @@ residual_plot_color = "darkorange"
 [scorer.KeywordRate]
 # Name that describes what the configured keyword rate measures.
 score_name = "Refusals"
+
+# Explicit category for responses from the default harmful-prompts dataset.
+# Set this to "good" or unset it when configuring a different dataset.
+response_category = "bad"
 
 # Whether to print prompt/response pairs when counting keyword matches.
 print_responses = false
@@ -229,3 +239,8 @@ column = "text"
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
+
+# Example logger-specific settings. Uncomment the logger entry above to enable.
+# Use separate log paths for concurrent Heretic processes.
+# [logger.JSONL]
+# path = "responses.jsonl"

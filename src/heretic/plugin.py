@@ -1,14 +1,26 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+from __future__ import annotations
+
 import importlib
 import importlib.util
 import inspect
 import sys
 import types
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Annotated, Any, TypeVar, Union, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from pydantic import BaseModel
 from torch import Tensor
@@ -20,6 +32,32 @@ from .config import Settings as HereticSettings
 from .model import Model
 
 T = TypeVar("T")
+ResponseCategory = Literal["good", "bad"]
+
+
+@dataclass(frozen=True)
+class ResponseSource:
+    """The explicit scorer context in which a response was requested."""
+
+    scorer: str | None
+    dataset: str | None
+    category: ResponseCategory | None
+
+
+@dataclass(frozen=True)
+class ResponseRecord:
+    """A generated response and all scorer contexts that consumed it."""
+
+    prompt: Prompt
+    response: str
+    sources: tuple[ResponseSource, ...]
+
+
+@dataclass
+class _CachedResponse:
+    prompt: Prompt
+    response: str
+    sources: list[ResponseSource]
 
 
 def get_plugin_namespace(
@@ -157,22 +195,99 @@ class Context:
     Direct access to the underlying Model is intentionally not exposed.
     """
 
-    def __init__(self, settings: HereticSettings, model: Model) -> None:
+    def __init__(
+        self,
+        settings: HereticSettings,
+        model: Model,
+        *,
+        session_id: str | None = None,
+        phase: str | None = None,
+        _capture_responses: bool = False,
+        _responses_cache: dict[tuple[tuple[str, str], ...], list[str]] | None = None,
+        _response_entries: dict[tuple[tuple[str, str], ...], list[_CachedResponse]]
+        | None = None,
+        _response_source: str | None = None,
+    ) -> None:
         self._model = model
         self._settings = settings
-        self._responses_cache: dict[tuple[tuple[str, str], ...], list[str]] = {}
+        self._session_id = session_id
+        self._phase = phase
+        self._capture_responses = _capture_responses
+        self._responses_cache = {} if _responses_cache is None else _responses_cache
+        self._response_entries = {} if _response_entries is None else _response_entries
+        self._response_source = _response_source
 
     def _cache_key(self, prompts: list[Prompt]) -> tuple[tuple[str, str], ...]:
         return tuple((p.system, p.user) for p in prompts)
 
-    def get_responses(self, prompts: list[Prompt]) -> list[str]:
+    @property
+    def session_id(self) -> str | None:
+        """Return the run invocation ID associated with this context."""
+        return self._session_id
+
+    @property
+    def phase(self) -> str | None:
+        """Return the lifecycle phase associated with this context."""
+        return self._phase
+
+    def for_scorer(self, scorer: str) -> Context:
+        """Return a view that shares caches while tagging response requests."""
+        return Context(
+            settings=self._settings,
+            model=self._model,
+            session_id=self._session_id,
+            phase=self._phase,
+            _capture_responses=self._capture_responses,
+            _responses_cache=self._responses_cache,
+            _response_entries=self._response_entries,
+            _response_source=scorer,
+        )
+
+    def get_responses(
+        self,
+        prompts: list[Prompt],
+        *,
+        category: ResponseCategory | None = None,
+        dataset: str | None = None,
+    ) -> list[str]:
         """Get model responses (cached within this context)."""
         key = self._cache_key(prompts)
         if key not in self._responses_cache:
-            self._responses_cache[key] = self._model.get_responses_batched(
+            responses = self._model.get_responses_batched(
                 prompts, skip_special_tokens=True
             )
+            if self._capture_responses:
+                entries = [
+                    _CachedResponse(prompt=prompt, response=response, sources=[])
+                    for prompt, response in zip(prompts, responses, strict=True)
+                ]
+                self._response_entries[key] = entries
+            self._responses_cache[key] = responses
+
+        if self._capture_responses:
+            source = ResponseSource(
+                scorer=self._response_source,
+                dataset=dataset,
+                category=category,
+            )
+            for response in self._response_entries[key]:
+                if source not in response.sources:
+                    response.sources.append(source)
+
         return self._responses_cache[key]
+
+    @property
+    def response_records(self) -> tuple[ResponseRecord, ...]:
+        """Return generated responses in first-request order."""
+        return tuple(
+            ResponseRecord(
+                prompt=response.prompt,
+                response=response.response,
+                sources=tuple(response.sources),
+            )
+            for responses in self._response_entries.values()
+            for response in responses
+        )
 
     def get_logits(self, prompts: list[Prompt]) -> Tensor:
         return self._model.get_logits_batched(prompts)

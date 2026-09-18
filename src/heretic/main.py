@@ -82,6 +82,7 @@ from .reproduce import (
 )
 from .system import empty_cache, get_accelerator_info
 from .utils import (
+    _strip_logger_settings,
     ask_if_unset,
     format_duration,
     format_exception,
@@ -265,7 +266,11 @@ def run():
 
         print()
 
-        settings = Settings.model_validate(reproduction_information["settings"])
+        # Reproduction packages are portable and must not activate a logger
+        # configured for the machine that produced them.
+        settings = Settings.model_validate(
+            _strip_logger_settings(reproduction_information["settings"])
+        )
 
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
@@ -570,7 +575,7 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        for name, score in evaluator.get_scores():
+        for name, score in evaluator.get_scores(phase="model_evaluation"):
             print(f"  * [bold]{name}:[/] [green]{score.rich_display}[/]")
         return
 
@@ -732,7 +737,15 @@ def run():
         print("* Abliterating...")
         model.abliterate(residual_directions, direction_index, parameters)
         print("* Evaluating...")
-        scores = evaluator.get_scores()
+        scores = evaluator.get_scores(
+            trial_number=trial.number,
+            parameters={
+                "direction_index": direction_index,
+                "abliteration_parameters": {
+                    name: asdict(value) for name, value in parameters.items()
+                },
+            },
+        )
         objective_values = evaluator.get_objective_values(scores)
         for name, score in scores:
             print(f"  * [bold]{name}:[/] [green]{score.rich_display}[/]")

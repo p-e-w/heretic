@@ -50,11 +50,6 @@ class Settings(BaseModel):
         description="Name that describes what the configured keyword rate measures.",
     )
 
-    keyword_markers: list[str] = Field(
-        default=REFUSAL_MARKERS,
-        description="Strings whose presence in a response (case insensitive) identifies the response as a keyword match.",
-    )
-
     prompts: DatasetSpecification = Field(
         default=DatasetSpecification(
             dataset="mlabonne/harmful_behaviors",
@@ -62,6 +57,11 @@ class Settings(BaseModel):
             column="text",
         ),
         description="Dataset of prompts to evaluate the keyword match rate on.",
+    )
+
+    keyword_markers: list[str] = Field(
+        default=REFUSAL_MARKERS,
+        description="Strings whose presence in a response (case insensitive) identifies the response as a keyword match.",
     )
 
     print_responses: bool = Field(

@@ -9,9 +9,9 @@ from pydantic import BaseModel
 
 from .config import DatasetSpecification, ScorerConfig, Settings
 from .model import Model
-from .plugin import get_plugin_namespace, is_builtin_plugin, load_plugin
-from .scorer import Context, Score, Scorer
-from .utils import deep_merge_dicts, parse_study_direction, print
+from .plugin import Context, is_builtin_plugin, load_plugin
+from .scorer import Score, Scorer
+from .utils import parse_study_direction, print
 
 
 @dataclass
@@ -63,14 +63,16 @@ class Evaluator:
             scorer_cls.validate_contract()
 
             print(
-                f"* Loaded: [bold]{scorer_cls.__name__} {'- ' + config.instance_name if config.instance_name else ''}[/bold]"
+                f"* Loaded: [bold]{scorer_cls.__name__}{' - ' + config.instance_name if config.instance_name else ''}[/bold]"
             )
 
             # Instantiate scorers.
             instance_name = config.instance_name or None
 
-            raw_settings = self._get_scorer_settings_raw(
-                scorer_cls=scorer_cls, instance_name=instance_name
+            raw_settings = scorer_cls.get_settings_raw(
+                self.settings.model_extra,
+                "scorer",
+                instance_name,
             )
             scorer_settings: BaseModel | None = scorer_cls.validate_settings(
                 raw_settings
@@ -117,44 +119,8 @@ class Evaluator:
         """
         specifications = []
         for entry in self._scorer_entries:
-            if entry.scorer.settings is None:
-                continue
-            for value in dict(entry.scorer.settings).values():
-                if isinstance(value, DatasetSpecification):
-                    specifications.append(value)
+            specifications.extend(entry.scorer.get_dataset_specifications())
         return specifications
-
-    def _get_scorer_settings_raw(
-        self, *, scorer_cls: type[Scorer], instance_name: str | None
-    ) -> dict[str, Any]:
-        """
-        Build the raw settings dict for a scorer class and optional instance.
-
-        Config rules:
-        - Base settings live in `[scorer.ClassName]` (applies to all instances).
-        - Instance overrides live in `[scorer.ClassName_<instance_name>]` (preferred).
-        - Only merge/validate keys that exist in the scorer Settings schema.
-        """
-        settings_model = scorer_cls.get_settings_model()
-        if settings_model is None:
-            # No settings schema: nothing to merge/validate.
-            return {}
-
-        class_name = scorer_cls.__name__
-
-        namespaces = [f"scorer.{class_name}"]
-        if instance_name:
-            namespaces.append(f"scorer.{class_name}_{instance_name}")
-
-        merged_settings: dict[str, Any] = {}
-        allowed_keys = set(settings_model.model_fields.keys())
-
-        for namespace in namespaces:
-            raw_table = get_plugin_namespace(self.settings.model_extra, namespace)
-            filtered = {k: v for k, v in raw_table.items() if k in allowed_keys}
-            merged_settings = deep_merge_dicts(merged_settings, filtered)
-
-        return merged_settings
 
     def all_scorers_reproducible(self) -> bool:
         """

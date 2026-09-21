@@ -1,17 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import math
 from contextlib import suppress
-from dataclasses import dataclass
 from typing import Any, Type, cast
 
-import bitsandbytes as bnb
 import torch
-import torch.linalg as LA
-import torch.nn.functional as F
 from peft import LoraConfig, PeftModel, get_peft_model
-from peft.tuners.lora.layer import Linear
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
 from transformers import (
@@ -31,7 +25,7 @@ from transformers.generation import (
     GenerateDecoderOnlyOutput,  # ty:ignore[possibly-missing-import]
 )
 
-from .config import QuantizationMethod, RowNormalization, Settings
+from .config import QuantizationMethod, Settings
 from .system import empty_cache
 from .utils import Prompt, batchify, format_exception, print
 
@@ -45,14 +39,6 @@ def get_model_class(
         return AutoModelForImageTextToText
     else:
         return AutoModelForCausalLM
-
-
-@dataclass
-class AbliterationParameters:
-    max_weight: float
-    max_weight_position: float
-    min_weight: float
-    min_weight_distance: float
 
 
 class Model:
@@ -168,11 +154,6 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
-        self._apply_lora()
-
-        # LoRA B matrices are initialized to zero by default in PEFT,
-        # so we don't need to do anything manually.
-
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
 
         all_components = {}
@@ -186,7 +167,7 @@ class Model:
         for component, count in all_components.items():
             print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
 
-    def _apply_lora(self):
+    def apply_lora(self, lora_rank: int):
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PreTrainedModel)
 
@@ -211,13 +192,6 @@ class Model:
 
         target_modules = sorted(target_modules_set)
 
-        if self.settings.row_normalization != RowNormalization.FULL:
-            # Rank 1 is sufficient for directional ablation without renormalization.
-            lora_rank = 1
-        else:
-            # Row magnitude preservation introduces nonlinear effects.
-            lora_rank = self.settings.full_normalization_lora_rank
-
         self.peft_config = LoraConfig(
             r=lora_rank,
             target_modules=target_modules,
@@ -232,11 +206,6 @@ class Model:
         # self.peft_config is a LoraConfig object rather than a dictionary,
         # so the result is a PeftModel rather than a PeftMixedModel.
         self.model = cast(PeftModel, get_peft_model(self.model, self.peft_config))
-
-        display_targets = sorted({name.rsplit(".", 1)[-1] for name in target_modules})
-        print(
-            f"* LoRA adapters initialized (target types: {', '.join(display_targets)})"
-        )
 
     def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
         """
@@ -312,7 +281,7 @@ class Model:
             self.needs_reload = True
             return merged_model
 
-    def reset_model(self):
+    def reset_model(self) -> bool:
         """
         Resets the model to a clean state for the next trial or evaluation.
 
@@ -321,6 +290,8 @@ class Model:
           resets LoRA adapter weights to zero (identity transformation).
         - Slow path: If switching models or after merge_and_unload(),
           performs full model reload with quantization config.
+
+        Returns True if the fast path was taken.
         """
 
         # If a prior model load was interrupted/cancelled mid-process, self.model will be None.
@@ -333,7 +304,7 @@ class Model:
             for name, module in self.model.named_modules():
                 if "lora_B" in name and hasattr(module, "weight"):
                     torch.nn.init.zeros_(module.weight)
-            return
+            return True
 
         # Purge existing model object from memory to make space.
         self.model = None  # ty:ignore[invalid-assignment]
@@ -360,9 +331,9 @@ class Model:
             **extra_kwargs,
         )
 
-        self._apply_lora()
-
         self.needs_reload = False
+
+        return False
 
     def get_layers(self) -> ModuleList:
         model = self.model
@@ -458,166 +429,6 @@ class Model:
 
         return sorted(components)
 
-    def abliterate(
-        self,
-        residual_directions: Tensor,
-        direction_index: float | None,
-        parameters: dict[str, AbliterationParameters],
-    ):
-        if direction_index is None:
-            residual_direction = None
-        else:
-            # The index must be shifted by 1 because the first element
-            # of residual_directions is the direction for the embeddings.
-            weight, index = math.modf(direction_index + 1)
-            residual_direction = F.normalize(
-                residual_directions[int(index)].lerp(
-                    residual_directions[int(index) + 1],
-                    weight,
-                ),
-                p=2,
-                dim=0,
-            )
-
-        # Note that some implementations of abliteration also orthogonalize
-        # the embedding matrix, but it's unclear if that has any benefits.
-        for layer_index in range(len(self.get_layers())):
-            for component, modules in self.get_layer_modules(layer_index).items():
-                params = parameters[component]
-
-                # Type inference fails here for some reason.
-                distance = cast(float, abs(layer_index - params.max_weight_position))
-
-                # Don't orthogonalize layers that are more than
-                # min_weight_distance away from max_weight_position.
-                if distance > params.min_weight_distance:
-                    continue
-
-                # Interpolate linearly between max_weight and min_weight
-                # over min_weight_distance.
-                weight = params.max_weight + (distance / params.min_weight_distance) * (
-                    params.min_weight - params.max_weight
-                )
-
-                # A weight of 0 disables this component's ablation. reset_model() has
-                # already left the adapter at identity, so abort before the otherwise
-                # wasteful decomposition (which would also be operating on a zero matrix).
-                if weight == 0:
-                    continue
-
-                if residual_direction is None:
-                    # The index must be shifted by 1 because the first element
-                    # of residual_directions is the direction for the embeddings.
-                    layer_residual_direction = residual_directions[layer_index + 1]
-                else:
-                    layer_residual_direction = residual_direction
-
-                for module in modules:
-                    # FIXME: This cast is potentially invalid, because the program logic
-                    #        does not guarantee that the module is of type Linear, and in fact
-                    #        the retrieved modules might not conform to the interface assumed
-                    #        below (though they do in practice). However, this is difficult
-                    #        to fix cleanly, because get_layer_modules is called twice on
-                    #        different model configurations, and PEFT employs different
-                    #        module types depending on the chosen quantization.
-                    module = cast(Linear, module)
-
-                    # LoRA abliteration: delta W = -lambda * v * (v^T W)
-                    # lora_B = -lambda * v
-                    # lora_A = v^T W
-
-                    # Use the FP32 residual direction directly (no downcast/upcast)
-                    # and move to the correct device.
-                    v = layer_residual_direction.to(module.weight.device)
-
-                    # Get W (dequantize if necessary).
-                    #
-                    # FIXME: This cast is valid only under the assumption that the original
-                    #        module wrapped by the LoRA adapter has a weight attribute.
-                    #        See the comment above for why this is currently not guaranteed.
-                    base_weight = cast(Tensor, module.base_layer.weight)
-                    quant_state = getattr(base_weight, "quant_state", None)
-
-                    if quant_state is None:
-                        W = base_weight.to(torch.float32)
-                    else:
-                        # 4-bit quantization.
-                        # This cast is always valid. Type inference fails here because the
-                        # bnb.functional module is not found by ty for some reason.
-                        W = cast(
-                            Tensor,
-                            bnb.functional.dequantize_4bit(  # ty:ignore[possibly-missing-attribute]
-                                base_weight.data,
-                                quant_state,
-                            ).to(torch.float32),
-                        )
-
-                    # Flatten weight matrix to (out_features, in_features).
-                    W = W.view(W.shape[0], -1)
-
-                    if self.settings.row_normalization == RowNormalization.FULL:
-                        # Keep a reference to the original weight matrix so we can subtract it later.
-                        W_org = W
-
-                    if self.settings.row_normalization != RowNormalization.NONE:
-                        # Get the row norms.
-                        W_row_norms = LA.vector_norm(W, dim=1, keepdim=True)
-                        # Normalize the weight matrix along the rows.
-                        W = F.normalize(W, p=2, dim=1)
-
-                    # Calculate lora_A = v^T W
-                    # v is (d_out,), W is (d_out, d_in)
-                    # v @ W -> (d_in,)
-                    lora_A = (v @ W).view(1, -1)
-
-                    # Calculate lora_B = -weight * v
-                    # v is (d_out,)
-                    lora_B = (-weight * v).view(-1, 1)
-
-                    if self.settings.row_normalization == RowNormalization.PRE:
-                        # Make the LoRA adapter apply to the original weight matrix.
-                        lora_B = W_row_norms * lora_B
-                    elif self.settings.row_normalization == RowNormalization.FULL:
-                        # Approximates https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration
-                        W = W + lora_B @ lora_A
-                        # Normalize the adjusted weight matrix along the rows.
-                        W = F.normalize(W, p=2, dim=1)
-                        # Restore the original row norms of the weight matrix.
-                        W = W * W_row_norms
-                        # Subtract the original matrix to turn W into a delta.
-                        W = W - W_org
-                        # Use a low-rank SVD to get an approximation of the matrix.
-                        r = self.peft_config.r
-
-                        # svd_lowrank is randomized:
-                        # https://github.com/pytorch/pytorch/blob/20919052303c0b5ba87f8bf7e19237dc33ab09d3/torch/_lowrank.py#L108-L109
-                        # Reseed immediately before the call so restoring a trial is independent of RNG history.
-                        torch.manual_seed(self.settings.seed)
-                        # "It's safe to call this function if CUDA is not available;
-                        # in that case, it is silently ignored."
-                        torch.cuda.manual_seed_all(self.settings.seed)  # ty:ignore[invalid-argument-type]
-                        U, S, Vh = torch.svd_lowrank(W, q=2 * r + 4, niter=6)
-
-                        # Truncate it to the part we want to store in the LoRA adapter.
-                        # Note: svd_lowrank actually returns V, so transpose it to get Vh.
-                        U = U[:, :r]
-                        S = S[:r]
-                        Vh = Vh[:, :r].T
-                        # Transfer it into the LoRA adapter components. Split the singular values
-                        # evenly between the two components to keep their norms balanced and avoid
-                        # potential issues with numerical stability.
-                        sqrt_S = torch.sqrt(S)
-                        lora_B = U @ torch.diag(sqrt_S)
-                        lora_A = torch.diag(sqrt_S) @ Vh
-
-                    # Assign to adapters. The adapter name is "default", because that's
-                    # what PEFT uses when no name is explicitly specified, as above.
-                    # These casts are therefore valid.
-                    weight_A = cast(Tensor, module.lora_A["default"].weight)
-                    weight_B = cast(Tensor, module.lora_B["default"].weight)
-                    weight_A.data = lora_A.to(weight_A.dtype)
-                    weight_B.data = lora_B.to(weight_B.dtype)
-
     def generate(
         self,
         prompts: list[Prompt],
@@ -691,6 +502,7 @@ class Model:
         skip_special_tokens: bool = False,
     ) -> list[str]:
         responses = []
+
         for batch in batchify(prompts, self.settings.batch_size):
             for response in self.get_responses(
                 batch,
@@ -700,7 +512,11 @@ class Model:
 
         return responses
 
-    def get_residuals(self, prompts: list[Prompt]) -> Tensor:
+    def get_residuals(
+        self,
+        prompts: list[Prompt],
+        winsorization_quantile: float = 1.0,
+    ) -> Tensor:
         # We only generate one token, and we return the residual vectors
         # at that token position, for each prompt and layer.
         _, outputs = self.generate(
@@ -734,13 +550,13 @@ class Model:
         # problems during calculations involving residual vectors.
         residuals = residuals.to(torch.float32)
 
-        if 0 <= self.settings.winsorization_quantile < 1:
+        if 0 <= winsorization_quantile < 1:
             # Apply symmetric winsorization to each layer of the per-prompt residuals.
             abs_residuals = torch.abs(residuals)
             # Get the (prompt, layer, 1) quantiles of the (prompt, layer, component) residuals.
             thresholds = torch.quantile(
                 abs_residuals,
-                self.settings.winsorization_quantile,
+                winsorization_quantile,
                 dim=2,
                 keepdim=True,
             )
@@ -752,15 +568,28 @@ class Model:
 
         return residuals
 
-    def get_residuals_batched(self, prompts: list[Prompt]) -> Tensor:
+    def get_residuals_batched(
+        self,
+        prompts: list[Prompt],
+        winsorization_quantile: float = 1.0,
+    ) -> Tensor:
         residuals = []
 
         for batch in batchify(prompts, self.settings.batch_size):
-            residuals.append(self.get_residuals(batch))
+            residuals.append(
+                self.get_residuals(
+                    batch,
+                    winsorization_quantile=winsorization_quantile,
+                )
+            )
 
         return torch.cat(residuals, dim=0)
 
-    def get_residuals_mean(self, prompts: list[Prompt]) -> Tensor:
+    def get_residuals_mean(
+        self,
+        prompts: list[Prompt],
+        winsorization_quantile: float = 1.0,
+    ) -> Tensor:
         if not prompts:
             raise ValueError("prompts must not be empty")
 
@@ -768,7 +597,10 @@ class Model:
         total_count = 0
 
         for batch in batchify(prompts, self.settings.batch_size):
-            batch_residuals = self.get_residuals(batch)
+            batch_residuals = self.get_residuals(
+                batch,
+                winsorization_quantile=winsorization_quantile,
+            )
 
             # Accumulate in high precision on CPU to reduce peak VRAM usage.
             batch_sum = batch_residuals.sum(dim=0, dtype=torch.float64).cpu()

@@ -6,9 +6,8 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-from heretic.plugin import Context, Plugin
-
 from .config import Settings as HereticSettings
+from .plugin import Context, Plugin
 
 
 @dataclass

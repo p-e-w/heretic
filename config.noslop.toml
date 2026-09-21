@@ -3,25 +3,7 @@
 
 max_response_length = 300
 
-residual_plot_title = "PaCMAP Projection of Residuals for Slop-Suppressing/Inducing Prompts"
-
 system_prompt = "You are a professional writer."
-
-[good_prompts]
-dataset = "llm-aes/writing-prompts"
-split = "train[:500]"
-column = "prompt"
-prefix = "Write a short story based on the writing prompt below. Avoid literary cliches, purple prose, and flowery language.\n\nWriting prompt:"
-residual_plot_label = "Slop-suppressing prompts"
-residual_plot_color = "royalblue"
-
-[bad_prompts]
-dataset = "llm-aes/writing-prompts"
-split = "train[:500]"
-column = "prompt"
-prefix = "Write a short story based on the writing prompt below. Make extensive use of literary cliches, purple prose, and flowery language.\n\nWriting prompt:"
-residual_plot_label = "Slop-inducing prompts"
-residual_plot_color = "darkorange"
 
 [scorer.KeywordRate]
 score_name = "Responses with slop"
@@ -164,3 +146,15 @@ dataset = "llm-aes/writing-prompts"
 split = "train[1000:1100]"
 column = "prompt"
 prefix = "Write a short story based on the writing prompt below. Avoid literary cliches, purple prose, and flowery language.\n\nWriting prompt:"
+
+[modifier.Abliteration.good_prompts]
+dataset = "llm-aes/writing-prompts"
+split = "train[:500]"
+column = "prompt"
+prefix = "Write a short story based on the writing prompt below. Avoid literary cliches, purple prose, and flowery language.\n\nWriting prompt:"
+
+[modifier.Abliteration.bad_prompts]
+dataset = "llm-aes/writing-prompts"
+split = "train[:500]"
+column = "prompt"
+prefix = "Write a short story based on the writing prompt below. Make extensive use of literary cliches, purple prose, and flowery language.\n\nWriting prompt:"

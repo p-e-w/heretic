@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
@@ -11,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import huggingface_hub
 import tomli_w
@@ -37,6 +39,10 @@ from .system import (
     get_requirements_dict,
     is_xpu_available,
 )
+
+if TYPE_CHECKING:
+    from .modifier import Modifier
+
 
 T = TypeVar("T")
 
@@ -257,23 +263,9 @@ def batchify(items: list[T], batch_size: int) -> list[list[T]]:
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
 
-def get_trial_parameters(trial: Trial | FrozenTrial) -> dict[str, str]:
-    params = {}
-
-    direction_index = trial.user_attrs["direction_index"]
-    params["direction_index"] = (
-        "per layer" if (direction_index is None) else f"{direction_index:.2f}"
-    )
-
-    for component, parameters in trial.user_attrs["parameters"].items():
-        for name, value in parameters.items():
-            params[f"{component}.{name}"] = f"{value:.2f}"
-
-    return params
-
-
 def get_readme_intro(
     settings: Settings,
+    modifier: Modifier[Any],
     trial: Trial | FrozenTrial,
     contains_reproducibility_information: bool,
 ) -> str:
@@ -316,7 +308,7 @@ def get_readme_intro(
         model_link
     }, made using [Heretic](https://heretic-project.org) v{version("heretic-llm")}
 {reproducibility_instructions}
-## Abliteration parameters
+## {modifier.modifier_name} parameters
 
 | Parameter | Value |
 | :-------- | :---: |
@@ -324,7 +316,7 @@ def get_readme_intro(
         chr(10).join(
             [
                 f"| **{name}** | {value} |"
-                for name, value in get_trial_parameters(trial).items()
+                for name, value in modifier.render_trial_parameters(trial).items()
             ]
         )
     }
@@ -508,8 +500,7 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## Datasets
 
-- **Good prompts:** {format_hf_link(settings.good_prompts.dataset, settings.good_prompts.commit, is_dataset=True)}
-- **Bad prompts:** {format_hf_link(settings.bad_prompts.dataset, settings.bad_prompts.commit, is_dataset=True)}
+- TODO: Collect all datasets from scorers and modifiers.
 
 ## Selected trial
 
@@ -564,8 +555,8 @@ def generate_reproduce_json(
     version_info = get_heretic_version_info()
 
     data = {
-        # Version 3: plugin-based schema with generic scores/baseline scores.
-        "version": "3",
+        # Version 4: plugin-based schema with generic parameters and scores.
+        "version": "4",
         "timestamp": timestamp,
         "system": None,  # Defined here to preserve insertion order.
         "environment": {
@@ -578,10 +569,7 @@ def generate_reproduce_json(
             "requirements": get_requirements_dict(),
         },
         "settings": settings.model_dump(),
-        "parameters": {
-            "direction_index": trial.user_attrs["direction_index"],
-            "abliteration_parameters": trial.user_attrs["parameters"],
-        },
+        "parameters": trial.user_attrs["parameters"],
         "scores": trial.user_attrs["scores"],
         "hashes": uploaded_model_hashes,
     }

@@ -413,13 +413,13 @@ def run():
     # TODO: Introduce a dedicated dataset setting for test prompts.
     good_prompts_dataset = DatasetSpecification(
         dataset="mlabonne/harmless_alpaca",
-        split="train[:400]",
+        split="train[:5]",
         column="text",
     )
 
     bad_prompts_dataset = DatasetSpecification(
         dataset="mlabonne/harmful_behaviors",
-        split="train[:400]",
+        split="train[:5]",
         column="text",
     )
 

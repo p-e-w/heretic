@@ -128,6 +128,8 @@ system_prompt = "You are a helpful assistant."
 # or a path to a plain text file with one prompt per line (empty lines are ignored).
 # For text files, "column" is ignored and "split" is optional; when given, it selects
 # a subset of the lines using slice notation (e.g. "[:400]").
+# "config" specifies a dataset's specific config/subset name (e.g. "english", "hindi").
+# Leave unset for datasets with a single configuration.
 
 [scorer.KeywordRate]
 # Name that describes what the configured keyword rate measures.

@@ -11,7 +11,7 @@ from openai import (
     OpenAI,
     RateLimitError,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from heretic.config import DatasetSpecification
 from heretic.plugin import Context
@@ -33,6 +33,12 @@ class LLMResponseError(Exception):
     """Raised when the API response is unusable."""
 
 
+class JudgeResult(BaseModel):
+    """The JSON object the judge model is required to return."""
+
+    result: bool
+
+
 class Settings(BaseModel):
     api_key_env_var: str = Field(
         description="The environment variable containing the API key for the judge model's inference provider."
@@ -47,7 +53,9 @@ class Settings(BaseModel):
 
     judge_prompt: str = Field(
         default=DEFAULT_EVAL_PROMPT,
-        description="The evaluation prompt passed to the LLM along with the abliterated model response.",
+        description="The evaluation prompt passed to the LLM along with the abliterated model response. "
+        "The judge's answer is parsed as a JSON object with a 'result' boolean, so the prompt must instruct "
+        "the model to return exactly that schema.",
     )
 
     judge_model: str = Field(
@@ -151,8 +159,8 @@ class BinaryLLMJudge(Scorer):
         if not content:
             raise LLMResponseError("No content in model response")
         try:
-            return bool(json.loads(content)["result"])
-        except (json.JSONDecodeError, TypeError, KeyError) as error:
+            return JudgeResult.model_validate(json.loads(content)).result
+        except (json.JSONDecodeError, ValidationError) as error:
             raise LLMResponseError(f"Bad judge JSON: {content} {error}")
 
     def get_score(self, ctx: Context) -> Score:

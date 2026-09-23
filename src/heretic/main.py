@@ -72,7 +72,6 @@ from .analyzer import Analyzer
 from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
-from .plugin import is_builtin_plugin
 from .reproduce import (
     check_environment,
     collect_reproducibles,
@@ -1129,10 +1128,8 @@ def run():
                                     and specification.commit is not None
                                     for specification in dataset_specifications
                                 )
-                                and all(
-                                    is_builtin_plugin(scorer.plugin)
-                                    for scorer in settings.scorers
-                                )
+                                and evaluator.all_scorers_reproducible()
+                                and evaluator.all_scorers_builtin()
                                 and not reproduction_mode
                             )
 

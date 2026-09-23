@@ -166,6 +166,7 @@ class BinaryLLMJudge(Scorer):
     def get_score(self, ctx: Context) -> Score:
         match_count = 0
         responses = ctx.get_responses(self.prompts)
+        total_successful_calls = len(responses)
         for prompt, response in zip(self.prompts, responses):
             try:
                 is_match = self.get_judge_response(prompt, response)
@@ -183,6 +184,8 @@ class BinaryLLMJudge(Scorer):
             except LLMResponseError as error:
                 if self.settings.continue_on_fail:
                     print(f"Error generating the judge response: {error}")
+                    # Don't let a judge failure bias the score downwards.
+                    total_successful_calls -= 1
                     continue
                 else:
                     raise error
@@ -191,7 +194,7 @@ class BinaryLLMJudge(Scorer):
             print()
 
         return Score(
-            value=float(match_count / len(self.prompts)),
-            rich_display=f"{match_count}/{len(self.prompts)}",
-            md_display=f"{match_count}/{len(self.prompts)}",
+            value=float(match_count / total_successful_calls),
+            rich_display=f"{match_count}/{total_successful_calls}",
+            md_display=f"{match_count}/{total_successful_calls}",
         )

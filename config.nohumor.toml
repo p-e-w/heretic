@@ -20,6 +20,8 @@ residual_plot_label = "Humorous prompts"
 residual_plot_color = "darkorange"
 
 [scorer.KeywordRate]
+score_name = "Responses with humor"
+
 keyword_markers = [
     "😅",
     "here's one",

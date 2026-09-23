@@ -39,13 +39,14 @@ import logging
 import math
 import os
 import random
+import re
 import time
 import warnings
 from dataclasses import asdict
 from importlib.metadata import version
 from os.path import commonprefix
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import huggingface_hub
 import lm_eval
@@ -65,7 +66,9 @@ from optuna.storages.journal import JournalFileBackend, JournalFileOpenLock
 from optuna.trial import FrozenTrial, TrialState, create_trial
 from pydantic import ValidationError
 from questionary import Choice, Style
+from rich.markup import escape
 from rich.table import Table
+from rich.text import Text
 from rich.traceback import install
 
 from .analyzer import Analyzer
@@ -476,40 +479,88 @@ def run():
         print()
         print("Checking for common response prefix...")
         prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
-        responses = model.get_responses_batched(prefix_check_prompts)
 
-        # Despite being located in os.path, commonprefix actually performs
-        # a naive string operation without any path-specific logic,
-        # which is exactly what we need here. Trailing spaces are removed
-        # to avoid issues where multiple different tokens that all start
-        # with a space character lead to the common prefix ending with
-        # a space, which would result in an uncommon tokenization.
-        settings.response_prefix = commonprefix(responses).rstrip(" ")
+        # Detect if the model's chat template inserts a reasoning tag on its own
+        # at the end of user's prompt (e.g. <think>) by using a dummy prompt.
+        # If found, then we use the full closed CoT as the response prefix.
+        # LiquidAI's LFM models do this (Lfm2ForCausalLM).
 
-        if settings.response_prefix:
-            print(f"* Prefix found: [bold]{settings.response_prefix!r}[/]")
+        # This cast is valid because str is the return type
+        # for a single chat operation with tokenize=False.
+        dummy_prompt = cast(
+            str,
+            model.tokenizer.apply_chat_template(
+                [{"role": "user", "content": "This is a dummy prompt."}],
+                add_generation_prompt=True,
+                tokenize=False,
+            ),
+        )
 
-            for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
-                if settings.response_prefix.startswith(cot_initializer):
-                    settings.response_prefix = closed_cot_block
-                    print(
-                        f"* Closed Chain-of-Thought block: [bold]{settings.response_prefix!r}[/]"
-                    )
+        cot_skip_applied = False
 
-                    # When using a Chain-of-Thought skip, we need to check that the prefix
-                    # is actually complete (e.g. not missing a trailing newline).
-                    print("* Rechecking with prefix...")
-                    responses = model.get_responses_batched(prefix_check_prompts)
-                    additional_prefix = commonprefix(responses).rstrip(" ")
-                    if additional_prefix:
-                        settings.response_prefix += additional_prefix
+        for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
+            # Match the tag and ignore any whitespace characters following it at the end
+            # (if any), including spaces, tabs, and linebreaks. This is required for models
+            # having whitespaces after the tags.
+            pattern = rf"{re.escape(cot_initializer)}\s*$"
+            match = re.search(pattern, dummy_prompt)
+
+            if match:
+                # We use only the closed CoT block here. Any whitespaces
+                # will be handled by the 'Rechecking with prefix' logic below.
+                settings.response_prefix = closed_cot_block
+                print(
+                    f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
+                )
+                cot_skip_applied = True
+                break
+
+        # Fallback to inference for models like mistral-3 which are specifically
+        # instructed to generate thinking tags using the system prompt in their
+        # chat template, instead of inserting a prefix tag (e.g. <think>) at
+        # the end of user prompt like the case above. We expect the model to
+        # generate those tags.
+        if settings.response_prefix is None:
+            responses = model.get_responses_batched(prefix_check_prompts)
+
+            # Despite being located in os.path, commonprefix actually performs
+            # a naive string operation without any path-specific logic,
+            # which is exactly what we need here. Trailing spaces are removed
+            # to avoid issues where multiple different tokens that all start
+            # with a space character lead to the common prefix ending with
+            # a space, which would result in an uncommon tokenization.
+            settings.response_prefix = commonprefix(responses).rstrip(" ")
+
+            if settings.response_prefix:
+                print(
+                    f"* Prefix found: [bold]{escape(repr(settings.response_prefix))}[/]"
+                )
+
+                for (
+                    cot_initializer,
+                    closed_cot_block,
+                ) in settings.chain_of_thought_skips:
+                    if settings.response_prefix.startswith(cot_initializer):
+                        settings.response_prefix = closed_cot_block
                         print(
-                            f"* Extended prefix found: [bold]{settings.response_prefix!r}[/]"
+                            f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
                         )
+                        cot_skip_applied = True
+                        break
+            else:
+                print("* None found")
 
-                    break
-        else:
-            print("* None found")
+        if cot_skip_applied:
+            # When using a Chain-of-Thought skip, we need to check that the prefix
+            # is actually complete (e.g. not missing a trailing newline).
+            print("* Rechecking with prefix...")
+            responses = model.get_responses_batched(prefix_check_prompts)
+            additional_prefix = commonprefix(responses).rstrip(" ")
+            if additional_prefix:
+                settings.response_prefix += additional_prefix
+                print(
+                    f"* Extended prefix found: [bold]{escape(repr(settings.response_prefix))}[/]"
+                )
 
     evaluator = Evaluator(settings, model)
 
@@ -519,10 +570,8 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        print()
-        print("[bold]Metrics:[/]")
-        for score_name, score in evaluator.get_scores():
-            print(f"  * {score_name}: [bold]{score.rich_display}[/]")
+        for name, score in evaluator.get_scores():
+            print(f"  * [bold]{name}:[/] [green]{score.rich_display}[/]")
         return
 
     if not reproduction_mode and not evaluator.get_objective_names():
@@ -673,7 +722,7 @@ def run():
 
         print()
         print(
-            f"Running trial [bold]{trial_index}[/] of [bold]{settings.n_trials}[/]..."
+            f"[magenta]Running trial [bold]{trial_index}[/] of [bold]{settings.n_trials}[/]...[/]"
         )
         print("* Parameters:")
         for name, value in get_trial_parameters(trial).items():
@@ -685,10 +734,8 @@ def run():
         print("* Evaluating...")
         scores = evaluator.get_scores()
         objective_values = evaluator.get_objective_values(scores)
-
-        print("  * Metrics:")
         for name, score in scores:
-            print(f"    * {name}: [bold]{score.rich_display}[/]")
+            print(f"  * [bold]{name}:[/] [green]{score.rich_display}[/]")
 
         elapsed_time = time.perf_counter() - start_time
         remaining_time = (elapsed_time / (trial_index - start_index)) * (
@@ -793,7 +840,7 @@ def run():
                 score_parts: list[str] = []
                 for score in trial.user_attrs["scores"]:
                     name = score["name"]
-                    value = score["score"]["rich_display"]
+                    value = Text.from_markup(score["score"]["rich_display"]).plain
                     score_parts.append(f"{name}: {value}")
 
                 return f"{prefix} " + ", ".join(score_parts)
@@ -828,7 +875,6 @@ def run():
                         "After selecting a trial, you will be able to save the model, upload it to Hugging Face, "
                         "chat with it to test how well it works, or run standard benchmarks on it. "
                         "You can return to this menu later to select a different trial. "
-                        "[yellow]Note that KL divergence values above 0.5 usually indicate significant damage to the original model's capabilities.[/]"
                     )
                 )
 

@@ -30,7 +30,7 @@ from psutil import Process
 from questionary import Question
 from rich.console import Console
 
-from .config import DatasetSpecification, Settings
+from .config import DatasetSpecification, Settings, SingleDatasetSpecification
 from .system import (
     get_accelerator_info_dict,
     get_cpu_info_dict,
@@ -169,9 +169,9 @@ def get_split_slice(split_str: str, length: int) -> tuple[int, int]:
     return absolute_instruction.from_, absolute_instruction.to
 
 
-def load_prompts(
+def _load_prompts_single(
     settings: Settings,
-    specification: DatasetSpecification,
+    specification: SingleDatasetSpecification,
 ) -> list[Prompt]:
     path = specification.dataset
     split_str = specification.split
@@ -259,6 +259,44 @@ def load_prompts(
         )
         for prompt in prompts
     ]
+
+
+def load_prompts(
+    settings: Settings,
+    specification: DatasetSpecification,
+) -> list[Prompt]:
+    if isinstance(specification, SingleDatasetSpecification):
+        return _load_prompts_single(settings, specification)
+    else:
+        return [
+            prompt
+            for single_specification in specification
+            for prompt in _load_prompts_single(settings, single_specification)
+        ]
+
+
+def format_dataset_specification(specification: DatasetSpecification) -> str:
+    if isinstance(specification, SingleDatasetSpecification):
+        return specification.dataset
+    else:
+        return (
+            "\\["
+            + ", ".join(
+                single_specification.dataset for single_specification in specification
+            )
+            + "]"
+        )
+
+
+def is_dataset_specification_reproducible(specification: DatasetSpecification) -> bool:
+    if isinstance(specification, SingleDatasetSpecification):
+        return is_hf_path(specification.dataset) and specification.commit is not None
+    else:
+        return all(
+            is_hf_path(single_specification.dataset)
+            and single_specification.commit is not None
+            for single_specification in specification
+        )
 
 
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:
@@ -367,6 +405,7 @@ def format_hf_link(
 
 def generate_reproduce_readme(
     settings: Settings,
+    dataset_specifications: list[DatasetSpecification],
     checkpoint_filename: str,
     trial: Trial | FrozenTrial,
     include_system_information: bool,
@@ -483,6 +522,29 @@ def generate_reproduce_readme(
                 f" --index-url https://download.pytorch.org/whl/{suffix}"
             )
 
+    formatted_datasets = set()
+    for specification in dataset_specifications:
+        if isinstance(specification, SingleDatasetSpecification):
+            formatted_datasets.add(
+                format_hf_link(
+                    specification.dataset,
+                    specification.commit,
+                    is_dataset=True,
+                )
+            )
+        else:
+            for single_specification in specification:
+                formatted_datasets.add(
+                    format_hf_link(
+                        single_specification.dataset,
+                        single_specification.commit,
+                        is_dataset=True,
+                    )
+                )
+    dataset_lines = "\n".join(
+        f"- {formatted_dataset}" for formatted_dataset in sorted(formatted_datasets)
+    )
+
     trial_scores = trial.user_attrs["scores"]
     score_lines = "\n".join(
         (
@@ -502,7 +564,7 @@ This directory contains the necessary information and assets to reproduce the re
 
 ## Datasets
 
-- TODO: Collect all datasets from scorers and modifiers.
+{dataset_lines}
 
 ## Selected trial
 
@@ -619,6 +681,7 @@ def get_file_sha256(file_path: str | Path) -> str:
 def create_reproduce_folder(
     path: Path,
     settings: Settings,
+    dataset_specifications: list[DatasetSpecification],
     checkpoint_path: str | Path,
     trial: Trial | FrozenTrial,
     uploaded_model_hashes: dict[str, str],
@@ -667,6 +730,7 @@ def create_reproduce_folder(
     (reproduce_dir / "README.md").write_text(
         generate_reproduce_readme(
             settings,
+            dataset_specifications,
             checkpoint_filename,
             trial,
             include_system_information=include_system_information,
@@ -683,6 +747,7 @@ def create_reproduce_folder(
 def upload_reproduce_folder(
     repo_id: str,
     settings: Settings,
+    dataset_specifications: list[DatasetSpecification],
     token: str,
     checkpoint_path: str | Path,
     trial: Trial | FrozenTrial,
@@ -711,6 +776,7 @@ def upload_reproduce_folder(
         create_reproduce_folder(
             tmp_path,
             settings,
+            dataset_specifications,
             checkpoint_path=checkpoint_path,
             trial=trial,
             uploaded_model_hashes=uploaded_model_hashes,

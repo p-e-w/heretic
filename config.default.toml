@@ -102,6 +102,23 @@ max_shard_size = "5GB"
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 
+# Dataset of prompts to use for automatically determining the optimal batch size.
+[batch_size_test_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:256]"
+column = "text"
+
+# Dataset of prompts to use for automatically determining the response prefix.
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:100]"
+column = "text"
+
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:100]"
+column = "text"
+
 # Plugin-specific settings live in top-level TOML tables.
 #
 # For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>_<instance_name>]` for instance-related config).

@@ -86,10 +86,12 @@ from .reproduce import (
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     ask_if_unset,
+    format_dataset_specification,
     format_duration,
     format_exception,
     get_file_sha256,
     get_readme_intro,
+    is_dataset_specification_reproducible,
     is_hf_path,
     load_prompts,
     print,
@@ -412,30 +414,17 @@ def run():
     print()
     print_memory_usage()
 
-    # TODO: Introduce a dedicated dataset setting for test prompts.
-    good_prompts_dataset = DatasetSpecification(
-        dataset="mlabonne/harmless_alpaca",
-        split="train[:5]",
-        column="text",
-    )
-
-    bad_prompts_dataset = DatasetSpecification(
-        dataset="mlabonne/harmful_behaviors",
-        split="train[:5]",
-        column="text",
-    )
-
-    print()
-    print(f"Loading good prompts from [bold]{good_prompts_dataset.dataset}[/]...")
-    good_prompts = load_prompts(settings, good_prompts_dataset)
-    print(f"* [bold]{len(good_prompts)}[/] prompts loaded")
-
-    print()
-    print(f"Loading bad prompts from [bold]{bad_prompts_dataset.dataset}[/]...")
-    bad_prompts = load_prompts(settings, bad_prompts_dataset)
-    print(f"* [bold]{len(bad_prompts)}[/] prompts loaded")
-
     if settings.batch_size == 0:
+        print()
+        print(
+            f"Loading batch size test prompts from [bold]{format_dataset_specification(settings.batch_size_test_prompts)}[/]..."
+        )
+        batch_size_test_prompts = load_prompts(
+            settings,
+            settings.batch_size_test_prompts,
+        )
+        print(f"* [bold]{len(batch_size_test_prompts)}[/] prompts loaded")
+
         print()
         print("Determining optimal batch size...")
 
@@ -446,7 +435,9 @@ def run():
         while batch_size <= settings.max_batch_size:
             print(f"* Trying batch size [bold]{batch_size}[/]... ", end="")
 
-            prompts = good_prompts * math.ceil(batch_size / len(good_prompts))
+            prompts = batch_size_test_prompts * math.ceil(
+                batch_size / len(batch_size_test_prompts)
+            )
             prompts = prompts[:batch_size]
 
             try:
@@ -488,8 +479,17 @@ def run():
 
     if settings.response_prefix is None:
         print()
+        print(
+            f"Loading response prefix test prompts from [bold]{format_dataset_specification(settings.response_prefix_test_prompts)}[/]..."
+        )
+        response_prefix_test_prompts = load_prompts(
+            settings,
+            settings.response_prefix_test_prompts,
+        )
+        print(f"* [bold]{len(response_prefix_test_prompts)}[/] prompts loaded")
+
+        print()
         print("Checking for common response prefix...")
-        prefix_check_prompts = good_prompts[:100] + bad_prompts[:100]
 
         # Detect if the model's chat template inserts a reasoning tag on its own
         # at the end of user's prompt (e.g. <think>) by using a dummy prompt.
@@ -532,7 +532,7 @@ def run():
         # the end of user prompt like the case above. We expect the model to
         # generate those tags.
         if settings.response_prefix is None:
-            responses = model.get_responses_batched(prefix_check_prompts)
+            responses = model.get_responses_batched(response_prefix_test_prompts)
 
             # Despite being located in os.path, commonprefix actually performs
             # a naive string operation without any path-specific logic,
@@ -565,7 +565,7 @@ def run():
             # When using a Chain-of-Thought skip, we need to check that the prefix
             # is actually complete (e.g. not missing a trailing newline).
             print("* Rechecking with prefix...")
-            responses = model.get_responses_batched(prefix_check_prompts)
+            responses = model.get_responses_batched(response_prefix_test_prompts)
             additional_prefix = commonprefix(responses).rstrip(" ")
             if additional_prefix:
                 settings.response_prefix += additional_prefix
@@ -1057,15 +1057,14 @@ def run():
                             # dataset was likely loaded from a local cache), and that
                             # only built-in plugins are used (external plugins cannot
                             # be resolved when reproducing).
-                            dataset_specifications = [
+                            dataset_specifications: list[DatasetSpecification] = [
                                 *evaluator.get_dataset_specifications(),
                                 *modifier.get_dataset_specifications(),
                             ]
                             is_reproducible = (
                                 is_hf_path(settings.model)
                                 and all(
-                                    is_hf_path(specification.dataset)
-                                    and specification.commit is not None
+                                    is_dataset_specification_reproducible(specification)
                                     for specification in dataset_specifications
                                 )
                                 and evaluator.all_scorers_reproducible()
@@ -1190,6 +1189,7 @@ def run():
                                     upload_reproduce_folder(
                                         repo_id,
                                         settings,
+                                        dataset_specifications,
                                         token,
                                         checkpoint_path=study_checkpoint_file,
                                         trial=trial,

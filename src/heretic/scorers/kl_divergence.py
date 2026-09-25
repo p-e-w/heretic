@@ -4,15 +4,15 @@
 import torch.nn.functional as F
 from pydantic import BaseModel, Field
 
-from heretic.config import DatasetSpecification
+from heretic.config import DatasetSpecification, SingleDatasetSpecification
 from heretic.plugin import Context
 from heretic.scorer import Score, Scorer
-from heretic.utils import print
+from heretic.utils import format_dataset_specification, print
 
 
 class Settings(BaseModel):
     prompts: DatasetSpecification = Field(
-        default=DatasetSpecification(
+        default=SingleDatasetSpecification(
             dataset="mlabonne/harmless_alpaca",
             split="test[:100]",
             column="text",
@@ -42,7 +42,7 @@ class KLDivergence(Scorer):
     def init(self, ctx: Context) -> None:
         print()
         print(
-            f"Loading KL divergence evaluation prompts from [bold]{self.settings.prompts.dataset}[/]..."
+            f"Loading KL divergence evaluation prompts from [bold]{format_dataset_specification(self.settings.prompts)}[/]..."
         )
         self.prompts = ctx.load_prompts(self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")

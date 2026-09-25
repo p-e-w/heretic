@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Dict, Literal
+from typing import Dict, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -37,7 +37,7 @@ class ExportStrategy(str, Enum):
     ADAPTER = "adapter"
 
 
-class DatasetSpecification(BaseModel):
+class SingleDatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
     )
@@ -79,6 +79,11 @@ class DatasetSpecification(BaseModel):
         default=None,
         description="System prompt to use with the prompts (overrides global system prompt if set).",
     )
+
+
+DatasetSpecification: TypeAlias = (
+    SingleDatasetSpecification | list[SingleDatasetSpecification]
+)
 
 
 class ScorerConfig(BaseModel):
@@ -282,6 +287,18 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
+    batch_size_test_prompts: DatasetSpecification = Field(
+        default=SingleDatasetSpecification(
+            dataset="mlabonne/harmless_alpaca",
+            split="train[:256]",
+            column="text",
+        ),
+        description="Dataset of prompts to use for automatically determining the optimal batch size.",
+        # When storing a settings object, the batch size is already fixed,
+        # either determined by the automatic mechanism or by explicit user choice.
+        exclude=True,
+    )
+
     max_response_length: PositiveInt = Field(
         default=100,
         description="Maximum number of tokens to generate for each response.",
@@ -294,6 +311,25 @@ class Settings(BaseSettings):
             "at the point where responses start to differ for different prompts. "
             "If not set, the prefix is determined automatically by comparing multiple responses."
         ),
+    )
+
+    response_prefix_test_prompts: DatasetSpecification = Field(
+        default=[
+            SingleDatasetSpecification(
+                dataset="mlabonne/harmless_alpaca",
+                split="train[:100]",
+                column="text",
+            ),
+            SingleDatasetSpecification(
+                dataset="mlabonne/harmful_behaviors",
+                split="train[:100]",
+                column="text",
+            ),
+        ],
+        description="Dataset of prompts to use for automatically determining the response prefix.",
+        # When storing a settings object, the response prefix is already fixed,
+        # either determined by the automatic mechanism or by explicit user choice.
+        exclude=True,
     )
 
     chain_of_thought_skips: list[tuple[str, str]] = Field(

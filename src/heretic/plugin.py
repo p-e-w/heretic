@@ -13,7 +13,7 @@ from typing import Annotated, Any, TypeVar, Union, get_args, get_origin, get_typ
 from pydantic import BaseModel
 from torch import Tensor
 
-from .config import DatasetSpecification
+from .config import DatasetSpecification, SingleDatasetSpecification
 from .config import Settings as HereticSettings
 from .model import Model
 from .utils import Prompt, deep_merge_dicts, load_prompts
@@ -347,7 +347,11 @@ class Plugin:
             return []
         specifications = []
         for value in dict(self.settings).values():
-            if isinstance(value, DatasetSpecification):
+            if isinstance(value, SingleDatasetSpecification) or (
+                isinstance(value, list)
+                and len(value) > 0
+                and isinstance(value[0], SingleDatasetSpecification)
+            ):
                 specifications.append(value)
         return specifications
 

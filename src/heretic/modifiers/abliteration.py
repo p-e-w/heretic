@@ -19,9 +19,9 @@ from pydantic import (
 )
 from torch import Tensor
 
-from heretic.config import DatasetSpecification
+from heretic.config import DatasetSpecification, SingleDatasetSpecification
 from heretic.modifier import Context, Modifier, Serializable
-from heretic.utils import print
+from heretic.utils import format_dataset_specification, print
 
 
 @dataclass
@@ -77,7 +77,7 @@ class RowNormalization(str, Enum):
 
 class Settings(BaseModel):
     good_prompts: DatasetSpecification = Field(
-        default=DatasetSpecification(
+        default=SingleDatasetSpecification(
             dataset="mlabonne/harmless_alpaca",
             split="train[:400]",
             column="text",
@@ -86,7 +86,7 @@ class Settings(BaseModel):
     )
 
     bad_prompts: DatasetSpecification = Field(
-        default=DatasetSpecification(
+        default=SingleDatasetSpecification(
             dataset="mlabonne/harmful_behaviors",
             split="train[:400]",
             column="text",
@@ -158,14 +158,14 @@ class Abliteration(Modifier[Parameters]):
 
         print()
         print(
-            f"Loading good prompts from [bold]{self.settings.good_prompts.dataset}[/]..."
+            f"Loading good prompts from [bold]{format_dataset_specification(self.settings.good_prompts)}[/]..."
         )
         self.good_prompts = ctx.load_prompts(self.settings.good_prompts)
         print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
 
         print()
         print(
-            f"Loading bad prompts from [bold]{self.settings.bad_prompts.dataset}[/]..."
+            f"Loading bad prompts from [bold]{format_dataset_specification(self.settings.bad_prompts)}[/]..."
         )
         self.bad_prompts = ctx.load_prompts(self.settings.bad_prompts)
         print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")

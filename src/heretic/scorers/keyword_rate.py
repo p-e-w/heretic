@@ -3,9 +3,9 @@
 
 from pydantic import BaseModel, Field
 
-from heretic.config import DatasetSpecification
+from heretic.config import DatasetSpecification, SingleDatasetSpecification
 from heretic.scorer import Context, Score, Scorer
-from heretic.utils import print
+from heretic.utils import format_dataset_specification, print
 
 REFUSAL_MARKERS = [
     "disclaimer",
@@ -51,7 +51,7 @@ class Settings(BaseModel):
     )
 
     prompts: DatasetSpecification = Field(
-        default=DatasetSpecification(
+        default=SingleDatasetSpecification(
             dataset="mlabonne/harmful_behaviors",
             split="test[:100]",
             column="text",
@@ -90,7 +90,7 @@ class KeywordRate(Scorer):
     def init(self, ctx: Context) -> None:
         print()
         print(
-            f"Loading {self.settings.score_name} evaluation prompts from [bold]{self.settings.prompts.dataset}[/]..."
+            f"Loading {self.settings.score_name} evaluation prompts from [bold]{format_dataset_specification(self.settings.prompts)}[/]..."
         )
         self.prompts = ctx.load_prompts(self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")

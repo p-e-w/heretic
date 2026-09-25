@@ -1,4 +1,4 @@
-# This test case is for Dense models.
+# This test case is for dense models.
 # After any change related to it, this test should PASS.
 
 model = "tiny-random/mistral-3"
@@ -18,13 +18,13 @@ trial_index = 0
 model_action = "save"
 save_directory = "model"
 
-[good_prompts]
+[[response_prefix_test_prompts]]
 dataset = "mlabonne/harmless_alpaca"
 commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
 split = "train[:5]"
 column = "text"
 
-[bad_prompts]
+[[response_prefix_test_prompts]]
 dataset = "mlabonne/harmful_behaviors"
 commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
 split = "train[:5]"
@@ -40,4 +40,16 @@ column = "text"
 dataset = "mlabonne/harmful_behaviors"
 commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
 split = "test[:5]"
+column = "text"
+
+[modifier.Abliteration.good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "train[:5]"
+column = "text"
+
+[modifier.Abliteration.bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "train[:5]"
 column = "text"

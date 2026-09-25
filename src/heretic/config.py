@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Dict, Literal
+from typing import Dict, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -32,19 +32,12 @@ class QuantizationMethod(str, Enum):
     BNB_4BIT = "bnb_4bit"
 
 
-class RowNormalization(str, Enum):
-    NONE = "none"
-    PRE = "pre"
-    # POST = "post"  # Theoretically possible, but provides no advantage.
-    FULL = "full"
-
-
 class ExportStrategy(str, Enum):
     MERGE = "merge"
     ADAPTER = "adapter"
 
 
-class DatasetSpecification(BaseModel):
+class SingleDatasetSpecification(BaseModel):
     dataset: str = Field(
         description="Hugging Face dataset ID, or path to dataset on disk."
     )
@@ -87,17 +80,10 @@ class DatasetSpecification(BaseModel):
         description="System prompt to use with the prompts (overrides global system prompt if set).",
     )
 
-    residual_plot_label: str | None = Field(
-        default=None,
-        description="Label to use for the dataset in plots of residual vectors.",
-        exclude=True,
-    )
 
-    residual_plot_color: str | None = Field(
-        default=None,
-        description="Matplotlib color to use for the dataset in plots of residual vectors.",
-        exclude=True,
-    )
+DatasetSpecification: TypeAlias = (
+    SingleDatasetSpecification | list[SingleDatasetSpecification]
+)
 
 
 class ScorerConfig(BaseModel):
@@ -129,6 +115,48 @@ class ScorerConfig(BaseModel):
         description=(
             "Optional name to distinguish multiple instances of the same plugin class. "
             "Instance-specific settings live under `[scorer.<ClassName>_<instance_name>]`."
+        ),
+    )
+
+    @field_validator("instance_name")
+    @classmethod
+    def validate_instance_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        if not value.strip():
+            raise ValueError("cannot be empty or whitespace")
+
+        if "." in value:
+            raise ValueError("'.' is not allowed")
+
+        if any(char.isspace() for char in value):
+            raise ValueError("whitespace is not allowed")
+
+        return value
+
+
+class ModifierConfig(BaseModel):
+    """
+    Configuration for a modifier plugin.
+
+    TOML format:
+    - { plugin = "<plugin>", instance_name = "<optional>" }
+    """
+
+    plugin: str = Field(
+        description=(
+            "Plugin to load. Either a file path with class name "
+            "(`path/to/plugin.py:ClassName`) or a fully-qualified import path "
+            "(`module.submodule.ClassName`)."
+        ),
+    )
+
+    instance_name: str | None = Field(
+        default=None,
+        description=(
+            "Optional name to distinguish multiple instances of the same plugin class. "
+            "Instance-specific settings live under `[modifier.<ClassName>_<instance_name>]`."
         ),
     )
 
@@ -259,6 +287,18 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
+    batch_size_test_prompts: DatasetSpecification = Field(
+        default=SingleDatasetSpecification(
+            dataset="mlabonne/harmless_alpaca",
+            split="train[:256]",
+            column="text",
+        ),
+        description="Dataset of prompts to use for automatically determining the optimal batch size.",
+        # When storing a settings object, the batch size is already fixed,
+        # either determined by the automatic mechanism or by explicit user choice.
+        exclude=True,
+    )
+
     max_response_length: PositiveInt = Field(
         default=100,
         description="Maximum number of tokens to generate for each response.",
@@ -271,6 +311,25 @@ class Settings(BaseSettings):
             "at the point where responses start to differ for different prompts. "
             "If not set, the prefix is determined automatically by comparing multiple responses."
         ),
+    )
+
+    response_prefix_test_prompts: DatasetSpecification = Field(
+        default=[
+            SingleDatasetSpecification(
+                dataset="mlabonne/harmless_alpaca",
+                split="train[:100]",
+                column="text",
+            ),
+            SingleDatasetSpecification(
+                dataset="mlabonne/harmful_behaviors",
+                split="train[:100]",
+                column="text",
+            ),
+        ],
+        description="Dataset of prompts to use for automatically determining the response prefix.",
+        # When storing a settings object, the response prefix is already fixed,
+        # either determined by the automatic mechanism or by explicit user choice.
+        exclude=True,
     )
 
     chain_of_thought_skips: list[tuple[str, str]] = Field(
@@ -312,38 +371,8 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
-    print_residual_geometry: bool = Field(
-        default=False,
-        description="Whether to print detailed information about residuals and residual directions.",
-        exclude=True,
-    )
-
-    plot_residuals: bool = Field(
-        default=False,
-        description="Whether to generate plots showing PaCMAP projections of residual vectors.",
-        exclude=True,
-    )
-
-    residual_plot_path: str = Field(
-        default="plots",
-        description="Base path to save plots of residual vectors to.",
-        exclude=True,
-    )
-
-    residual_plot_title: str = Field(
-        default='PaCMAP Projection of Residual Vectors for "Harmless" and "Harmful" Prompts',
-        description="Title placed above plots of residual vectors.",
-        exclude=True,
-    )
-
-    residual_plot_style: str = Field(
-        default="dark_background",
-        description="Matplotlib style sheet to use for plots of residual vectors.",
-        exclude=True,
-    )
-
     scorers: list[ScorerConfig] = Field(
-        default_factory=lambda: [
+        default=[
             ScorerConfig(
                 plugin="heretic.scorers.keyword_rate.KeywordRate",
                 optimization="minimize",
@@ -354,48 +383,23 @@ class Settings(BaseSettings):
             ),
         ],
         description=(
-            "List of scorer plugin configs. Each entry is an object"
-            " { plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }."
-            " <optimization> is one of 'minimize', 'maximize', 'none' (do not optimize)."
+            "List of scorer plugin configs. Each entry is an object "
+            "{ plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }. "
+            '<optimization> is one of "minimize", "maximize", or "none" (do not optimize).'
         ),
     )
 
-    orthogonalize_direction: bool = Field(
-        default=True,
+    modifiers: list[ModifierConfig] = Field(
+        default=[
+            ModifierConfig(
+                plugin="heretic.modifiers.abliteration.Abliteration",
+            ),
+        ],
         description=(
-            "Whether to adjust the residual directions so that only the component that is "
-            "orthogonal to the good direction is subtracted during abliteration."
-        ),
-    )
-
-    row_normalization: RowNormalization = Field(
-        default=RowNormalization.FULL,
-        description=(
-            "How to apply row normalization of the weights. Options: "
-            '"none" (no normalization), '
-            '"pre" (compute LoRA adapter relative to row-normalized weights), '
-            '"full" (like "pre", but renormalizes to preserve original row magnitudes).'
-        ),
-    )
-
-    full_normalization_lora_rank: PositiveInt = Field(
-        default=3,
-        description=(
-            'The rank of the LoRA adapter to use when "full" row normalization is used. '
-            "Row magnitude preservation is approximate due to non-linear effects, "
-            "and this determines the rank of that approximation. Higher ranks produce "
-            "larger output files and may slow down evaluation."
-        ),
-    )
-
-    winsorization_quantile: float = Field(
-        default=1.0,
-        description=(
-            "The symmetric winsorization to apply to the per-prompt, per-layer residual vectors, "
-            "expressed as the quantile to clamp to (between 0 and 1). Disabled by default. "
-            'This can tame so-called "massive activations" that occur in some models. '
-            "Example: winsorization_quantile = 0.95 computes the 0.95-quantile of the absolute values "
-            "of the components, then clamps the magnitudes of all components to that quantile."
+            "List of modifier plugin configs. Each entry is an object "
+            "{ plugin = <plugin>, instance_name = <optional> }. "
+            "Note that only a single modifier can currently be applied, "
+            "and this list must contain exactly one entry."
         ),
     )
 
@@ -547,31 +551,9 @@ class Settings(BaseSettings):
         description="System prompt to use when prompting the model.",
     )
 
-    good_prompts: DatasetSpecification = Field(
-        default=DatasetSpecification(
-            dataset="mlabonne/harmless_alpaca",
-            split="train[:400]",
-            column="text",
-            residual_plot_label='"Harmless" prompts',
-            residual_plot_color="royalblue",
-        ),
-        description="Dataset of prompts that tend to not result in refusals (used for calculating refusal directions).",
-    )
-
-    bad_prompts: DatasetSpecification = Field(
-        default=DatasetSpecification(
-            dataset="mlabonne/harmful_behaviors",
-            split="train[:400]",
-            column="text",
-            residual_plot_label='"Harmful" prompts',
-            residual_plot_color="darkorange",
-        ),
-        description="Dataset of prompts that tend to result in refusals (used for calculating refusal directions).",
-    )
-
     # We intentionally allow extra keys so users can provide plugin-specific
     # configuration in TOML tables like `[scorer.KeywordRate]` which are later
-    # consumed via `settings.model_extra` (see `Evaluator._get_plugin_namespace`).
+    # consumed via `settings.model_extra` (see `plugin.get_plugin_namespace`).
     model_config = SettingsConfigDict(extra="allow")
 
     @classmethod

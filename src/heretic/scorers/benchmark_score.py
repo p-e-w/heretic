@@ -41,9 +41,11 @@ class BenchmarkScore(Scorer):
         return self.settings.score_name
 
     def init(self, ctx: Context) -> None:
+        model = ctx.get_model()
+
         self.hflm = HFLM(
-            pretrained=ctx._model.model,  # ty:ignore[invalid-argument-type]
-            tokenizer=ctx._model.tokenizer,  # ty:ignore[invalid-argument-type]
+            pretrained=model.model,  # ty:ignore[invalid-argument-type]
+            tokenizer=model.tokenizer,  # ty:ignore[invalid-argument-type]
             batch_size="auto",
         )
 
@@ -52,8 +54,9 @@ class BenchmarkScore(Scorer):
         # then update its internal model every time we calculate the score,
         # is to get the benefits of batch size caching while allowing for
         # model reloads, e.g. when using --evaluate-model.
-        self.hflm.pretrained = ctx._model.model
-        self.hflm._model = ctx._model.model
+        model = ctx.get_model()
+        self.hflm.pretrained = model.model
+        self.hflm._model = model.model
 
         results = lm_eval.simple_evaluate(
             model=self.hflm,

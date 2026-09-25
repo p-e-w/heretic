@@ -71,52 +71,21 @@ chain_of_thought_skips = [
 # Whether to print additional information that can help with debugging.
 print_debug_information = false
 
-# Whether to print detailed information about residuals and residual directions.
-print_residual_geometry = false
-
-# Whether to generate plots showing PaCMAP projections of residual vectors.
-plot_residuals = false
-
-# Base path to save plots of residual vectors to.
-residual_plot_path = "plots"
-
-# Title placed above plots of residual vectors.
-residual_plot_title = 'PaCMAP Projection of Residual Vectors for "Harmless" and "Harmful" Prompts'
-
-# Matplotlib style sheet to use for plots of residual vectors.
-residual_plot_style = "dark_background"
-
-# List of scorers to evaluate.
-# Each entry is an object:
-# { plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }
-# where <optimization> is one of "minimize", "maximize", "none" (do not optimize)
+# List of scorer plugin configs. Each entry is an object
+# { plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }.
+# <optimization> is one of "minimize", "maximize", or "none" (do not optimize).
 scorers = [
-    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize"},
-    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize"},
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
 ]
 
-# Whether to adjust the residual directions so that only the component that is
-# orthogonal to the good direction is subtracted during abliteration.
-orthogonalize_direction = true
-
-# How to apply row normalization of the weights. Options:
-# "none" (no normalization),
-# "pre" (compute LoRA adapter relative to row-normalized weights),
-# "full" (like "pre", but renormalizes to preserve original row magnitudes).
-row_normalization = "full"
-
-# The rank of the LoRA adapter to use when "full" row normalization is used.
-# Row magnitude preservation is approximate due to non-linear effects,
-# and this determines the rank of that approximation. Higher ranks produce
-# larger output files and may slow down evaluation.
-full_normalization_lora_rank = 3
-
-# The symmetric winsorization to apply to the per-prompt, per-layer residual vectors,
-# expressed as the quantile to clamp to (between 0 and 1). Disabled by default.
-# This can tame so-called "massive activations" that occur in some models.
-# Example: winsorization_quantile = 0.95 computes the 0.95-quantile of the absolute values
-# of the components, then clamps the magnitudes of all components to that quantile.
-winsorization_quantile = 1.0
+# List of modifier plugin configs. Each entry is an object
+# { plugin = <plugin>, instance_name = <optional> }.
+# Note that only a single modifier can currently be applied,
+# and this list must contain exactly one entry.
+modifiers = [
+    { plugin = "heretic.modifiers.abliteration.Abliteration" },
+]
 
 # Number of abliteration trials to run during optimization.
 n_trials = 200
@@ -133,6 +102,45 @@ max_shard_size = "5GB"
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 
+# Dataset of prompts to use for automatically determining the optimal batch size.
+[batch_size_test_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:256]"
+column = "text"
+
+# Dataset of prompts to use for automatically determining the response prefix.
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:100]"
+column = "text"
+
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:100]"
+column = "text"
+
+# Plugin-specific settings live in top-level TOML tables.
+#
+# For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>_<instance_name>]` for instance-related config).
+# For modifier plugins, use: `[modifier.<ClassName>]` (and optionally `[modifier.<ClassName>_<instance_name>]` for instance-related config).
+#
+# You can load multiple instances of the same plugin class by setting `instance_name`
+# in the `scorers/modifiers = [...]` list. Each instance is still identified as `ClassName.instanceName`
+# internally, but its config overrides live under `[scorer/modifier.ClassName_<instance_name>]`.
+#
+# Example:
+# scorers = [
+#   { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize", instance_name = "small" },
+#   { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize", instance_name = "tiny" },
+# ]
+#
+# Shared defaults for all instances live under `[scorer.KeywordRate]` and can be overridden per
+# instance under `[scorer.KeywordRate_<instance_name>]`.
+#
+# Example instance override:
+# [scorer.KeywordRate_small.prompts]
+# split = "test[:10]"
+#
 # Each "dataset" below can be a Hugging Face dataset ID, a path to a dataset on disk,
 # or a path to a plain text file with one prompt per line (empty lines are ignored).
 # For text files, "column" is ignored and "split" is optional; when given, it selects
@@ -140,24 +148,6 @@ system_prompt = "You are a helpful assistant."
 # "config" specifies a dataset's specific config/subset name (e.g. "english", "hindi").
 # Leave unset for datasets with a single configuration.
 
-# Dataset of prompts that tend to not result in refusals (used for calculating residual directions).
-[good_prompts]
-dataset = "mlabonne/harmless_alpaca"
-split = "train[:400]"
-column = "text"
-residual_plot_label = '"Harmless" prompts'
-residual_plot_color = "royalblue"
-
-# Dataset of prompts that tend to result in refusals (used for calculating residual directions).
-[bad_prompts]
-dataset = "mlabonne/harmful_behaviors"
-split = "train[:400]"
-column = "text"
-residual_plot_label = '"Harmful" prompts'
-residual_plot_color = "darkorange"
-
-# Plugin-specific settings live in a top-level TOML table.
-# For scorer plugins, use: `[scorer.<ClassName>]` (and optionally `[scorer.<ClassName>_<instance_name>]` for instance-related config).
 [scorer.KeywordRate]
 # Name that describes what the configured keyword rate measures.
 score_name = "Refusals"
@@ -202,30 +192,50 @@ keyword_markers = [
     "ethical boundaries",
 ]
 
-# Scorer-owned evaluation prompts
+# Dataset of prompts to evaluate the keyword match rate on.
 [scorer.KeywordRate.prompts]
 dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
 
-# You can also load multiple instances of the same scorer class by setting `instance_name`
-# in the `scorers = [...]` list. Each instance is still identified as `ClassName.instanceName`
-# internally, but its config overrides live under `[scorer.ClassName_<instance_name>]`.
-#
-# Example:
-# scorers = [
-#   { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = 'minimize', instance_name = "small" },
-#   { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = 'minimize', instance_name = "tiny" },
-# ]
-#
-# Shared defaults for all instances live under `[scorer.KeywordRate]` and can be overridden per
-# instance under `[scorer.KeywordRate_<instance_name>]`.
-#
-# Example instance override:
-# [scorer.KeywordRate_small.prompts]
-# split = "test[:10]"
-
+# Dataset of prompts used to measure KL divergence from original model.
 [scorer.KLDivergence.prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
+column = "text"
+
+[modifier.Abliteration]
+# Whether to adjust the residual directions so that only the component that is
+# orthogonal to the good direction is subtracted during abliteration.
+orthogonalize_direction = true
+
+# How to apply row normalization of the weights. Options:
+# "none" (no normalization),
+# "pre" (compute LoRA adapter relative to row-normalized weights),
+# "full" (like "pre", but renormalizes to preserve original row magnitudes).
+row_normalization = "full"
+
+# The rank of the LoRA adapter to use when "full" row normalization is used.
+# Row magnitude preservation is approximate due to non-linear effects,
+# and this determines the rank of that approximation. Higher ranks produce
+# larger output files and may slow down evaluation.
+full_normalization_lora_rank = 3
+
+# The symmetric winsorization to apply to the per-prompt, per-layer residual vectors,
+# expressed as the quantile to clamp to (between 0 and 1). Disabled by default.
+# This can tame so-called "massive activations" that occur in some models.
+# Example: winsorization_quantile = 0.95 computes the 0.95-quantile of the absolute values
+# of the components, then clamps the magnitudes of all components to that quantile.
+winsorization_quantile = 1.0
+
+# Dataset of prompts that tend to produce desirable responses.
+[modifier.Abliteration.good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:400]"
+column = "text"
+
+# Dataset of prompts that tend to produce undesirable responses.
+[modifier.Abliteration.bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:400]"
 column = "text"

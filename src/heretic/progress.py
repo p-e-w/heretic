@@ -8,7 +8,6 @@ import tqdm
 import tqdm.auto
 from rich.progress import Progress, TaskID
 
-
 _progress = Progress(transient=True)
 _progress_lock = RLock()
 _active_tasks = 0

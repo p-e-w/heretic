@@ -40,7 +40,10 @@ class TqdmShimTest(unittest.TestCase):
             second = executor.submit(run_bar, "dataset")
             ready.wait(timeout=15)
             self.assertTrue(self.rich_progress.live.is_started)
-            self.assertEqual({task.description for task in self.rich_progress.tasks}, {"model", "dataset"})
+            self.assertEqual(
+                {task.description for task in self.rich_progress.tasks},
+                {"model", "dataset"},
+            )
             done.wait(timeout=15)
             first.result(timeout=15)
             second.result(timeout=15)

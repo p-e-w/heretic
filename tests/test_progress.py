@@ -61,6 +61,33 @@ class TqdmShimTest(unittest.TestCase):
         self.assertFalse(self.rich_progress.live.is_started)
         self.assertEqual(progress._active_tasks, 0)
 
+    def test_auto_detected_bar_uses_original_terminal_stream(self):
+        class TerminalStream(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        terminal_progress = Progress(
+            console=Console(file=self.output, force_terminal=True),
+            auto_refresh=False,
+            transient=True,
+        )
+        with (
+            patch.object(progress, "_progress", terminal_progress),
+            patch("sys.stderr", TerminalStream()),
+            progress.TqdmShim(
+                total=0, desc="Downloading (incomplete total...)", disable=None
+            ) as bar,
+        ):
+            self.assertFalse(bar.disable)
+            bar.set_description("Download complete")
+            self.assertEqual(
+                terminal_progress.tasks[0].description, "Download complete: "
+            )
+
+        self.assertFalse(terminal_progress.live.is_started)
+        self.assertEqual(terminal_progress.tasks, [])
+        self.assertEqual(progress._active_tasks, 0)
+
     def test_sequential_bars_restart_display(self):
         for label in ("model", "dataset"):
             with progress.TqdmShim(total=1, desc=label) as bar:

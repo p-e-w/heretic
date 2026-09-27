@@ -7,6 +7,9 @@ import warnings
 from rich.table import Table
 from rich.console import Console
 
+# Ensure the project root is strictly the first path to prevent dual-module loading
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
+
 # We need to import heretic components to run the evaluation
 from heretic.config import Settings, DatasetMode
 from heretic.model import Model, AbliterationParameters

@@ -59,3 +59,8 @@ class TqdmShim(tqdm.tqdm):
 def patch_tqdm():
     tqdm.tqdm = TqdmShim  # ty:ignore[invalid-assignment]
     tqdm.auto.tqdm = TqdmShim  # ty:ignore[invalid-assignment]
+
+    from huggingface_hub.utils import disable_progress_bars
+
+    # snapshot_download leaves this aggregate bar open until garbage collection.
+    disable_progress_bars("huggingface_hub.snapshot_download")

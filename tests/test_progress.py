@@ -60,3 +60,13 @@ class TqdmShimTest(unittest.TestCase):
 
         self.assertFalse(self.rich_progress.live.is_started)
         self.assertEqual(progress._active_tasks, 0)
+
+    def test_sequential_bars_restart_display(self):
+        for label in ("model", "dataset"):
+            with progress.TqdmShim(total=1, desc=label) as bar:
+                self.assertTrue(self.rich_progress.live.is_started)
+                bar.update(1)
+
+            self.assertFalse(self.rich_progress.live.is_started)
+            self.assertEqual(self.rich_progress.tasks, [])
+            self.assertEqual(progress._active_tasks, 0)

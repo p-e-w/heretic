@@ -114,6 +114,15 @@ greater control. Run `heretic --help` to see available command-line options,
 or look at [`config.default.toml`](config.default.toml) if you prefer to use
 a configuration file.
 
+### Advanced Steering Features
+
+Heretic supports advanced optimization and steering techniques. You can toggle these features in your `config.toml` or via the command line:
+
+* **Dynamic Ridge Probe Steering:** Set `use_ridge_probe = true` to calculate a continuous Ridge Regression probe for steering, replacing the default residual mean difference. This allows the model to better adapt the refusal vector based on the input context.
+* **Synthetic Dataset Expansion:** Set `dataset_mode = "self_play"` to use the underlying base datasets to generate a larger synthetic dataset using the model's own rollouts. This requires more compute upfront during the activation capture phase, but can result in a more comprehensive and context-aware steering vector.
+
+You can run `python benchmark_modes.py <model_id>` to perform a head-to-head evaluation of the standard static dataset strategy against the dynamic self-play expansion strategy.
+
 At the start of a program run, Heretic benchmarks the system to determine
 the optimal batch size to make the most of the available hardware.
 On an RTX 3090, with the default configuration, decensoring

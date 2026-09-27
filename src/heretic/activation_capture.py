@@ -70,8 +70,8 @@ def capture_activations(model: Model, prompts: List[Prompt]) -> Dict[str, Tensor
                 add_generation_prompt=True,
                 tokenize=False,
             )
-            if model.response_prefix:
-                chat_prompts = [p + model.response_prefix for p in chat_prompts]
+            if model.settings.response_prefix:
+                chat_prompts = [p + model.settings.response_prefix for p in chat_prompts]
 
             inputs = model.tokenizer(
                 chat_prompts,

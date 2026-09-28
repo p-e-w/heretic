@@ -154,6 +154,121 @@ class TqdmShimTest(unittest.TestCase):
             self.console.print("After download")
             self.assertEqual(self.output.getvalue()[offset:], "After download\n")
 
+    def test_completed_bar_stops_display_without_being_closed(self):
+        with self.shim.TqdmShim(total=100, mininterval=0) as bar:
+            bar.update(100)
+            self.assertEqual(self.live_displays(), [])
+            self.assertFalse(bar.disable)
+            self.assertEqual(bar.n, 100)
+            self.assertIs(sys.stderr, self.output)
+            self.assertIs(sys.stdout, self.output)
+            offset = len(self.output.getvalue())
+            self.console.print("After download")
+            self.assertEqual(self.output.getvalue()[offset:], "After download\n")
+
+    def test_completed_bar_resumes_when_total_grows(self):
+        with self.shim.TqdmShim(total=100, mininterval=0, miniters=1) as bar:
+            bar.update(100)
+            self.assertEqual(self.live_displays(), [])
+            bar.total = 200
+            bar.refresh()
+            self.assertEqual(self.live_tasks()[0].completed, 100)
+            self.assertEqual(self.live_tasks()[0].total, 200)
+            bar.update(50)
+            self.assertEqual(self.live_tasks()[0].completed, 150)
+            bar.update(50)
+            self.assertEqual(self.live_displays(), [])
+
+    def test_completed_bar_can_be_reset(self):
+        with self.shim.TqdmShim(total=100, mininterval=0, miniters=1) as bar:
+            bar.update(100)
+            self.assertEqual(self.live_displays(), [])
+            bar.reset(total=200)
+            self.assertEqual(self.live_tasks()[0].completed, 0)
+            self.assertEqual(self.live_tasks()[0].total, 200)
+            bar.update(50)
+            self.assertEqual(self.live_tasks()[0].completed, 50)
+
+    def test_final_update_releases_display_despite_tqdm_throttling(self):
+        for mininterval, miniters in ((3600, 1), (0, 101)):
+            with (
+                self.subTest(mininterval=mininterval, miniters=miniters),
+                self.shim.TqdmShim(
+                    total=100, mininterval=mininterval, miniters=miniters
+                ) as bar,
+            ):
+                bar.update(100)
+                self.assertEqual(self.live_displays(), [])
+                self.assertFalse(bar.disable)
+                self.assertEqual(bar.n, 100)
+
+    def test_zero_total_can_grow_into_visible_progress(self):
+        with self.shim.TqdmShim(total=0, mininterval=0) as bar:
+            self.assertEqual(self.live_displays(), [])
+            bar.total = 100
+            bar.refresh()
+            bar.update(50)
+            self.assertEqual(self.live_tasks()[0].completed, 50)
+            self.assertEqual(self.live_tasks()[0].total, 100)
+
+    def test_unknown_total_stays_visible_until_closed(self):
+        with self.shim.TqdmShim(total=None, mininterval=0) as bar:
+            bar.update(100)
+            self.assertEqual(self.live_tasks()[0].completed, 100)
+            self.assertIsNone(self.live_tasks()[0].total)
+        self.assertEqual(self.live_displays(), [])
+
+    def test_file_bars_keep_independent_byte_progress(self):
+        with (
+            self.shim.TqdmShim(total=100, desc="first.bin", mininterval=0) as first,
+            self.shim.TqdmShim(total=200, desc="second.bin", mininterval=0) as second,
+        ):
+            first.update(50)
+            second.update(75)
+            self.assertEqual(
+                [
+                    (task.description, task.completed, task.total)
+                    for task in self.live_tasks()
+                ],
+                [("first.bin", 50, 100), ("second.bin", 75, 200)],
+            )
+            first.update(50)
+            self.assertEqual(
+                [(task.description, task.completed) for task in self.live_tasks()],
+                [("second.bin", 75)],
+            )
+            self.assertFalse(second.disable)
+
+    def test_clear_and_refresh_preserve_progress(self):
+        with self.shim.TqdmShim(total=100, mininterval=0) as bar:
+            bar.update(50)
+            bar.clear()
+            bar.clear()
+            self.assertEqual(self.live_tasks(), [])
+            bar.refresh()
+            self.assertEqual(self.live_tasks()[0].completed, 50)
+        bar.close()
+        self.assertEqual(self.live_displays(), [])
+
+    def test_tqdm_write_restores_cleared_bar(self):
+        with self.shim.TqdmShim(total=100, mininterval=0) as bar:
+            bar.update(50)
+            bar.write("Download message", file=bar.fp)
+            self.assertIn("Download message", self.output.getvalue())
+            self.assertEqual(self.live_tasks()[0].completed, 50)
+
+    def test_context_manager_closes_on_exception(self):
+        with self.shim.TqdmShim(total=2, desc="other work") as unrelated:
+            with self.assertRaisesRegex(RuntimeError, "download failed"):
+                with self.shim.TqdmShim(total=100, mininterval=0) as bar:
+                    bar.update(50)
+                    raise RuntimeError("download failed")
+            self.assertEqual(
+                [task.description for task in self.live_tasks()], ["other work"]
+            )
+            self.assertFalse(unrelated.disable)
+        self.assertEqual(self.live_displays(), [])
+
     def check_snapshot(self, case):
         # patch_tqdm must run before Hub imports tqdm. Use a fresh interpreter so
         # the integration checks exercise that real import order independently.
@@ -167,11 +282,8 @@ class TqdmShimTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_snapshot_keeps_byte_progress_and_closes_without_gc(self):
+    def test_snapshot_keeps_byte_progress_and_stops_display_without_gc(self):
         self.check_snapshot("success")
-
-    def test_snapshot_closes_progress_when_download_raises(self):
-        self.check_snapshot("error")
 
     def test_snapshot_respects_disabled_progress(self):
         self.check_snapshot("disabled")
@@ -219,8 +331,6 @@ def check_snapshot(case):
         def download(*args, **kwargs):
             with kwargs["tqdm_class"](total=100) as byte_bar:
                 byte_bar.update(50)
-                if case == "error":
-                    raise RuntimeError("download failed")
                 if case == "disabled":
                     test.assertEqual(
                         [task.description for task in test.live_tasks()], ["other work"]
@@ -251,14 +361,10 @@ def check_snapshot(case):
                 ),
                 tempfile.TemporaryDirectory() as cache,
             ):
-                if case == "error":
-                    with test.assertRaisesRegex(RuntimeError, "download failed"):
-                        huggingface_hub.snapshot_download("test/model", cache_dir=cache)
-                else:
-                    result = huggingface_hub.snapshot_download(
-                        "test/model", cache_dir=cache
-                    )
-                    test.assertEqual(Path(result).name, "a" * 40)
+                result = huggingface_hub.snapshot_download(
+                    "test/model", cache_dir=cache
+                )
+                test.assertEqual(Path(result).name, "a" * 40)
             test.assertEqual(
                 [task.description for task in test.live_tasks()], ["other work"]
             )

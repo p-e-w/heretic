@@ -69,19 +69,25 @@ from time import sleep
 from rich import print
 from heretic.progress import TqdmShim
 assert os.isatty(2)
-bar = TqdmShim(total=100, desc="weights.bin", disable=None, mininterval=0)
+bar = TqdmShim(
+    total=0, desc="Downloading (incomplete total...)", disable=None, mininterval=0
+)
+bar.total = 100
 bar.update(50)
 sleep(0.2)  # Allow Rich's 10 Hz renderer to emit the updated frame.
 print("HALFWAY")
 bar.update(50)
+bar.set_description("Download complete")
 print("AFTER")
 print("Testing batch size")
+sleep(0.2)
 bar.close()
 """)
         halfway, after = output.split("AFTER", 1)
-        self.assertRegex(halfway, r"weights\.bin[^\n]*50%")
         self.assertIn("Testing batch size", after)
-        self.assertNotIn("weights.bin", after)
+        self.assertNotIn("Downloading (incomplete total...)", after)
+        self.assertNotIn("Download complete", after)
+        self.assertRegex(halfway, r"Downloading \(incomplete total\.\.\.\)[^\n]*50%")
 
     def test_closing_earlier_bar_keeps_later_bar_rendering(self):
         output = self.render("""

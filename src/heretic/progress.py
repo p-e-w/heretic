@@ -11,7 +11,6 @@ from rich.progress import Progress, TaskID
 
 _progress = Progress(transient=True)
 _progress_lock = RLock()
-_active_tasks = 0
 
 
 # A class that provides the same interface as tqdm,
@@ -51,7 +50,6 @@ class TqdmShim(tqdm.tqdm):
         return displayed
 
     def display(self, *args: Any, **kwargs: Any):
-        global _active_tasks
         with _progress_lock:
             if self.disable:
                 return
@@ -63,12 +61,11 @@ class TqdmShim(tqdm.tqdm):
                 return
 
             if self.rich_task_id is None:
-                if _active_tasks == 0:
+                if not _progress.task_ids:
                     _progress.start()
                 self.rich_task_id = _progress.add_task(
                     self.desc or "", total=self.total, completed=self.n
                 )
-                _active_tasks += 1
             _progress.update(
                 self.rich_task_id,
                 description=self.desc or "",
@@ -77,13 +74,11 @@ class TqdmShim(tqdm.tqdm):
             )
 
     def clear(self, *args: Any, **kwargs: Any):
-        global _active_tasks
         with _progress_lock:
             if self.rich_task_id is not None:
                 _progress.remove_task(self.rich_task_id)
                 self.rich_task_id = None
-                _active_tasks -= 1
-                if _active_tasks == 0:
+                if not _progress.task_ids:
                     _progress.stop()
 
     def close(self, *args: Any, **kwargs: Any):

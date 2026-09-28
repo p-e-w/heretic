@@ -160,27 +160,27 @@ class Abliteration(Modifier[Parameters]):
         print(
             f"Loading good prompts from [bold]{format_dataset_specification(self.settings.good_prompts)}[/]..."
         )
-        self.good_prompts = ctx.load_prompts(self.settings.good_prompts)
-        print(f"* [bold]{len(self.good_prompts)}[/] prompts loaded")
+        good_prompts = ctx.load_prompts(self.settings.good_prompts)
+        print(f"* [bold]{len(good_prompts)}[/] prompts loaded")
 
         print()
         print(
             f"Loading bad prompts from [bold]{format_dataset_specification(self.settings.bad_prompts)}[/]..."
         )
-        self.bad_prompts = ctx.load_prompts(self.settings.bad_prompts)
-        print(f"* [bold]{len(self.bad_prompts)}[/] prompts loaded")
+        bad_prompts = ctx.load_prompts(self.settings.bad_prompts)
+        print(f"* [bold]{len(bad_prompts)}[/] prompts loaded")
 
         print()
         print("Calculating per-layer residual directions...")
 
         print("* Obtaining residual mean for good prompts...")
         good_means = model.get_residuals_mean(
-            self.good_prompts,
+            good_prompts,
             winsorization_quantile=self.settings.winsorization_quantile,
         )
         print("* Obtaining residual mean for bad prompts...")
         bad_means = model.get_residuals_mean(
-            self.bad_prompts,
+            bad_prompts,
             winsorization_quantile=self.settings.winsorization_quantile,
         )
 

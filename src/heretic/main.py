@@ -630,7 +630,7 @@ def run():
             print(f"  * {name} = [bold]{value}[/]")
         print("* Resetting model...")
         modifier.reset_model(ctx)
-        print(f"* Modifying model ({modifier_name})...")
+        print(f"* Modifying model using {modifier_name}...")
         modifier.modify_model(ctx, parameters)
         print("* Evaluating...")
         scores = evaluator.get_scores()
@@ -868,7 +868,7 @@ def run():
                 ctx = Context(settings=settings, model=model)
                 print("* Resetting model...")
                 modifier.reset_model(ctx)
-                print(f"* Modifying model ({modifier_name})...")
+                print(f"* Modifying model using {modifier_name}...")
                 parameters = modifier.parameters_class.from_dict(
                     trial.user_attrs["parameters"]
                 )

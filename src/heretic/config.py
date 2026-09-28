@@ -392,7 +392,7 @@ class Settings(BaseSettings):
     modifiers: list[ModifierConfig] = Field(
         default=[
             ModifierConfig(
-                plugin="heretic.modifiers.abliteration.Abliteration",
+                plugin="heretic.modifiers.ara.ARA",
             ),
         ],
         description=(

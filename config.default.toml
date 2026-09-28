@@ -84,7 +84,7 @@ scorers = [
 # Note that only a single modifier can currently be applied,
 # and this list must contain exactly one entry.
 modifiers = [
-    { plugin = "heretic.modifiers.abliteration.Abliteration" },
+    { plugin = "heretic.modifiers.ara.ARA" },
 ]
 
 # Number of abliteration trials to run during optimization.
@@ -118,6 +118,7 @@ column = "text"
 dataset = "mlabonne/harmful_behaviors"
 split = "train[:100]"
 column = "text"
+
 
 # Plugin-specific settings live in top-level TOML tables.
 #
@@ -198,11 +199,64 @@ dataset = "mlabonne/harmful_behaviors"
 split = "test[:100]"
 column = "text"
 
+
 # Dataset of prompts used to measure KL divergence from original model.
 [scorer.KLDivergence.prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
+
+
+[scorer.BenchmarkScore]
+# Name that describes what the configured benchmark score measures.
+score_name = "PIQA acc_norm"
+
+# Task ID of the benchmark in the Language Model Evaluation Harness.
+task = "piqa"
+
+# Task metric to use as the benchmark score.
+metric = "acc_norm,none"
+
+
+[modifier.ARA]
+# Whether to renormalize the rows of the modified matrices to preserve
+# the original matrices' row magnitudes. This is believed to improve
+# intelligence retention (see Lai 2025, "Magnitude-Preserving Orthogonal Ablation").
+preserve_row_magnitudes = true
+
+# The rank of the LoRA adapter to use.
+# While mathematically, ARA is of "arbitrary" rank, experiments have shown that
+# singular values tend to drop rapidly after a few dozen dimensions, and approximating
+# the full transformation with a LoRA has many practical advantages.
+lora_rank = 50
+
+# Number of (outer) L-BFGS optimization steps to perform.
+n_optimization_steps = 5
+
+# Learning rate to use in the L-BFGS optimizer.
+learning_rate = 1.0
+
+# Maximum number of (inner) iterations to perform per (outer) L-BFGS optimization step.
+max_iter = 20
+
+# Number of past updates to store for approximating the Hessian matrix in the L-BFGS optimizer.
+history_size = 10
+
+# Whether to print the loss value for each L-BFGS optimization step.
+print_loss = false
+
+# Dataset of prompts that tend to produce desirable responses.
+[modifier.ARA.good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:400]"
+column = "text"
+
+# Dataset of prompts that tend to produce undesirable responses.
+[modifier.ARA.bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:400]"
+column = "text"
+
 
 [modifier.Abliteration]
 # Whether to adjust the residual directions so that only the component that is

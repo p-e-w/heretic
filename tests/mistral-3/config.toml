@@ -9,6 +9,11 @@ print_debug_information = true
 
 batch_size = 2
 max_response_length = 10
+
+modifiers = [
+    { plugin = "heretic.modifiers.abliteration.Abliteration" },
+]
+
 n_trials = 2
 n_startup_trials = 1
 

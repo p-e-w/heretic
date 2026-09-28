@@ -11,8 +11,26 @@ import unittest
 
 class ProgressRenderingTests(unittest.TestCase):
     def render(self, code):
+        env = {**os.environ, "TERM": "xterm", "COLUMNS": "120", "PYTHONUTF8": "1"}
         if sys.platform == "win32":
-            self.skipTest("Requires a POSIX pseudoterminal")
+            from winpty import PtyProcess
+
+            process = PtyProcess.spawn(
+                [sys.executable, "-c", code], env=env, dimensions=(24, 120)
+            )
+            process.fileobj.settimeout(30)
+            chunks = []
+            try:
+                while True:
+                    try:
+                        chunks.append(process.read())
+                    except EOFError:
+                        break
+            finally:
+                process.close(force=True)
+            output_text = "".join(chunks)
+            self.assertEqual(process.exitstatus, 0, output_text)
+            return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output_text).replace("\r", "")
         import pty
 
         master, slave = pty.openpty()
@@ -22,7 +40,7 @@ class ProgressRenderingTests(unittest.TestCase):
                     [sys.executable, "-c", code],
                     stdout=slave,
                     stderr=slave,
-                    env={**os.environ, "TERM": "xterm", "COLUMNS": "120"},
+                    env=env,
                     timeout=30,
                     check=False,
                 )
@@ -93,6 +111,30 @@ with TqdmShim(total=100, desc="hidden", disable=True):
 """)
         self.assertIn("MESSAGE", output)
         self.assertNotIn("hidden", output)
+
+    def test_incomplete_bar_is_removed_after_exception_or_collection(self):
+        output = self.render("""
+import gc
+from rich import print
+from heretic.progress import TqdmShim
+try:
+    with TqdmShim(total=100, desc="interrupted") as bar:
+        bar.update(10)
+        raise RuntimeError("interrupted")
+except RuntimeError:
+    pass
+bar = TqdmShim(total=100, desc="unfinished")
+bar.update(10)
+bar.cycle = bar
+del bar
+gc.collect()
+print("AFTER")
+print("Next application message")
+""")
+        self.assertIn("Next application message", output)
+        after = output.split("AFTER", 1)[1]
+        self.assertNotIn("unfinished", after)
+        self.assertNotIn("interrupted", after)
 
 
 if __name__ == "__main__":

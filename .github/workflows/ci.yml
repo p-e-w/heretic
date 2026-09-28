@@ -7,6 +7,20 @@ on:
     branches: [master]
 
 jobs:
+  windows-progress:
+    name: Progress rendering (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - name: Test native Windows terminal rendering
+        env:
+          PYTHONPATH: src
+        run: >-
+          uv run --no-project --python 3.12
+          --with pywinpty==3.0.2 --with rich==14.3.3 --with tqdm==4.67.1
+          python -m unittest discover -s tests -p test_progress.py -v
+
   checks:
     name: Check and build (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

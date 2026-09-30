@@ -6,10 +6,16 @@ from typing import Any
 
 import tqdm
 import tqdm.auto
-from rich.progress import Progress, TaskID
+from rich.progress import BarColumn, Progress, TaskID, TaskProgressColumn, TextColumn
 
 # A single live display lets individual bars close in any order.
-_progress = Progress(transient=True)
+_progress = Progress(
+    TextColumn("{task.description}", style="progress.description", markup=False),
+    BarColumn(),
+    TaskProgressColumn(),
+    TextColumn("{task.fields[stats]}", markup=False),
+    transient=True,
+)
 _progress_lock = RLock()
 
 
@@ -43,17 +49,28 @@ class TqdmShim(tqdm.tqdm):
                 self.clear()
                 return
 
+            # Let tqdm format units, rates, timings and postfix text; Rich handles width.
+            format_dict = self.format_dict
+            format_dict["ncols"] = None
+            format_dict["bar_format"] = (
+                "{r_bar}"
+                if self.total
+                else "{n_fmt}{unit} [{elapsed}, {rate_fmt}{postfix}]"
+            )
+            stats = self.format_meter(**format_dict).removeprefix("| ")
+
             if self.rich_task_id is None:
                 if not _progress.task_ids:
                     _progress.start()
                 self.rich_task_id = _progress.add_task(
-                    self.desc or "", total=self.total, completed=self.n
+                    self.desc or "", total=self.total, completed=self.n, stats=stats
                 )
             _progress.update(
                 self.rich_task_id,
                 description=self.desc or "",
                 total=self.total,
                 completed=self.n,
+                stats=stats,
             )
 
     def clear(self, *args: Any, **kwargs: Any):

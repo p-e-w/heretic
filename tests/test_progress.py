@@ -110,6 +110,48 @@ with ThreadPoolExecutor(max_workers=1) as worker:
         self.assertRegex(after, r"second\.bin[^\n]*50%")
         self.assertNotIn("first.bin", after)
 
+    def test_counts_units_rates_and_postfix_are_preserved(self):
+        output = self.render("""
+from rich import print
+from heretic.progress import TqdmShim
+for description, total, count, options in [
+    ("bytes.bin", 4096, 1024, dict(unit="B", unit_scale=True, unit_divisor=1024)),
+    ("training", 8, 2, dict(unit="batch")),
+    ("unknown", None, 3, dict(unit="item")),
+]:
+    bar = TqdmShim(total=total, desc=description, mininterval=0, **options)
+    bar.update(count)
+    if total is None:
+        bar.set_postfix_str("loss=0.42, note=[ok]")
+    else:
+        bar.set_postfix(loss=0.42, note="[ok]")
+    print("CHECK " + description)
+    progress = getattr(bar, "rich_progress", None)
+    if progress is None:
+        from heretic.progress import _progress as progress
+    progress.refresh()
+    bar.close()
+    print("END " + description)
+""")
+        for description, counts, unit in [
+            ("bytes.bin", "1.00k/4.00k", "B"),
+            ("training", "2/8", "batch"),
+            ("unknown", "3item", "item"),
+        ]:
+            with self.subTest(description=description):
+                frame = output.split("CHECK " + description, 1)[1].split(
+                    "END " + description, 1
+                )[0]
+                self.assertIn(description, frame)
+                self.assertIn(counts, frame)
+                self.assertRegex(
+                    frame,
+                    r"\d[\d.]*[kMGTPEZYmunpf]?"
+                    + rf"(?:{unit}/s|s/{unit})[^\n]*loss=0\.42, note=\[ok\]",
+                )
+                if description != "unknown":
+                    self.assertRegex(frame, r"\[\d+:\d+<\d+:\d+,")
+
 
 if __name__ == "__main__":
     unittest.main()

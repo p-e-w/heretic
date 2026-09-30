@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import sys
 from threading import RLock
 from typing import Any
 
@@ -9,6 +8,7 @@ import tqdm
 import tqdm.auto
 from rich.progress import Progress, TaskID
 
+# A single live display lets individual bars close in any order.
 _progress = Progress(transient=True)
 _progress_lock = RLock()
 
@@ -20,34 +20,17 @@ class TqdmShim(tqdm.tqdm):
         self.rich_task_id: TaskID | None = None
         kwargs["gui"] = True
 
-        # An existing Rich display may have redirected the stream through FileProxy,
-        # whose isatty() does not reflect the terminal behind it.
-        file = args[4] if len(args) > 4 else kwargs.get("file")
-        file = file if file is not None else sys.stderr
-        file = getattr(file, "rich_proxied_file", file)
-        if len(args) > 4:
-            args = (*args[:4], file, *args[5:])
-        else:
-            kwargs["file"] = file
-
         # Chain up to the parent constructor to ensure that the internal state of the superclass
         # is correctly initialized, which some methods that we don't override might rely on.
         super().__init__(*args, **kwargs)
         self.display()
 
     def update(self, *args: Any, **kwargs: Any):
-        displayed = super().update(*args, **kwargs)
-        # tqdm can throttle the final redraw, but Rich must still stop refreshing
-        # a completed task that the caller keeps alive.
-        if (
-            not displayed
-            and not self.disable
-            and self.total is not None
-            and self.n >= self.total
-        ):
-            self.display()
-            return True
-        return displayed
+        result = super().update(*args, **kwargs)
+        # Remove completed tasks even when tqdm throttles the final refresh.
+        if not self.disable and self.total is not None and self.n >= self.total:
+            self.clear()
+        return result
 
     def display(self, *args: Any, **kwargs: Any):
         with _progress_lock:
@@ -80,6 +63,8 @@ class TqdmShim(tqdm.tqdm):
                 self.rich_task_id = None
                 if not _progress.task_ids:
                     _progress.stop()
+                else:
+                    _progress.refresh()
 
     def close(self, *args: Any, **kwargs: Any):
         try:

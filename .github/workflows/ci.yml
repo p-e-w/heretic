@@ -18,7 +18,7 @@ jobs:
           PYTHONPATH: src
         run: >-
           uv run --no-project --python 3.12
-          --with pywinpty==3.0.2 --with rich==14.3.3 --with tqdm==4.67.1
+          --with pywinpty==3.0.2 --with rich==15.0.0 --with tqdm==4.67.1
           python -m unittest discover -s tests -p test_progress.py -v
 
   checks:

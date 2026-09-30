@@ -65,22 +65,26 @@ class ProgressRenderingTests(unittest.TestCase):
     def test_completed_download_does_not_redraw_over_later_messages(self):
         output = self.render("""
 import os
-from time import sleep
 from rich import print
 from heretic.progress import TqdmShim
 assert os.isatty(2)
 bar = TqdmShim(
     total=0, desc="Downloading (incomplete total...)", disable=None, mininterval=0
 )
+# Force frames at the two checkpoints instead of relying on Rich's refresh thread.
+progress = getattr(bar, "rich_progress", None)
+if progress is None:
+    from heretic.progress import _progress as progress
 bar.total = 100
 bar.update(50)
-sleep(0.2)  # Allow Rich's 10 Hz renderer to emit the updated frame.
+progress.refresh()
 print("HALFWAY")
 bar.update(50)
 bar.set_description("Download complete")
 print("AFTER")
 print("Testing batch size")
-sleep(0.2)
+if progress.live.is_started:
+    progress.refresh()
 bar.close()
 """)
         halfway, after = output.split("AFTER", 1)

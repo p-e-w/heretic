@@ -55,12 +55,12 @@ dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"
 column = "text"
 
-[modifier.Abliteration.good_prompts]
+[modifier.ARA.good_prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "train[:400]"
 column = "text"
 
-[modifier.Abliteration.bad_prompts]
+[modifier.ARA.bad_prompts]
 dataset = "UnstableLlama/jokes"
 split = "train[:200]"
 column = "text"

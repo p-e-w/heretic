@@ -1,0 +1,65 @@
+# This test case is for ARA (non-standard settings).
+# After any change related to it, this test should PASS.
+
+model = "tiny-random/seed-oss"
+model_commit = "6860befd78b678885f7a52bbf41d7fd0671af2db"
+
+seed = 12345
+print_debug_information = true
+
+batch_size = 2
+max_response_length = 10
+
+scorers = [
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "maximize" },
+]
+
+n_trials = 2
+n_startup_trials = 1
+
+export_strategy = "merge"
+checkpoint_action = "restart"
+trial_index = 0
+model_action = "save"
+save_directory = "model"
+
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "train[:5]"
+column = "text"
+
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "train[:5]"
+column = "text"
+
+[scorer.KLDivergence.prompts]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "test[:5]"
+column = "text"
+
+[scorer.KeywordRate.prompts]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "test[:5]"
+column = "text"
+
+[modifier.ARA]
+preserve_row_magnitudes = false
+lora_rank = 20
+
+[modifier.ARA.good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "train[:5]"
+column = "text"
+
+[modifier.ARA.bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "train[:5]"
+column = "text"

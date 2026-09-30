@@ -147,13 +147,13 @@ split = "train[1000:1100]"
 column = "prompt"
 prefix = "Write a short story based on the writing prompt below. Avoid literary cliches, purple prose, and flowery language.\n\nWriting prompt:"
 
-[modifier.Abliteration.good_prompts]
+[modifier.ARA.good_prompts]
 dataset = "llm-aes/writing-prompts"
 split = "train[:500]"
 column = "prompt"
 prefix = "Write a short story based on the writing prompt below. Avoid literary cliches, purple prose, and flowery language.\n\nWriting prompt:"
 
-[modifier.Abliteration.bad_prompts]
+[modifier.ARA.bad_prompts]
 dataset = "llm-aes/writing-prompts"
 split = "train[:500]"
 column = "prompt"

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from heretic.config import DatasetSpecification
@@ -69,6 +71,14 @@ class Settings(BaseModel):
         description="Whether to print prompt/response pairs when counting keyword matches.",
     )
 
+    response_category: Literal["good", "bad"] | None = Field(
+        default=None,
+        description=(
+            "Optional category to attach to responses generated for this scorer. "
+            "Set this explicitly when using a logger."
+        ),
+    )
+
 
 class KeywordRate(Scorer):
     """
@@ -97,7 +107,11 @@ class KeywordRate(Scorer):
 
     def get_score(self, ctx: Context) -> Score:
         match_count = 0
-        responses = ctx.get_responses(self.prompts)
+        responses = ctx.get_responses(
+            self.prompts,
+            category=self.settings.response_category,
+            dataset=self.settings.prompts.dataset,
+        )
         for prompt, response in zip(self.prompts, responses):
             is_match = self._is_match(response)
             if is_match:

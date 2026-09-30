@@ -150,6 +150,48 @@ class ScorerConfig(BaseModel):
         return value
 
 
+class LoggerConfig(BaseModel):
+    """
+    Configuration for a logger plugin.
+
+    TOML format:
+    - { plugin = "<plugin>", instance_name = "<optional>" }
+    """
+
+    plugin: str = Field(
+        description=(
+            "Plugin to load. Either a file path with class name "
+            "(`path/to/plugin.py:ClassName`) or a fully-qualified import path "
+            "(`module.submodule.ClassName`)."
+        ),
+    )
+
+    instance_name: str | None = Field(
+        default=None,
+        description=(
+            "Optional name to distinguish multiple instances of the same plugin class. "
+            "Instance-specific settings live under `[logger.<ClassName>_<instance_name>]`."
+        ),
+    )
+
+    @field_validator("instance_name")
+    @classmethod
+    def validate_instance_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        if not value.strip():
+            raise ValueError("cannot be empty or whitespace")
+
+        if "." in value:
+            raise ValueError("'.' is not allowed")
+
+        if any(char.isspace() for char in value):
+            raise ValueError("whitespace is not allowed")
+
+        return value
+
+
 class BenchmarkSpecification(BaseModel):
     task: str = Field(
         description="Task ID of the benchmark in the Language Model Evaluation Harness."
@@ -357,6 +399,14 @@ class Settings(BaseSettings):
             "List of scorer plugin configs. Each entry is an object"
             " { plugin = <plugin>, optimization = <optimization>, instance_name = <optional> }."
             " <optimization> is one of 'minimize', 'maximize', 'none' (do not optimize)."
+        ),
+    )
+
+    loggers: list[LoggerConfig] = Field(
+        default_factory=list,
+        description=(
+            "List of logger plugin configs. Each entry is an object"
+            " { plugin = <plugin>, instance_name = <optional> }."
         ),
     )
 

@@ -24,18 +24,22 @@ _progress_lock = RLock()
 class TqdmShim(tqdm.tqdm):
     def __init__(self, *args: Any, **kwargs: Any):
         self.rich_task_id: TaskID | None = None
+        # Use tqdm's bookkeeping without its terminal printer; Rich handles width.
         kwargs["gui"] = True
+        kwargs["dynamic_ncols"] = False
 
         # Chain up to the parent constructor to ensure that the internal state of the superclass
         # is correctly initialized, which some methods that we don't override might rely on.
         super().__init__(*args, **kwargs)
+        self.ncols = None
+        # GUI mode skips tqdm's initial refresh, so draw the initial Rich task here.
         self.display()
 
-    def update(self, *args: Any, **kwargs: Any):
+    def update(self, *args: Any, **kwargs: Any) -> bool | None:
         result = super().update(*args, **kwargs)
-        # Remove completed tasks even when tqdm throttles the final refresh.
-        if not self.disable and self.total is not None and self.n >= self.total:
-            self.clear()
+        # mininterval/miniters can make tqdm skip display() on the final update.
+        if not self.disable:
+            self._clear_completed()
         return result
 
     def display(self, *args: Any, **kwargs: Any):
@@ -45,19 +49,17 @@ class TqdmShim(tqdm.tqdm):
 
             # Completion ends the transient display, not the tqdm object's lifetime.
             # A later reset or larger total can make the same bar visible again.
-            if self.total is not None and self.n >= self.total:
-                self.clear()
+            if self._clear_completed():
                 return
 
-            # Let tqdm format units, rates, timings and postfix text; Rich handles width.
+            # The total can become known after construction; preserve custom formats.
             format_dict = self.format_dict
-            format_dict["ncols"] = None
-            format_dict["bar_format"] = (
-                "{r_bar}"
+            format_dict["bar_format"] = self.bar_format or (
+                "{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
                 if self.total
                 else "{n_fmt}{unit} [{elapsed}, {rate_fmt}{postfix}]"
             )
-            stats = self.format_meter(**format_dict).removeprefix("| ")
+            stats = self.format_meter(**format_dict)
 
             if self.rich_task_id is None:
                 if not _progress.task_ids:
@@ -65,13 +67,20 @@ class TqdmShim(tqdm.tqdm):
                 self.rich_task_id = _progress.add_task(
                     self.desc or "", total=self.total, completed=self.n, stats=stats
                 )
-            _progress.update(
-                self.rich_task_id,
-                description=self.desc or "",
-                total=self.total,
-                completed=self.n,
-                stats=stats,
-            )
+            else:
+                _progress.update(
+                    self.rich_task_id,
+                    description=self.desc or "",
+                    total=self.total,
+                    completed=self.n,
+                    stats=stats,
+                )
+
+    def _clear_completed(self) -> bool:
+        if self.total is not None and self.n >= self.total:
+            self.clear()
+            return True
+        return False
 
     def clear(self, *args: Any, **kwargs: Any):
         with _progress_lock:
@@ -84,10 +93,8 @@ class TqdmShim(tqdm.tqdm):
                     _progress.refresh()
 
     def close(self, *args: Any, **kwargs: Any):
-        try:
-            super().close()
-        finally:
-            self.clear()
+        super().close()
+        self.clear()
 
 
 def patch_tqdm():

@@ -76,7 +76,7 @@ if progress is None:
 bar.update(50)
 bar.refresh()
 progress.refresh()
-# This update is throttled; the caller still keeps the completed bar alive.
+# mininterval=3600 prevents a final refresh; the caller keeps the bar alive.
 bar.update(50)
 print("AFTER")
 print("Testing batch size")
@@ -151,6 +151,38 @@ for description, total, count, options in [
                 )
                 if description != "unknown":
                     self.assertRegex(frame, r"\[\d+:\d+<\d+:\d+,")
+
+    def test_overlapping_bars_keep_their_own_formats(self):
+        output = self.render("""
+from rich import print
+from heretic.progress import TqdmShim, _progress
+download = TqdmShim(total=None, desc="bytes.bin", unit="B", unit_scale=True,
+                    unit_divisor=1024, mininterval=0, miniters=1)
+training = TqdmShim(total=8, desc="training", unit="batch", mininterval=0,
+                    miniters=1, bar_format="STEP {n}/{total} {unit}{postfix}")
+print("INITIAL")
+_progress.refresh()
+download.update(1024)
+download.set_postfix_str("file=ok")
+download.total = 4096
+download.refresh()
+training.update(2)
+training.set_postfix(loss=0.42)
+print("BEFORE")
+_progress.refresh()
+training.close()
+print("AFTER")
+_progress.refresh()
+download.close()
+""")
+        before, after = output.split("AFTER", 1)
+        initial = before.split("BEFORE", 1)[0]
+        self.assertRegex(initial, r"training[^\n]*STEP 0/8 batch")
+        self.assertRegex(before, r"bytes\.bin[^\n]*1\.00k/4\.00k[^\n]*B/s, file=ok")
+        self.assertRegex(before, r"training[^\n]*STEP 2/8 batch, loss=0\.42")
+        self.assertNotIn("training", after)
+        self.assertIn("1.00k/4.00k", after)
+        self.assertIn("file=ok", after)
 
 
 if __name__ == "__main__":

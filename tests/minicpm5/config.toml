@@ -9,6 +9,11 @@ print_debug_information = true
 
 batch_size = 2
 max_response_length = 10
+
+modifiers = [
+    { plugin = "heretic.modifiers.abliteration.Abliteration" },
+]
+
 n_trials = 2
 n_startup_trials = 1
 
@@ -18,15 +23,13 @@ trial_index = 0
 model_action = "save"
 save_directory = "model"
 
-row_normalization = "none"
-
-[good_prompts]
+[[response_prefix_test_prompts]]
 dataset = "mlabonne/harmless_alpaca"
 commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
 split = "train[:5]"
 column = "text"
 
-[bad_prompts]
+[[response_prefix_test_prompts]]
 dataset = "mlabonne/harmful_behaviors"
 commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
 split = "train[:5]"
@@ -42,4 +45,19 @@ column = "text"
 dataset = "mlabonne/harmful_behaviors"
 commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
 split = "test[:5]"
+column = "text"
+
+[modifier.Abliteration]
+row_normalization = "none"
+
+[modifier.Abliteration.good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "train[:5]"
+column = "text"
+
+[modifier.Abliteration.bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "train[:5]"
 column = "text"

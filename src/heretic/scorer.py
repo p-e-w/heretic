@@ -6,9 +6,8 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-from heretic.plugin import Context, Plugin
-
 from .config import Settings as HereticSettings
+from .plugin import Context, Plugin
 
 
 @dataclass
@@ -32,7 +31,7 @@ class Scorer(Plugin, ABC):
 
     Scorers evaluate model behavior and return a Score.
 
-    Example: counting refusals, measuring KL divergence, etc.
+    Examples: Counting refusals, measuring KL divergence, etc.
     """
 
     @property
@@ -47,7 +46,7 @@ class Scorer(Plugin, ABC):
         self,
         heretic_settings: HereticSettings,
         settings: BaseModel | None = None,
-    ):
+    ) -> None:
         super().__init__(heretic_settings=heretic_settings, settings=settings)
 
     @abstractmethod

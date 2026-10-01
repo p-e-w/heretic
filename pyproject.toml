@@ -44,15 +44,6 @@ dependencies = [
     "transformers[kernels]~=5.6",
 ]
 
-[project.optional-dependencies]
-research = [
-    "geom-median~=0.1",
-    "imageio~=2.37",
-    "matplotlib~=3.10",
-    "pacmap~=0.8",
-    "scikit-learn~=1.7",
-]
-
 [dependency-groups]
 dev = [
     "ruff>=0.14.5",

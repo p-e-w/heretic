@@ -1,8 +1,8 @@
-# This test case is for row_normalization="pre".
+# This test case is for ARA (non-standard settings).
 # After any change related to it, this test should PASS.
 
-model = "tiny-random/qwen2.5"
-model_commit = "7a6a3128ee4137a248d6d1582824592b87a81647"
+model = "tiny-random/seed-oss"
+model_commit = "6860befd78b678885f7a52bbf41d7fd0671af2db"
 
 seed = 12345
 print_debug_information = true
@@ -10,8 +10,9 @@ print_debug_information = true
 batch_size = 2
 max_response_length = 10
 
-modifiers = [
-    { plugin = "heretic.modifiers.abliteration.Abliteration" },
+scorers = [
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "maximize" },
 ]
 
 n_trials = 2
@@ -47,16 +48,17 @@ commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
 split = "test[:5]"
 column = "text"
 
-[modifier.Abliteration]
-row_normalization = "pre"
+[modifier.ARA]
+preserve_row_magnitudes = false
+lora_rank = 20
 
-[modifier.Abliteration.good_prompts]
+[modifier.ARA.good_prompts]
 dataset = "mlabonne/harmless_alpaca"
 commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
 split = "train[:5]"
 column = "text"
 
-[modifier.Abliteration.bad_prompts]
+[modifier.ARA.bad_prompts]
 dataset = "mlabonne/harmful_behaviors"
 commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
 split = "train[:5]"

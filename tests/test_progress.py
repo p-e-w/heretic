@@ -64,6 +64,7 @@ class ProgressRenderingTests(unittest.TestCase):
 
     def test_cancelled_bars_do_not_redraw_over_recovered_prompt(self):
         output = self.render("""
+from unittest.mock import patch
 from heretic.progress import TqdmShim, close_progress, _progress
 
 # Keep the incomplete bars alive, as an interrupted caller's traceback can do.
@@ -72,6 +73,18 @@ second = TqdmShim(total=20, desc="cancelled-second", mininterval=0, miniters=1)
 first.update(2)
 second.update(3)
 _progress.refresh()
+retained_tracebacks = []
+# Interrupt before and during tqdm's initialization, retaining each failed bar.
+for method in ("__init__", "set_postfix"):
+    with patch.object(TqdmShim.__bases__[0], method, side_effect=KeyboardInterrupt):
+        try:
+            TqdmShim(total=10, postfix=dict(status="starting"))
+        except KeyboardInterrupt as error:
+            retained_tracebacks.append(error.__traceback__)
+            close_progress()
+# tqdm registers the instance in __new__, before the shim's __init__ runs.
+uninitialized = TqdmShim.__new__(TqdmShim)
+close_progress()
 original_add_task = _progress.add_task
 def interrupted_add_task(*args, **kwargs):
     original_add_task(*args, **kwargs)
@@ -81,7 +94,7 @@ _progress.add_task = interrupted_add_task
 try:
     TqdmShim(total=10, desc="cancelled-constructor")
 except KeyboardInterrupt as error:
-    retained_traceback = error.__traceback__
+    retained_tracebacks.append(error.__traceback__)
     close_progress()
 finally:
     _progress.add_task = original_add_task

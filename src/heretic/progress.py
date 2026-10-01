@@ -84,8 +84,9 @@ class TqdmShim(tqdm.tqdm):
 
     def clear(self, *args: Any, **kwargs: Any):
         with _progress_lock:
-            if self.rich_task_id is not None:
-                _progress.remove_task(self.rich_task_id)
+            task_id = getattr(self, "rich_task_id", None)
+            if task_id is not None:
+                _progress.remove_task(task_id)
                 self.rich_task_id = None
                 if not _progress.task_ids:
                     _progress.stop()
@@ -93,7 +94,13 @@ class TqdmShim(tqdm.tqdm):
                     _progress.refresh()
 
     def close(self, *args: Any, **kwargs: Any):
-        super().close()
+        # tqdm sets start_t last; interruption can leave its earlier fields unset.
+        if hasattr(self, "start_t"):
+            super().close()
+        else:
+            self.disable = True
+            with self.get_lock():
+                self._instances.discard(self)
         self.clear()
 
 

@@ -850,7 +850,11 @@ def run():
             # Per https://github.com/huggingface/peft/issues/868#issuecomment-1820642893
             # once a LoRA is merged it's expected to be empty. Provide a utility function
             # to restore the previous LoRA-ified state.
+            trial_model_ready = False
+
             def reset_trial_model():
+                nonlocal trial_model_ready
+                trial_model_ready = False
                 ctx = Context(settings=settings, model=model)
                 print("* Resetting model...")
                 modifier.reset_model(ctx)
@@ -859,6 +863,7 @@ def run():
                     trial.user_attrs["parameters"]
                 )
                 modifier.modify_model(ctx, parameters)
+                trial_model_ready = True
 
             reset_trial_model()
 
@@ -1380,11 +1385,16 @@ def run():
                             if table.rows:
                                 print(table)
 
-                except KeyboardInterrupt:
+                except KeyboardInterrupt as error:
                     close_progress()
+                    # The local and the cancelled call's traceback can retain export weights.
+                    merged_model = None
+                    error.__traceback__ = None
                     print()
                     print("[yellow]Action cancelled.[/]")
                     # Merging removes the adapters before upload or saving starts.
+                    if not trial_model_ready:
+                        model.needs_reload = True
                     if model.needs_reload:
                         reset_trial_model()
                 except Exception as error:

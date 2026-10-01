@@ -1167,6 +1167,12 @@ def run():
                                 card.data.tags.append("abliterated")
                                 if reproducibility_information != "none":
                                     card.data.tags.append("reproducible")
+
+                                # Must be a Hugging Face Hub repository ID,
+                                # so local paths are excluded.
+                                if is_hf_path(settings.model):
+                                    card.data.base_model = settings.model
+
                                 card.text = (
                                     get_readme_intro(
                                         settings,

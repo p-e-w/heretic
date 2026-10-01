@@ -100,3 +100,18 @@ class TqdmShim(tqdm.tqdm):
 def patch_tqdm():
     tqdm.tqdm = TqdmShim  # ty:ignore[invalid-assignment]
     tqdm.auto.tqdm = TqdmShim  # ty:ignore[invalid-assignment]
+
+
+def close_progress():
+    # An interrupted caller can retain an unfinished bar in its traceback.
+    # Snapshot tqdm's registry before closing: close() removes each instance.
+    with TqdmShim.get_lock():
+        instances = list(TqdmShim._instances)
+    for instance in instances:
+        if isinstance(instance, TqdmShim):
+            instance.close()
+    with _progress_lock:
+        # A signal can arrive after add_task() but before its ID is stored.
+        for task_id in _progress.task_ids:
+            _progress.remove_task(task_id)
+        _progress.stop()

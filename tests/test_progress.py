@@ -62,6 +62,48 @@ class ProgressRenderingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output.decode(errors="replace"))
         return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output.decode()).replace("\r", "")
 
+    def test_cancelled_bars_do_not_redraw_over_recovered_prompt(self):
+        output = self.render("""
+from heretic.progress import TqdmShim, close_progress, _progress
+
+# Keep the incomplete bars alive, as an interrupted caller's traceback can do.
+first = TqdmShim(total=10, desc="cancelled-first", mininterval=0, miniters=1)
+second = TqdmShim(total=20, desc="cancelled-second", mininterval=0, miniters=1)
+first.update(2)
+second.update(3)
+_progress.refresh()
+original_add_task = _progress.add_task
+def interrupted_add_task(*args, **kwargs):
+    original_add_task(*args, **kwargs)
+    _progress.refresh()
+    raise KeyboardInterrupt
+_progress.add_task = interrupted_add_task
+try:
+    TqdmShim(total=10, desc="cancelled-constructor")
+except KeyboardInterrupt as error:
+    retained_traceback = error.__traceback__
+    close_progress()
+finally:
+    _progress.add_task = original_add_task
+assert first.disable and second.disable
+assert not _progress.task_ids and not _progress.live.is_started
+print("RECOVERED")
+first.update(1)
+second.update(1)
+with TqdmShim(total=10, desc="next-operation", mininterval=0, miniters=1) as bar:
+    bar.update(5)
+    _progress.refresh()
+assert not _progress.task_ids and not _progress.live.is_started
+""")
+        before, after = output.split("RECOVERED", 1)
+        self.assertIn("cancelled-first", before)
+        self.assertIn("cancelled-second", before)
+        self.assertIn("cancelled-constructor", before)
+        self.assertNotIn("cancelled-first", after)
+        self.assertNotIn("cancelled-second", after)
+        self.assertNotIn("cancelled-constructor", after)
+        self.assertRegex(after, r"next-operation[^\n]*50%")
+
     def test_completed_download_does_not_redraw_over_later_messages(self):
         output = self.render("""
 import os

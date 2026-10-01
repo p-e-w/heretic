@@ -23,7 +23,7 @@ def _is_help_invocation() -> bool:
 if _is_help_invocation():
     Settings()
 
-from .progress import patch_tqdm
+from .progress import close_progress, patch_tqdm
 
 # This patches tqdm class definitions, which must happen
 # before any other module imports tqdm.
@@ -1372,7 +1372,7 @@ def run():
                                             first_row = False
                                             first_benchmark = False
                             except KeyboardInterrupt:
-                                pass
+                                close_progress()
 
                             # The benchmark run might have been cancelled by the user
                             # before any benchmark was completed, so we only print results
@@ -1380,6 +1380,13 @@ def run():
                             if table.rows:
                                 print(table)
 
+                except KeyboardInterrupt:
+                    close_progress()
+                    print()
+                    print("[yellow]Action cancelled.[/]")
+                    # Merging removes the adapters before upload or saving starts.
+                    if model.needs_reload:
+                        reset_trial_model()
                 except Exception as error:
                     formatted = format_exception(error)
                     if "\n" in formatted:
@@ -1401,6 +1408,7 @@ def main():
         if isinstance(error, KeyboardInterrupt) or isinstance(
             error.__context__, KeyboardInterrupt
         ):
+            close_progress()
             print()
             print("[red]Shutting down...[/]")
         else:

@@ -88,10 +88,10 @@ modifiers = [
 ]
 
 # Number of abliteration trials to run during optimization.
-n_trials = 200
+n_trials = 100
 
 # Number of trials that use random sampling for the purpose of exploration.
-n_startup_trials = 60
+n_startup_trials = 30
 
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"

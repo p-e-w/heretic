@@ -404,12 +404,12 @@ class Settings(BaseSettings):
     )
 
     n_trials: PositiveInt = Field(
-        default=200,
+        default=100,
         description="Number of abliteration trials to run during optimization.",
     )
 
     n_startup_trials: NonNegativeInt = Field(
-        default=60,
+        default=30,
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 

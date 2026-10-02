@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Dict, Literal, TypeAlias
+from typing import Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -254,12 +254,12 @@ class Settings(BaseSettings):
         ),
     )
 
-    device_map: str | Dict[str, int | str] = Field(
+    device_map: str | dict[str, int | str] = Field(
         default="auto",
         description="Device map to pass to Accelerate when loading the model.",
     )
 
-    max_memory: Dict[str, str] | None = Field(
+    max_memory: dict[str, str] | None = Field(
         default=None,
         description='Maximum memory to allocate per device (e.g., { "0" = "20GB", "cpu" = "64GB" }).',
     )

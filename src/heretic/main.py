@@ -23,15 +23,11 @@ def _is_help_invocation() -> bool:
 if _is_help_invocation():
     Settings()
 
-# FIXME: Rich progress bars are currently disabled because of rendering issues
-#        when used from multiple threads in parallel (e.g. by huggingface_hub).
-"""
-from .progress import patch_tqdm
+from .progress import close_progress, patch_tqdm
 
 # This patches tqdm class definitions, which must happen
 # before any other module imports tqdm.
 patch_tqdm()
-"""
 
 import logging
 import math
@@ -854,7 +850,11 @@ def run():
             # Per https://github.com/huggingface/peft/issues/868#issuecomment-1820642893
             # once a LoRA is merged it's expected to be empty. Provide a utility function
             # to restore the previous LoRA-ified state.
+            trial_model_ready = False
+
             def reset_trial_model():
+                nonlocal trial_model_ready
+                trial_model_ready = False
                 ctx = Context(settings=settings, model=model)
                 print("* Resetting model...")
                 modifier.reset_model(ctx)
@@ -863,6 +863,7 @@ def run():
                     trial.user_attrs["parameters"]
                 )
                 modifier.modify_model(ctx, parameters)
+                trial_model_ready = True
 
             reset_trial_model()
 
@@ -1376,7 +1377,7 @@ def run():
                                             first_row = False
                                             first_benchmark = False
                             except KeyboardInterrupt:
-                                pass
+                                close_progress()
 
                             # The benchmark run might have been cancelled by the user
                             # before any benchmark was completed, so we only print results
@@ -1384,6 +1385,18 @@ def run():
                             if table.rows:
                                 print(table)
 
+                except KeyboardInterrupt as error:
+                    close_progress()
+                    # The local and the cancelled call's traceback can retain export weights.
+                    merged_model = None
+                    error.__traceback__ = None
+                    print()
+                    print("[yellow]Action cancelled.[/]")
+                    # Merging removes the adapters before upload or saving starts.
+                    if not trial_model_ready:
+                        model.needs_reload = True
+                    if model.needs_reload:
+                        reset_trial_model()
                 except Exception as error:
                     formatted = format_exception(error)
                     if "\n" in formatted:
@@ -1405,6 +1418,7 @@ def main():
         if isinstance(error, KeyboardInterrupt) or isinstance(
             error.__context__, KeyboardInterrupt
         ):
+            close_progress()
             print()
             print("[red]Shutting down...[/]")
         else:

@@ -62,11 +62,63 @@ class ProgressRenderingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output.decode(errors="replace"))
         return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output.decode()).replace("\r", "")
 
+    def test_terminal_initialization_uses_rich_without_tqdm_printer(self):
+        output = self.render("""
+import sys
+from unittest.mock import patch
+from rich import print
+from heretic.progress import TqdmShim, _progress
+
+assert sys.stderr.isatty()
+with patch.object(sys.stderr, "write", wraps=sys.stderr.write) as terminal_write:
+    bars = []
+    for description, total, options in [
+        ("default", 8, {}),
+        ("custom", 8, dict(bar_format="STEP {n}/{total} {unit}", leave=False)),
+        ("unknown", None, dict(unit="item")),
+    ]:
+        bar = TqdmShim(total=total, desc=description, disable=None,
+                       mininterval=0, miniters=1, nrows=2, **options)
+        assert bar.gui is False and bar.sp is None
+        assert bar.start_t == bar.last_print_t and bar.n == 0
+        assert bar.rich_task_id in _progress.task_ids
+        bars.append(bar)
+    print("INITIAL")
+    _progress.refresh()
+    for bar in bars:
+        bar.update(2)
+    print("UPDATED")
+    _progress.refresh()
+    bars[0].close()
+    assert _progress.live.is_started
+    assert _progress.task_ids == [bar.rich_task_id for bar in bars[1:]]
+    bars[1].close()
+    assert _progress.live.is_started
+    assert _progress.task_ids == [bars[2].rich_task_id]
+    bars[2].close()
+    assert not _progress.task_ids and not _progress.live.is_started
+    assert not any(call.args[0] for call in terminal_write.call_args_list)
+print("CLOSED")
+""")
+        initial, updated = output.split("UPDATED", 1)
+        self.assertRegex(initial, r"default[^\n]*0/8 \[00:00<\?, \?it/s\]")
+        self.assertRegex(initial, r"custom[^\n]*STEP 0/8 it")
+        self.assertRegex(initial, r"unknown[^\n]*0item \[00:00, \?item/s\]")
+        updated, closed = updated.split("CLOSED", 1)
+        self.assertRegex(updated, r"default[^\n]*2/8")
+        self.assertRegex(updated, r"custom[^\n]*STEP 2/8 it")
+        self.assertRegex(updated, r"unknown[^\n]*2item")
+        for description in ("default", "custom", "unknown"):
+            self.assertNotIn(description, closed)
+
     def test_cancelled_bars_do_not_redraw_over_recovered_prompt(self):
         output = self.render("""
+from concurrent.futures import ThreadPoolExecutor
+from threading import RLock
 from unittest.mock import patch
 from heretic.progress import TqdmShim, close_progress, _progress
 
+TqdmShim.set_lock(RLock())
 # Keep the incomplete bars alive, as an interrupted caller's traceback can do.
 first = TqdmShim(total=10, desc="cancelled-first", mininterval=0, miniters=1)
 second = TqdmShim(total=20, desc="cancelled-second", mininterval=0, miniters=1)
@@ -98,6 +150,14 @@ except KeyboardInterrupt as error:
     close_progress()
 finally:
     _progress.add_task = original_add_task
+def acquire_tqdm_lock():
+    lock = TqdmShim.get_lock()
+    acquired = lock.acquire(blocking=False)
+    if acquired:
+        lock.release()
+    return acquired
+with ThreadPoolExecutor(max_workers=1) as worker:
+    assert worker.submit(acquire_tqdm_lock).result(timeout=5)
 assert first.disable and second.disable
 assert not _progress.task_ids and not _progress.live.is_started
 print("RECOVERED")
@@ -174,7 +234,9 @@ for description, total, count, options in [
     ("training", 8, 2, dict(unit="batch")),
     ("unknown", None, 3, dict(unit="item")),
 ]:
-    bar = TqdmShim(total=total, desc=description, mininterval=0, **options)
+    bar = TqdmShim(total=total, desc=description, mininterval=0, miniters=1, **options)
+    # Use one elapsed second so clock resolution cannot hide the numeric rate.
+    bar._time = lambda start_t=bar.start_t: start_t + 1
     bar.update(count)
     if total is None:
         bar.set_postfix_str("loss=0.42, note=[ok]")

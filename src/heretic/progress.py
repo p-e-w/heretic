@@ -24,16 +24,33 @@ _progress_lock = RLock()
 class TqdmShim(tqdm.tqdm):
     def __init__(self, *args: Any, **kwargs: Any):
         self.rich_task_id: TaskID | None = None
-        # Use tqdm's bookkeeping without its terminal printer; Rich handles width.
-        kwargs["gui"] = True
         kwargs["dynamic_ncols"] = False
 
         # Chain up to the parent constructor to ensure that the internal state of the superclass
         # is correctly initialized, which some methods that we don't override might rely on.
         super().__init__(*args, **kwargs)
         self.ncols = None
-        # GUI mode skips tqdm's initial refresh, so draw the initial Rich task here.
-        self.display()
+
+    @staticmethod
+    def status_printer(file: Any) -> None:
+        # Rich renders the output; tqdm still initializes and tracks terminal bars.
+        return None
+
+    def refresh(self, nolock: bool = False, lock_args: Any = None) -> bool | None:
+        if self.disable:
+            return None
+        if not nolock:
+            if lock_args:
+                if not self._lock.acquire(*lock_args):
+                    return False
+            else:
+                self._lock.acquire()
+        try:
+            return super().refresh(nolock=True)
+        finally:
+            # A cancelled display must not leave tqdm's shared lock held.
+            if not nolock:
+                self._lock.release()
 
     def update(self, *args: Any, **kwargs: Any) -> bool | None:
         result = super().update(*args, **kwargs)
@@ -54,6 +71,8 @@ class TqdmShim(tqdm.tqdm):
 
             # The total can become known after construction; preserve custom formats.
             format_dict = self.format_dict
+            # The parent can refresh before our constructor finishes; Rich owns width.
+            format_dict["ncols"] = None
             format_dict["bar_format"] = self.bar_format or (
                 "{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
                 if self.total
@@ -94,13 +113,11 @@ class TqdmShim(tqdm.tqdm):
                     _progress.refresh()
 
     def close(self, *args: Any, **kwargs: Any):
-        # tqdm sets start_t last; interruption can leave its earlier fields unset.
-        if hasattr(self, "start_t"):
-            super().close()
-        else:
-            self.disable = True
-            with self.get_lock():
-                self._instances.discard(self)
+        # Rich owns row layout; discard without tqdm rearranging other bars.
+        # This also works when cancellation interrupts tqdm's initialization.
+        self.disable = True
+        with self.get_lock():
+            self._instances.discard(self)
         self.clear()
 
 

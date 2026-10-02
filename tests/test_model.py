@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 import torch
 from peft import LoraConfig, get_peft_model
+from peft.tuners.lora.layer import Linear
 from transformers import GPT2Config, GPT2LMHeadModel
 
 from heretic.config import QuantizationMethod, Settings
@@ -14,7 +15,16 @@ from heretic.model import Model
 
 class ModelMergeTests(unittest.TestCase):
     def test_interrupted_merge_requires_full_reload(self):
-        base = GPT2LMHeadModel(GPT2Config(n_layer=1, n_head=1, n_embd=8, vocab_size=16))
+        base = GPT2LMHeadModel(
+            GPT2Config(
+                n_layer=1,
+                n_head=1,
+                n_embd=8,
+                vocab_size=16,
+                bos_token_id=0,
+                eos_token_id=0,
+            )
+        )
         adapter = get_peft_model(
             base,
             LoraConfig(
@@ -25,11 +35,13 @@ class ModelMergeTests(unittest.TestCase):
         model.model = adapter
         model.settings = Mock(spec=Settings, quantization=QuantizationMethod.NONE)
         model.needs_reload = False
-        layer = adapter.base_model.model.transformer.h[0].attn.c_attn
+        layer = adapter.get_submodule("base_model.model.transformer.h.0.attn.c_attn")
+        assert isinstance(layer, Linear)
         with torch.no_grad():
-            layer.lora_A["default"].weight.fill_(1)
-            layer.lora_B["default"].weight.fill_(1)
-        before = layer.base_layer.weight.detach().clone()
+            layer.get_parameter("lora_A.default.weight").fill_(1)
+            layer.get_parameter("lora_B.default.weight").fill_(1)
+        weight = layer.get_parameter("base_layer.weight")
+        before = weight.detach().clone()
         original_merge = layer.merge
 
         def interrupted_merge(*args, **kwargs):
@@ -39,7 +51,7 @@ class ModelMergeTests(unittest.TestCase):
         with patch.object(layer, "merge", side_effect=interrupted_merge):
             with self.assertRaises(KeyboardInterrupt):
                 model.get_merged_model()
-        self.assertFalse(torch.equal(before, layer.base_layer.weight))
+        self.assertFalse(torch.equal(before, weight))
         self.assertTrue(model.needs_reload)
 
 

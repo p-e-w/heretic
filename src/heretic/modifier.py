@@ -32,7 +32,7 @@ class Serializable(Protocol):
 Parameters = TypeVar("Parameters", bound=Serializable)
 
 
-class Modifier(Generic[Parameters], Plugin, ABC):
+class Modifier(Plugin, ABC, Generic[Parameters]):
     """
     Abstract base class for modifier plugins.
 

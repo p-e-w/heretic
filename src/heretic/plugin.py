@@ -362,4 +362,4 @@ class Plugin:
         Override this in subclasses to do one-time setup (e.g. load prompts, compute
         baselines).
         """
-        return None
+        return

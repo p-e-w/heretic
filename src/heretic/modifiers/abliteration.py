@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, cast
 
-import bitsandbytes as bnb
+import bitsandbytes.functional as BNB_F
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
@@ -332,9 +332,7 @@ class Abliteration(Modifier[Parameters]):
                 weight_distribution = parameters.weight_distributions[component]
 
                 # Type inference fails here for some reason.
-                distance = cast(
-                    float, abs(layer_index - weight_distribution.max_weight_position)
-                )
+                distance = abs(layer_index - weight_distribution.max_weight_position)
 
                 # Don't orthogonalize layers that are more than
                 # min_weight_distance away from max_weight_position.
@@ -390,15 +388,10 @@ class Abliteration(Modifier[Parameters]):
                         W = base_weight.to(torch.float32)
                     else:
                         # 4-bit quantization.
-                        # This cast is always valid. Type inference fails here because the
-                        # bnb.functional module is not found by ty for some reason.
-                        W = cast(
-                            Tensor,
-                            bnb.functional.dequantize_4bit(  # ty:ignore[possibly-missing-attribute]
-                                base_weight.data,
-                                quant_state,
-                            ).to(torch.float32),
-                        )
+                        W = BNB_F.dequantize_4bit(
+                            base_weight.data,
+                            quant_state,
+                        ).to(torch.float32)
 
                     # Flatten weight matrix to (out_features, in_features).
                     W = W.view(W.shape[0], -1)

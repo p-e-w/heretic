@@ -105,7 +105,9 @@ class TqdmShim(tqdm.tqdm):
         with _progress_lock:
             task_id = getattr(self, "rich_task_id", None)
             if task_id is not None:
-                _progress.remove_task(task_id)
+                # Cancellation can interrupt removal before the ID is cleared.
+                if task_id in _progress.task_ids:
+                    _progress.remove_task(task_id)
                 self.rich_task_id = None
                 if not _progress.task_ids:
                     _progress.stop()

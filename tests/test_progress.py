@@ -150,6 +150,21 @@ except KeyboardInterrupt as error:
     close_progress()
 finally:
     _progress.add_task = original_add_task
+
+# Interrupt after Rich deletes a task, before the shim clears its stored ID.
+removing = TqdmShim(total=1, desc="cancelled-removal", mininterval=0, miniters=1)
+_progress.refresh()
+original_remove_task = _progress.remove_task
+def interrupted_remove_task(task_id):
+    original_remove_task(task_id)
+    raise KeyboardInterrupt
+with patch.object(_progress, "remove_task", side_effect=interrupted_remove_task):
+    try:
+        removing.update(1)
+    except KeyboardInterrupt as error:
+        retained_tracebacks.append(error.__traceback__)
+close_progress()
+
 def acquire_tqdm_lock():
     lock = TqdmShim.get_lock()
     acquired = lock.acquire(blocking=False)
@@ -172,9 +187,11 @@ assert not _progress.task_ids and not _progress.live.is_started
         self.assertIn("cancelled-first", before)
         self.assertIn("cancelled-second", before)
         self.assertIn("cancelled-constructor", before)
+        self.assertIn("cancelled-removal", before)
         self.assertNotIn("cancelled-first", after)
         self.assertNotIn("cancelled-second", after)
         self.assertNotIn("cancelled-constructor", after)
+        self.assertNotIn("cancelled-removal", after)
         self.assertRegex(after, r"next-operation[^\n]*50%")
 
     def test_completed_download_does_not_redraw_over_later_messages(self):

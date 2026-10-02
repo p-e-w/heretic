@@ -81,7 +81,7 @@ def collect_reproducibles(path: str):
 
             found += 1
 
-            commit_hash = paths_info[0].last_commit.oid
+            commit_hash = paths_info[0].last_commit.oid  # ty: ignore[unresolved-attribute]
 
             file_path = (
                 Path(path)
@@ -285,12 +285,10 @@ def check_environment(
 
     else:
         print(
-            (
-                "[yellow]The provided JSON file does not contain system information. "
-                "Some system parameters can affect reproducibility, but due to the lack of system information, "
-                "Heretic is unable to verify that those parameters match the original environment. "
-                "Reproduction may or may not produce a byte-for-byte identical model.[/]"
-            )
+            "[yellow]The provided JSON file does not contain system information. "
+            "Some system parameters can affect reproducibility, but due to the lack of system information, "
+            "Heretic is unable to verify that those parameters match the original environment. "
+            "Reproduction may or may not produce a byte-for-byte identical model.[/]"
         )
 
     requirements = get_requirements_dict()
@@ -321,10 +319,8 @@ def check_environment(
     if system_mismatches or package_mismatches:
         print()
         print(
-            (
-                "[yellow]Your local environment doesn't perfectly match the environment "
-                "used to produce the original model. The following components differ:[/]"
-            )
+            "[yellow]Your local environment doesn't perfectly match the environment "
+            "used to produce the original model. The following components differ:[/]"
         )
 
     if system_mismatches:
@@ -358,12 +354,10 @@ def check_environment(
     if system_mismatches or package_mismatches:
         print()
         print(
-            (
-                f"There is a {cast(MismatchSeverity, mismatch_severity).__rich__()} chance "
-                "that reproduction won't produce a byte-for-byte identical model. "
-                "However, the resulting model will very likely still behave similarly "
-                "to the original model."
-            )
+            f"There is a {cast(MismatchSeverity, mismatch_severity).__rich__()} chance "
+            "that reproduction won't produce a byte-for-byte identical model. "
+            "However, the resulting model will very likely still behave similarly "
+            "to the original model."
         )
 
         if settings.ignore_mismatches is None:

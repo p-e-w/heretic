@@ -96,7 +96,7 @@ def get_amdgpu_driver_version() -> str | None:
             if os.path.exists(version_path):
                 with open(version_path, "r", encoding="utf-8") as f:
                     return f.read().strip()
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     return None
@@ -249,7 +249,7 @@ def get_accelerator_info_dict() -> dict[str, Any]:
         info: dict[str, Any] = {
             "type": "ROCm" if is_rocm else "CUDA",
             "api_name": "HIP Version" if is_rocm else "CUDA Version",
-            "api_version": torch.version.hip if is_rocm else torch.version.cuda,  # ty:ignore[unresolved-attribute]
+            "api_version": torch.version.hip if is_rocm else torch.version.cuda,
             "driver_version": get_amdgpu_driver_version()
             if is_rocm
             else get_nvidia_driver_version(),
@@ -264,13 +264,13 @@ def get_accelerator_info_dict() -> dict[str, Any]:
         return info
 
     if is_xpu_available():
-        count = torch.xpu.device_count()  # ty:ignore[unresolved-attribute]
+        count = torch.xpu.device_count()
         return {
             "type": "XPU",
             "api_name": None,
             "api_version": None,
             "driver_version": get_xpu_driver_version(),
-            "devices": [{"name": torch.xpu.get_device_name(i)} for i in range(count)],  # ty:ignore[unresolved-attribute]
+            "devices": [{"name": torch.xpu.get_device_name(i)} for i in range(count)],
         }
 
     if is_mlu_available():

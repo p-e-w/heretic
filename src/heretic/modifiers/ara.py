@@ -7,7 +7,7 @@
 from dataclasses import asdict, dataclass
 from typing import Any, cast
 
-import bitsandbytes as bnb
+import bitsandbytes.functional as BNB_F
 import torch
 import torch.linalg as LA
 import torch.nn.functional as F
@@ -264,13 +264,10 @@ class ARA(Modifier[Parameters]):
                         W_base = base_weight.to(torch.float32)
                     else:
                         # Use the original dequantization logic from bitsandbytes.
-                        W_base = cast(
-                            Tensor,
-                            bnb.functional.dequantize_4bit(  # ty:ignore[possibly-missing-attribute]
-                                base_weight.data,
-                                quant_state,
-                            ).to(torch.float32),
-                        )
+                        W_base = BNB_F.dequantize_4bit(
+                            base_weight.data,
+                            quant_state,
+                        ).to(torch.float32)
 
                     # Pre-calculate the original row norms to preserve them.
                     # See https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration

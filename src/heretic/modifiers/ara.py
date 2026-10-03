@@ -212,9 +212,11 @@ class ARA(Modifier[Parameters]):
             0,
             layer_count // 2,
         )
+        # The end index is exclusive, so starting its range one above the start range's
+        # upper bound ensures that the layer range is never empty.
         end_layer_index = trial.suggest_int(
             "end_layer_index",
-            layer_count // 2,
+            layer_count // 2 + 1,
             layer_count,
         )
         preserve_good_behavior_weight = trial.suggest_float(

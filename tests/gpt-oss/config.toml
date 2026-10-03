@@ -4,7 +4,7 @@
 model = "tiny-random/gpt-oss"
 model_commit = "02ba5c61f879b5a38a8b1f7a8e0409b8e1bb8f38"
 
-seed = 12345
+seed = 1
 print_debug_information = true
 
 batch_size = 2

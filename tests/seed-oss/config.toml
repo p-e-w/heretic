@@ -4,7 +4,7 @@
 model = "tiny-random/seed-oss"
 model_commit = "6860befd78b678885f7a52bbf41d7fd0671af2db"
 
-seed = 12345
+seed = 1
 print_debug_information = true
 
 batch_size = 2

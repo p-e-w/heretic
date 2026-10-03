@@ -189,6 +189,9 @@ class ARA(Modifier[Parameters]):
         bad_prompts = ctx.load_prompts(self.settings.bad_prompts)
         print(f"* [bold]{len(bad_prompts)}[/] prompts loaded")
 
+        self.good_prompt_count = len(good_prompts)
+        self.bad_prompt_count = len(bad_prompts)
+
         print()
         print("Obtaining module I/O for good prompts...")
         self.good_module_io = model.get_module_io_batched(good_prompts)
@@ -230,10 +233,12 @@ class ARA(Modifier[Parameters]):
             0.0,
             1.3,
         )
+        # The nearest neighbors are selected from the outputs for the good and bad prompts,
+        # which contain one vector per prompt, so there can't be more neighbors than prompts.
         neighbor_count = trial.suggest_int(
             "neighbor_count",
             1,
-            15,
+            min(15, self.good_prompt_count, self.bad_prompt_count),
         )
 
         return Parameters(

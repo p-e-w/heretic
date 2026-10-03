@@ -248,8 +248,8 @@ class ARA(Modifier[Parameters]):
     def modify_model(self, ctx: Context, parameters: Parameters) -> None:
         model = ctx.get_model()
 
-        # The model's reset only zeroes B, so A must be re-initialized below,
-        # or it would carry over whatever the previous trial left behind.
+        # The model's reset zeroes both A and B, where all gradients vanish,
+        # so A must be initialized below for the optimization to make progress.
         # Generating on the CPU keeps A independent of the device and the global RNG state.
         generator = torch.Generator().manual_seed(cast(int, self.heretic_settings.seed))
 
@@ -286,7 +286,7 @@ class ARA(Modifier[Parameters]):
                     lora_A = cast(Tensor, module.lora_A["default"].weight)
                     lora_B = cast(Tensor, module.lora_B["default"].weight)
 
-                    # Re-initialize A the same way PEFT does, but deterministically. See
+                    # Initialize A the same way PEFT does, but deterministically. See
                     # https://github.com/huggingface/peft/blob/v0.21.2/src/peft/tuners/lora/layer.py#L338
                     initial_A = torch.empty(lora_A.shape)
                     torch.nn.init.kaiming_uniform_(

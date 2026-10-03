@@ -207,6 +207,44 @@ split = "test[:100]"
 column = "text"
 
 
+# Refusal detection using a text-classification model,
+# as an alternative to the keyword_markers of KeywordRate scorer.
+#
+# Add or replace an entry in the `scorers` array above:
+# { plugin = "heretic.scorers.refusal_detector.RefusalDetector", optimization = "minimize" }
+#
+# [scorer.RefusalDetector]
+# Name that describes what the configured refusal rate measures.
+# score_name = "Refusals (Classifier)"
+#
+# Hugging Face model ID, or path to a refusal classifier model on disk.
+# model = "VINAY-UMRETHE/refusal-detector"
+#
+# Hugging Face commit hash of the classifier model.
+# Set this to pin the exact revision for reproducible results;
+# unset means 'latest', which can silently change over time.
+# model_commit = "<commit-hash>"
+#
+# Classifier labels that should be counted as refusals.
+# Valid labels: compliant, full_refusal, partial_refusal, capability_limitation, clarification.
+# refusal_labels = ["full_refusal", "partial_refusal"]
+#
+# Number of prompt/response pairs to classify in parallel.
+# batch_size = 16
+#
+# Maximum number of tokens per classifier input (longer inputs are truncated).
+# max_length = 8192
+#
+# Whether to print prompt/response pairs and their predicted labels.
+# print_responses = false
+#
+# Dataset of prompts to evaluate the refusal rate on.
+# [scorer.RefusalDetector.prompts]
+# dataset = "mlabonne/harmful_behaviors"
+# split = "test[:100]"
+# column = "text"
+
+
 [scorer.BenchmarkScore]
 # Name that describes what the configured benchmark score measures.
 score_name = "PIQA acc_norm"

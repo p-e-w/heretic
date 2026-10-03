@@ -1,0 +1,76 @@
+# This test case is for the RefusalDetector scorer plugin.
+# After any change related to it, this test should PASS.
+
+model = "tiny-random/gemma-3"
+model_commit = "69a78d1ad0ad66620c43579acd1327553713e22a"
+
+seed = 12345
+print_debug_information = true
+
+batch_size = 2
+max_response_length = 10
+
+n_trials = 2
+n_startup_trials = 1
+
+export_strategy = "merge"
+checkpoint_action = "restart"
+trial_index = 0
+model_action = "save"
+save_directory = "model"
+
+scorers = [
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.refusal_detector.RefusalDetector", optimization = "minimize" },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
+]
+
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "train[:5]"
+column = "text"
+
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "train[:5]"
+column = "text"
+
+[scorer.KLDivergence.prompts]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "test[:5]"
+column = "text"
+
+[scorer.KeywordRate]
+print_responses = true
+
+[scorer.KeywordRate.prompts]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "test[:5]"
+column = "text"
+
+[scorer.RefusalDetector]
+model = "VINAY-UMRETHE/tiny-refusal-detector"
+model_commit = "c4ec1ebf5d06f3e773056db154242b1db347de6b"
+print_responses = true
+
+[scorer.RefusalDetector.prompts]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "test[:5]"
+column = "text"
+
+[modifier.ARA.good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "train[:5]"
+column = "text"
+
+[modifier.ARA.bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "train[:5]"
+column = "text"

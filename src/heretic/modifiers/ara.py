@@ -252,8 +252,8 @@ class ARA(Modifier[Parameters]):
             parameters.start_layer_index,
             parameters.end_layer_index,
         ):
-            # The model's reset only zeroes B, so A must be re-initialized here,
-            # or it would carry over whatever the previous trial left behind.
+            # The model's reset zeroes both A and B, where all gradients vanish,
+            # so A must be initialized here for the optimization to make progress.
             # Seeding per layer and on the CPU makes A independent of the layer range,
             # the device, and the global RNG state.
             generator = torch.Generator().manual_seed(
@@ -289,7 +289,7 @@ class ARA(Modifier[Parameters]):
                     lora_A = cast(Tensor, module.lora_A["default"].weight)
                     lora_B = cast(Tensor, module.lora_B["default"].weight)
 
-                    # Re-initialize A the same way PEFT does, but deterministically.
+                    # Initialize A the same way PEFT does, but deterministically.
                     initial_A = torch.empty(lora_A.shape)
                     torch.nn.init.kaiming_uniform_(
                         initial_A,

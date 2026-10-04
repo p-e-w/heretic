@@ -81,11 +81,20 @@ class TqdmShim(tqdm.tqdm):
             stats = self.format_meter(**format_dict)
 
             if self.rich_task_id is None:
-                if not _progress.task_ids:
-                    _progress.start()
-                self.rich_task_id = _progress.add_task(
-                    self.desc or "", total=self.total, completed=self.n, stats=stats
-                )
+                previous_tasks = set(_progress.task_ids)
+                try:
+                    if not previous_tasks:
+                        _progress.start()
+                    self.rich_task_id = _progress.add_task(
+                        self.desc or "", total=self.total, completed=self.n, stats=stats
+                    )
+                except BaseException:
+                    # Task creation can be interrupted before its ID is returned.
+                    for task_id in set(_progress.task_ids) - previous_tasks:
+                        _progress.remove_task(task_id)
+                    if not _progress.task_ids:
+                        _progress.stop()
+                    raise
             else:
                 _progress.update(
                     self.rich_task_id,
@@ -126,18 +135,3 @@ class TqdmShim(tqdm.tqdm):
 def patch_tqdm():
     tqdm.tqdm = TqdmShim  # ty:ignore[invalid-assignment]
     tqdm.auto.tqdm = TqdmShim  # ty:ignore[invalid-assignment]
-
-
-def close_progress():
-    # An interrupted caller can retain an unfinished bar in its traceback.
-    # Snapshot tqdm's registry before closing: close() removes each instance.
-    with TqdmShim.get_lock():
-        instances = list(TqdmShim._instances)
-    for instance in instances:
-        if isinstance(instance, TqdmShim):
-            instance.close()
-    with _progress_lock:
-        # A signal can arrive after add_task() but before its ID is stored.
-        for task_id in _progress.task_ids:
-            _progress.remove_task(task_id)
-        _progress.stop()

@@ -289,10 +289,10 @@ class Model:
         else:
             # Non-quantized model - can merge directly
             print("* Merging LoRA adapters into base model...")
-            # merge_and_unload() modifies self.model in-place, destroying LoRA adapters.
-            # Mark for full reload before merging, which can be interrupted.
-            self.needs_reload = True
             merged_model = self.model.merge_and_unload()
+            # merge_and_unload() modifies self.model in-place, destroying LoRA adapters.
+            # Mark for full reload if user switches trials later.
+            self.needs_reload = True
             return merged_model
 
     def reset_model(self) -> bool:

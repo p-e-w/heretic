@@ -45,7 +45,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pywinpty==3.0.2; sys_platform == 'win32'",
     "ruff>=0.16.9",
     "ty>=0.0.84",
 ]

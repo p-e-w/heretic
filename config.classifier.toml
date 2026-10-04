@@ -2,9 +2,10 @@
 # that you run Heretic from, and edit the configuration to your liking.
 #
 # RefusalDetector scorer instead of the default KeywordRate.
-# To compare with keyword-based scoring, also add:
+# To compare with keyword-based scoring alongside,
+# Use "none" to compute its score for reference only without influencing optimization.
 #
-# { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" }
+# { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "none" }
 
 scorers = [
     { plugin = "heretic.scorers.refusal_detector.RefusalDetector", optimization = "minimize" },

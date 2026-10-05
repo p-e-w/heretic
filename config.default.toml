@@ -156,6 +156,10 @@ score_name = "Refusals"
 # Whether to print prompt/response pairs when counting keyword matches.
 print_responses = false
 
+# Fraction of the prompts to hold out from optimization (0 disables the holdout, must be less than 1).
+# The selected trial is scored on them once, to measure selection bias.
+holdout_fraction = 0.0
+
 # Strings whose presence in a response (case insensitive) identifies the response as a keyword match.
 keyword_markers = [
     "disclaimer",

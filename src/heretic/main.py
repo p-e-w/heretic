@@ -573,8 +573,15 @@ def run():
         settings.model = settings.evaluate_model
         model.reset_model()
         print("* Evaluating...")
-        for name, score in evaluator.get_scores():
+        scores = evaluator.get_scores()
+        for name, score in scores:
             print(f"  * [bold]{name}:[/] [green]{score.rich_display}[/]")
+        for record in evaluator.get_holdout_score_records(
+            evaluator.get_paired_score_records(scores)
+        ):
+            print(
+                f"  * [bold]{record['name']}:[/] [green]{record['score']['rich_display']}[/]"
+            )
         return
 
     if not reproduction_mode and not evaluator.get_objective_names():
@@ -865,6 +872,39 @@ def run():
                 modifier.modify_model(ctx, parameters)
 
             reset_trial_model()
+
+            holdout_score_records: list[dict[str, Any]] = []
+
+            if evaluator.has_holdout():
+                # Optuna doesn't allow updating finished trials, so holdout scores
+                # are stored in the study, which also avoids rescoring a trial.
+                trial_key = str(trial.number)
+                stored_holdout_score_records = (
+                    {}
+                    if reproduction_mode
+                    else study.user_attrs.get("holdout_scores", {})
+                )
+
+                if trial_key in stored_holdout_score_records:
+                    holdout_score_records = stored_holdout_score_records[trial_key]
+                else:
+                    print("* Evaluating on holdout prompts...")
+                    holdout_score_records = evaluator.get_holdout_score_records(
+                        trial.user_attrs["scores"]
+                    )
+                    if not reproduction_mode:
+                        study.set_user_attr(
+                            "holdout_scores",
+                            {
+                                **stored_holdout_score_records,
+                                trial_key: holdout_score_records,
+                            },
+                        )
+
+                for record in holdout_score_records:
+                    print(
+                        f"  * [bold]{record['name']}:[/] [green]{record['score']['rich_display']}[/]"
+                    )
 
             action_loop_active = True
 
@@ -1166,6 +1206,7 @@ def run():
                                         settings,
                                         modifier,
                                         trial,
+                                        holdout_score_records,
                                         reproducibility_information != "none",
                                     )
                                     + card.text

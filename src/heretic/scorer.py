@@ -65,3 +65,25 @@ class Scorer(Plugin, ABC):
         overridden by scorers that need a distinct baseline.
         """
         return self.get_score(ctx)
+
+    def get_holdout_score(self, ctx: Context) -> Score | None:
+        """
+        Scores the model on prompts held out from optimization, or returns None
+        if the scorer has no holdout set (the default).
+
+        Called once for the baseline, and once for the selected trial after
+        trial selection. Never called during optimization.
+        """
+        return None
+
+    def get_holdout_gap(self, score: Score, holdout_score: Score) -> Score:
+        """
+        Returns the holdout score minus the score on the optimized-on prompts.
+        Override this to display the gap in the scorer's own units.
+        """
+        gap = holdout_score.value - score.value
+        return Score(
+            value=gap,
+            rich_display=f"[bold]{gap:+.4f}[/]",
+            md_display=f"{gap:+.4f}",
+        )

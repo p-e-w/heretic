@@ -46,6 +46,12 @@ class Evaluator:
         for name, score in self.baseline_scores:
             print(f"* Baseline [bold]{name}:[/] [green]{score.rich_display}[/]")
 
+        self.baseline_holdout_scores = self._get_holdout_scores()
+        for name, score in self.baseline_holdout_scores.items():
+            print(
+                f"* Baseline [bold]{self._holdout_name(name)}:[/] [green]{score.rich_display}[/]"
+            )
+
     def _load_and_init_scorers(self) -> None:
         """
         Load and instantiate all configured scorer plugins,
@@ -184,6 +190,61 @@ class Evaluator:
                     "name": name,
                     "score": dict(score.__dict__),
                     "baseline": dict(baseline.__dict__),
+                }
+            )
+        return records
+
+    def has_holdout(self) -> bool:
+        """Returns True if any scorer holds out prompts from optimization."""
+        return bool(self.baseline_holdout_scores)
+
+    def _holdout_name(self, name: str) -> str:
+        return f"{name} (holdout)"
+
+    def _get_holdout_scores(self) -> dict[str, Score]:
+        """Holdout scores of all scorers that have a holdout set, keyed by name."""
+        ctx = Context(settings=self.settings, model=self.model)
+        holdout_scores: dict[str, Score] = {}
+        for entry in self._scorer_entries:
+            holdout_score = entry.scorer.get_holdout_score(ctx)
+            if holdout_score is not None:
+                holdout_scores[entry.name] = holdout_score
+        return holdout_scores
+
+    def get_holdout_score_records(
+        self, score_records: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """
+        Score the current model on the holdout prompts, and pair the holdout scores
+        and their gaps to `score_records` with their baselines.
+
+        Only call this for the selected trial. Selecting on holdout scores
+        would make them as biased as the optimized-on scores.
+        """
+        holdout_scores = self._get_holdout_scores()
+        scorers = {entry.name: entry.scorer for entry in self._scorer_entries}
+        scores = {record["name"]: Score(**record["score"]) for record in score_records}
+        baseline_scores = dict(self.baseline_scores)
+
+        records: list[dict[str, Any]] = []
+        for name, holdout_score in holdout_scores.items():
+            baseline_holdout_score = self.baseline_holdout_scores[name]
+            gap = scorers[name].get_holdout_gap(scores[name], holdout_score)
+            baseline_gap = scorers[name].get_holdout_gap(
+                baseline_scores[name], baseline_holdout_score
+            )
+            records.append(
+                {
+                    "name": self._holdout_name(name),
+                    "score": dict(holdout_score.__dict__),
+                    "baseline": dict(baseline_holdout_score.__dict__),
+                }
+            )
+            records.append(
+                {
+                    "name": f"{name} (holdout gap)",
+                    "score": dict(gap.__dict__),
+                    "baseline": dict(baseline_gap.__dict__),
                 }
             )
         return records

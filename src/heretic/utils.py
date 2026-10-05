@@ -307,6 +307,7 @@ def get_readme_intro(
     settings: Settings,
     modifier: Modifier[Any],
     trial: Trial | FrozenTrial,
+    holdout_score_records: list[dict[str, Any]],
     contains_reproducibility_information: bool,
 ) -> str:
     if is_hf_path(settings.model):
@@ -315,7 +316,7 @@ def get_readme_intro(
         # Hide the path, which may contain private information.
         model_link = "a model"
 
-    scores_raw = trial.user_attrs["scores"]
+    scores_raw = trial.user_attrs["scores"] + holdout_score_records
     scores_by_name: dict[str, dict[str, Any]] = {}
     score_names: list[str] = []
     for score in scores_raw:

@@ -3,6 +3,7 @@
 
 from collections.abc import Callable
 from contextlib import suppress
+from datetime import datetime, timezone
 from typing import Any, TypeAlias, cast
 
 import torch
@@ -41,6 +42,13 @@ def get_model_class(
         return AutoModelForImageTextToText
     else:
         return AutoModelForCausalLM
+
+
+# Some chat templates (e.g. gpt-oss) insert the current date into the prompt,
+# which makes the residuals, and therefore the modified model, depend on the day
+# Heretic is run. Rendering templates with a fixed date keeps results reproducible.
+def strftime_fixed_date(format: str) -> str:
+    return datetime(2026, 1, 1, tzinfo=timezone.utc).strftime(format)
 
 
 # The list contains one element per layer.
@@ -473,6 +481,8 @@ class Model:
                 chats,
                 add_generation_prompt=True,
                 tokenize=False,
+                # Overrides the function that templates call to get the current date.
+                strftime_now=strftime_fixed_date,
             ),
         )
 

@@ -24,17 +24,10 @@ _progress_lock = RLock()
 class TqdmShim(tqdm.tqdm):
     def __init__(self, *args: Any, **kwargs: Any):
         self.rich_task_id: TaskID | None = None
-        kwargs["dynamic_ncols"] = False
 
         # Chain up to the parent constructor to ensure that the internal state of the superclass
         # is correctly initialized, which some methods that we don't override might rely on.
         super().__init__(*args, **kwargs)
-        self.ncols = None
-
-    @staticmethod
-    def status_printer(file: Any) -> None:
-        # Rich renders the output; tqdm still initializes and tracks terminal bars.
-        return None
 
     def refresh(self, nolock: bool = False, lock_args: Any = None) -> bool | None:
         if self.disable:

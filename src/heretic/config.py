@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 from pydantic import (
     BaseModel,
@@ -578,3 +578,18 @@ class Settings(BaseSettings):
             file_secret_settings,
             TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )
+
+    @classmethod
+    def from_stored(cls, stored: dict[str, Any]) -> "Settings":
+        """
+        Restores settings saved by an earlier run (checkpoint or reproduce.json).
+        Plugin tables are restored exactly as stored, instead of being merged
+        key by key with the ones from config.toml or other sources.
+        """
+        settings = cls.model_validate(stored)
+        extra = cast(dict[str, Any], settings.model_extra)
+        extra.clear()
+        extra.update(
+            {key: value for key, value in stored.items() if key not in cls.model_fields}
+        )
+        return settings

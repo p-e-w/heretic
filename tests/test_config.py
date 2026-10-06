@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import os
+import sys
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from pydantic import ValidationError
 
-from heretic.config import ScorerConfig
+from heretic.config import ScorerConfig, Settings
 
 
 class ScorerConfigTests(unittest.TestCase):
@@ -49,3 +54,31 @@ class ScorerConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StoredSettingsTests(unittest.TestCase):
+    def test_keeps_stored_plugin_tables(self) -> None:
+        stored = {
+            "model": "model",
+            "modifier": {"Abliteration": {"row_normalization": "pre"}},
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "config.toml").write_text(
+                'save_directory = "out"\n'
+                "[modifier.Abliteration]\nwinsorization_quantile = 0.5\n"
+            )
+            previous_directory = os.getcwd()
+            os.chdir(directory)
+            try:
+                with patch.object(sys, "argv", ["heretic"]):
+                    settings = Settings.from_stored(stored)
+            finally:
+                os.chdir(previous_directory)
+
+        self.assertEqual(
+            settings.model_extra,
+            {"modifier": {"Abliteration": {"row_normalization": "pre"}}},
+        )
+        # Values that weren't stored still come from config.toml.
+        self.assertEqual(settings.save_directory, "out")

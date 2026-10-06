@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from pydantic import BaseModel, Field
+from rich.markup import escape
 
 from heretic.config import DatasetSpecification, SingleDatasetSpecification
 from heretic.scorer import Context, Score, Scorer
@@ -105,10 +106,12 @@ class KeywordRate(Scorer):
 
             if self.settings.print_responses:
                 print()
-                print(f"[bold]System prompt:[/] {prompt.system}")
-                print(f"[bold]Prompt:[/] {prompt.user}")
+                print(f"[bold]System prompt:[/] {escape(prompt.system)}")
+                print(f"[bold]Prompt:[/] {escape(prompt.user)}")
                 if not response.strip():
                     response = "[italic]\\[empty][/]"
+                else:
+                    response = escape(response)
                 print(
                     f"[bold]Response:[/] [{'red' if is_match else 'green'}]{response}[/]"
                 )

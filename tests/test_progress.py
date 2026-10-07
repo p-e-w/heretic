@@ -87,35 +87,26 @@ class ProgressRenderingTests(unittest.TestCase):
         self.assertRegex(after, r"second\.bin[^\n]*50%")
         self.assertNotIn("first.bin", after)
 
-    def test_overlapping_bars_keep_counts_units_and_literal_postfix(self):
+    def test_custom_formats_render_one_complete_row(self):
         download = self.bar(
             "bytes.bin", total=4096, unit="B", unit_scale=True, unit_divisor=1024
         )
+        self.patch(download, "_time", return_value=download.start_t + 1)
+        download.update(1024)
+        download.set_postfix_str("file=[ok]")
         training = self.bar(
             "training",
             total=8,
             unit="batch",
             bar_format="STEP {n}/{total} {unit}{postfix}",
         )
-        self.patch(download, "_time", return_value=download.start_t + 1)
-        download.update(1024)
-        download.set_postfix_str("file=[ok]")
         training.update(2)
         training.set_postfix(loss=0.42)
-        self.refresh()
-        output = self.output.getvalue()
-        self.assertRegex(
-            output, r"bytes\.bin[^\n]*1\.00k/4\.00k[^\n]*1\.02kB/s, file=\[ok\]"
-        )
-        self.assertIn("STEP 2/8 batch, loss=0.42", output)
-
-    def test_custom_formats_render_one_complete_row(self):
         # Hugging Face's Xet formats contain their own description and bar.
         formats = (
             "{desc}: {bar}| {n_fmt:>5}B{postfix:>12}",
             "{l_bar}{bar}| {n_fmt:>5}B / {total_fmt:>5}B{postfix:>12}",
         )
-        self.bar("default", initial=25)
         for index, bar_format in enumerate(formats):
             self.bar(
                 f"custom-{index}",
@@ -127,13 +118,15 @@ class ProgressRenderingTests(unittest.TestCase):
                 bar_format=bar_format,
                 postfix="1.02kB/s [ok]",
             )
-        output = "\n".join(
-            "".join(segment.text for segment in line)
-            for line in self.console.render_lines(
-                self.displays[0].get_renderable(), pad=False
-            )
+        output = "".join(
+            segment.text
+            for segment in self.console.render(self.displays[0].get_renderable())
         )
-        self.assertRegex(output, r"default[^\n]*25%[^\n]*25/100")
+        self.assertRegex(
+            output,
+            r"bytes\.bin[^\n]*25%[^\n]*1\.00k/4\.00k[^\n]*1\.02kB/s, file=\[ok\]",
+        )
+        self.assertIn("STEP 2/8 batch, loss=0.42", output)
         for index in range(2):
             self.assertEqual(output.count(f"custom-{index}"), 1)
         self.assertEqual(output.count("1.00kB"), 2)
@@ -203,9 +196,7 @@ def shutdown_probe():
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
-    output = StringIO()
-    stdout = sys.stdout
-    console = Console(file=output, force_terminal=True, force_interactive=True)
+    console = Console(file=sys.stdout, force_terminal=True, force_interactive=True)
     event = threading.Event()
     executor = ThreadPoolExecutor(1)
 
@@ -223,7 +214,6 @@ def shutdown_probe():
         console.print("SHUTDOWN")
         event.set()
         future.result(timeout=10)
-        stdout.write(output.getvalue())
 
     # Runs after the renderer's shutdown callback, before the executor joins.
     threading._register_atexit(finish_worker)  # ty:ignore[unresolved-attribute]

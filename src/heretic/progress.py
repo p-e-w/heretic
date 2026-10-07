@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+# Register the executor's exit hook before the display's (hooks run in reverse).
+import concurrent.futures.thread  # noqa: F401
+import threading
 from collections.abc import Iterable
 from itertools import groupby
 from threading import RLock
@@ -14,6 +17,16 @@ from rich.text import Text
 
 
 class _Progress(Progress):
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        # Normal atexit callbacks run only after Python joins worker threads.
+        threading._register_atexit(self._shutdown)  # ty:ignore[unresolved-attribute]
+
+    def _shutdown(self) -> None:
+        with _progress_lock:
+            self.disable = True
+            self.live.stop()
+
     def get_renderables(self) -> Iterable[RenderableType]:
         for custom, tasks in groupby(
             self.tasks, key=lambda task: task.fields["custom"]
@@ -28,6 +41,7 @@ class _Progress(Progress):
 
 
 # A single live display lets individual bars close in any order.
+_progress_lock = RLock()
 _progress = _Progress(
     TextColumn("{task.description}", style="progress.description", markup=False),
     BarColumn(),
@@ -35,7 +49,6 @@ _progress = _Progress(
     TextColumn("{task.fields[stats]}", markup=False),
     transient=True,
 )
-_progress_lock = RLock()
 
 
 # A class that provides the same interface as tqdm,
@@ -73,7 +86,7 @@ class TqdmShim(tqdm.tqdm):
 
     def display(self, *args: Any, **kwargs: Any):
         with _progress_lock:
-            if self.disable:
+            if self.disable or _progress.disable:
                 return
 
             # Completion ends the transient display, not the tqdm object's lifetime.

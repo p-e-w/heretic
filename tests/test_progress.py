@@ -2,6 +2,8 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import os
+import subprocess
+import sys
 import unittest
 from contextlib import ExitStack
 from io import StringIO
@@ -150,6 +152,20 @@ class ProgressRenderingTests(unittest.TestCase):
         self.assertTrue(all(not display.live.is_started for display in self.displays))
         self.assertNotIn("cancelled.bin", self.output_after("RECOVERED"))
 
+    def test_shutdown_stops_rendering_before_workers_finish(self):
+        command = [sys.executable, "-X", "utf8", __file__, "--shutdown-probe"]
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            encoding="utf-8",
+            check=True,
+            timeout=30,
+        )
+        self.assertIn("unfinished.bin", result.stdout)
+        after = result.stdout.split("SHUTDOWN", 1)[1]
+        self.assertNotIn("unfinished.bin", after)
+        self.assertNotIn("late.bin", after)
+
     def test_close_recovers_when_task_removal_is_interrupted(self):
         bar = self.bar("interrupted.bin", total=1)
         display = self.displays[0]
@@ -183,5 +199,43 @@ class ProgressRenderingTests(unittest.TestCase):
                 self.assertFalse(display.live.is_started)
 
 
+def shutdown_probe():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    output = StringIO()
+    stdout = sys.stdout
+    console = Console(file=output, force_terminal=True, force_interactive=True)
+    event = threading.Event()
+    executor = ThreadPoolExecutor(1)
+
+    def worker():
+        event.wait()
+        bar.update(1)
+        progress._progress.refresh()
+        bar.close()
+        progress.TqdmShim(desc="late.bin", total=100, disable=False)
+        progress._progress.refresh()
+
+    future = executor.submit(worker)
+
+    def finish_worker():
+        console.print("SHUTDOWN")
+        event.set()
+        future.result(timeout=10)
+        stdout.write(output.getvalue())
+
+    # Runs after the renderer's shutdown callback, before the executor joins.
+    threading._register_atexit(finish_worker)  # ty:ignore[unresolved-attribute]
+    progress._progress = progress._Progress(
+        *progress._progress.columns, console=console, transient=True, auto_refresh=False
+    )
+    bar = progress.TqdmShim(desc="unfinished.bin", total=100, disable=False)
+    progress._progress.refresh()
+
+
 if __name__ == "__main__":
-    unittest.main()
+    if "--shutdown-probe" in sys.argv:
+        shutdown_probe()
+    else:
+        unittest.main()

@@ -33,7 +33,7 @@ class ProgressRenderingTests(unittest.TestCase):
 
         def make_progress(*columns, **options):
             options.update(console=self.console, auto_refresh=False)
-            display = Progress(*columns, **options)
+            display = getattr(progress, "_Progress", Progress)(*columns, **options)
             self.displays.append(display)
             self.addCleanup(display.stop)
             return display
@@ -105,7 +105,42 @@ class ProgressRenderingTests(unittest.TestCase):
         self.assertRegex(
             output, r"bytes\.bin[^\n]*1\.00k/4\.00k[^\n]*1\.02kB/s, file=\[ok\]"
         )
-        self.assertRegex(output, r"training[^\n]*STEP 2/8 batch, loss=0\.42")
+        self.assertIn("STEP 2/8 batch, loss=0.42", output)
+
+    def test_custom_formats_render_one_complete_row(self):
+        # Hugging Face's Xet formats contain their own description and bar.
+        formats = (
+            "{desc}: {bar}| {n_fmt:>5}B{postfix:>12}",
+            "{l_bar}{bar}| {n_fmt:>5}B / {total_fmt:>5}B{postfix:>12}",
+        )
+        self.bar("default", initial=25)
+        for index, bar_format in enumerate(formats):
+            self.bar(
+                f"custom-{index}",
+                total=4096,
+                initial=1024,
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+                bar_format=bar_format,
+                postfix="1.02kB/s [ok]",
+            )
+        output = "\n".join(
+            "".join(segment.text for segment in line)
+            for line in self.console.render_lines(
+                self.displays[0].get_renderable(), pad=False
+            )
+        )
+        self.assertRegex(output, r"default[^\n]*25%[^\n]*25/100")
+        for index in range(2):
+            self.assertEqual(output.count(f"custom-{index}"), 1)
+        self.assertEqual(output.count("1.00kB"), 2)
+        self.assertEqual(output.count("1.02kB/s [ok]"), 2)
+        self.assertIn("4.00kB", output)
+        # Each custom format includes one text bar, never an extra Rich bar.
+        for line in output.splitlines():
+            if "custom-" in line:
+                self.assertNotIn("━", line)
 
     def test_context_manager_cancellation_stops_display(self):
         with self.assertRaises(KeyboardInterrupt):

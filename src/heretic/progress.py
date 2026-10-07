@@ -1,15 +1,34 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+from collections.abc import Iterable
+from itertools import groupby
 from threading import RLock
 from typing import Any
 
 import tqdm
 import tqdm.auto
+from rich.console import RenderableType
 from rich.progress import BarColumn, Progress, TaskID, TaskProgressColumn, TextColumn
+from rich.text import Text
+
+
+class _Progress(Progress):
+    def get_renderables(self) -> Iterable[RenderableType]:
+        for custom, tasks in groupby(
+            self.tasks, key=lambda task: task.fields["custom"]
+        ):
+            if custom:
+                # bar_format specifies the whole row, including any label and bar.
+                for task in tasks:
+                    if task.visible:
+                        yield Text.from_ansi(task.fields["stats"])
+            else:
+                yield self.make_tasks_table(tasks)
+
 
 # A single live display lets individual bars close in any order.
-_progress = Progress(
+_progress = _Progress(
     TextColumn("{task.description}", style="progress.description", markup=False),
     BarColumn(),
     TaskProgressColumn(),
@@ -79,7 +98,11 @@ class TqdmShim(tqdm.tqdm):
                     if not previous_tasks:
                         _progress.start()
                     self.rich_task_id = _progress.add_task(
-                        self.desc or "", total=self.total, completed=self.n, stats=stats
+                        self.desc or "",
+                        total=self.total,
+                        completed=self.n,
+                        stats=stats,
+                        custom=bool(self.bar_format),
                     )
                 except BaseException:
                     # Task creation can be interrupted before its ID is returned.
@@ -95,6 +118,7 @@ class TqdmShim(tqdm.tqdm):
                     total=self.total,
                     completed=self.n,
                     stats=stats,
+                    custom=bool(self.bar_format),
                 )
 
     def _clear_completed(self) -> bool:

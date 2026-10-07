@@ -262,7 +262,7 @@ def run():
 
         print()
 
-        settings = Settings.from_stored(reproduction_information["settings"])
+        settings = Settings.from_stored(reproduction_information["settings"], settings)
 
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
@@ -396,7 +396,7 @@ def run():
 
         if action == "continue":
             settings = Settings.from_stored(
-                json.loads(existing_study.user_attrs["settings"])
+                json.loads(existing_study.user_attrs["settings"]), settings
             )
         elif action == "restart":
             os.unlink(study_checkpoint_file)

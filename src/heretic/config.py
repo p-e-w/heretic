@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Any, Literal, TypeAlias, cast
+from typing import Any, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -580,22 +580,32 @@ class Settings(BaseSettings):
         )
 
     @classmethod
-    def from_stored(cls, stored: dict[str, Any]) -> "Settings":
+    def from_stored(cls, stored: dict[str, Any], current: "Settings") -> "Settings":
         """
         Restores settings saved by an earlier run (checkpoint or reproduce.json).
 
-        BaseSettings defines its own __init__, which model_validate calls, so the
-        sources above still run and merge their tables key by key into the stored
-        ones. Stored values win over everything else, so only tables need fixing:
-        stored tables are restored exactly, and tables that weren't stored (such as
-        plugin tables only present in config.toml) are dropped. Fields excluded
-        from the stored settings still come from the sources.
+        The stored values are used as they are, without reading config.toml,
+        environment variables or the command line. Fields that are never stored
+        (those with exclude=True, such as save_directory) are taken from
+        `current`, the settings this run was started with.
         """
-        settings = cls.model_validate(stored)
-        for key, value in stored.items():
-            if isinstance(value, dict):
-                setattr(settings, key, value)
-        extra = cast(dict[str, Any], settings.model_extra)
-        for key in [key for key in extra if key not in stored]:
-            del extra[key]
+        settings = StoredSettings.model_validate(stored)
+        for name, field in cls.model_fields.items():
+            if field.exclude:
+                setattr(settings, name, getattr(current, name))
         return settings
+
+
+class StoredSettings(Settings):
+    """Settings that read nothing but the values they are validated from."""
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (init_settings,)

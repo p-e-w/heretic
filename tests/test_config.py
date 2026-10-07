@@ -53,14 +53,16 @@ class ScorerConfigTests(unittest.TestCase):
 
 
 class StoredSettingsTests(unittest.TestCase):
-    def from_stored(self, stored: dict, config_toml: str) -> Settings:
+    def from_stored(
+        self, stored: dict, config_toml: str, argv: tuple[str, ...] = ("heretic",)
+    ) -> Settings:
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, "config.toml").write_text(config_toml)
             previous_directory = os.getcwd()
             os.chdir(directory)
             try:
-                with patch.object(sys, "argv", ["heretic"]):
-                    return Settings.from_stored(stored)
+                with patch.object(sys, "argv", list(argv)):
+                    return Settings.from_stored(stored, Settings(model="current"))
             finally:
                 os.chdir(previous_directory)
 
@@ -88,6 +90,20 @@ class StoredSettingsTests(unittest.TestCase):
         )
 
         self.assertEqual(settings.model_extra, {})
+
+    def test_does_not_read_other_sources(self) -> None:
+        with patch.dict(os.environ, {"HERETIC_MAX_RESPONSE_LENGTH": "9"}):
+            settings = self.from_stored(
+                {"model": "model"},
+                "n_trials = 7\n",
+                ("heretic", "--n-startup-trials", "3"),
+            )
+
+        self.assertEqual(settings.model, "model")
+        for name in ["n_trials", "max_response_length", "n_startup_trials"]:
+            self.assertEqual(
+                getattr(settings, name), Settings.model_fields[name].get_default()
+            )
 
     def test_keeps_stored_top_level_tables(self) -> None:
         settings = self.from_stored(

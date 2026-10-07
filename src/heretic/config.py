@@ -583,13 +583,19 @@ class Settings(BaseSettings):
     def from_stored(cls, stored: dict[str, Any]) -> "Settings":
         """
         Restores settings saved by an earlier run (checkpoint or reproduce.json).
-        Plugin tables are restored exactly as stored, instead of being merged
-        key by key with the ones from config.toml or other sources.
+
+        BaseSettings defines its own __init__, which model_validate calls, so the
+        sources above still run and merge their tables key by key into the stored
+        ones. Stored values win over everything else, so only tables need fixing:
+        stored tables are restored exactly, and tables that weren't stored (such as
+        plugin tables only present in config.toml) are dropped. Fields excluded
+        from the stored settings still come from the sources.
         """
         settings = cls.model_validate(stored)
+        for key, value in stored.items():
+            if isinstance(value, dict):
+                setattr(settings, key, value)
         extra = cast(dict[str, Any], settings.model_extra)
-        extra.clear()
-        extra.update(
-            {key: value for key, value in stored.items() if key not in cls.model_fields}
-        )
+        for key in [key for key in extra if key not in stored]:
+            del extra[key]
         return settings

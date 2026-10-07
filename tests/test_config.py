@@ -52,29 +52,27 @@ class ScorerConfigTests(unittest.TestCase):
             )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class StoredSettingsTests(unittest.TestCase):
-    def test_keeps_stored_plugin_tables(self) -> None:
-        stored = {
-            "model": "model",
-            "modifier": {"Abliteration": {"row_normalization": "pre"}},
-        }
-
+    def from_stored(self, stored: dict, config_toml: str) -> Settings:
         with tempfile.TemporaryDirectory() as directory:
-            Path(directory, "config.toml").write_text(
-                'save_directory = "out"\n'
-                "[modifier.Abliteration]\nwinsorization_quantile = 0.5\n"
-            )
+            Path(directory, "config.toml").write_text(config_toml)
             previous_directory = os.getcwd()
             os.chdir(directory)
             try:
                 with patch.object(sys, "argv", ["heretic"]):
-                    settings = Settings.from_stored(stored)
+                    return Settings.from_stored(stored)
             finally:
                 os.chdir(previous_directory)
+
+    def test_keeps_stored_plugin_tables(self) -> None:
+        settings = self.from_stored(
+            {
+                "model": "model",
+                "modifier": {"Abliteration": {"row_normalization": "pre"}},
+            },
+            'save_directory = "out"\n'
+            "[modifier.Abliteration]\nwinsorization_quantile = 0.5\n",
+        )
 
         self.assertEqual(
             settings.model_extra,
@@ -82,3 +80,23 @@ class StoredSettingsTests(unittest.TestCase):
         )
         # Values that weren't stored still come from config.toml.
         self.assertEqual(settings.save_directory, "out")
+
+    def test_drops_plugin_tables_that_were_not_stored(self) -> None:
+        settings = self.from_stored(
+            {"model": "model"},
+            "[modifier.Abliteration]\nwinsorization_quantile = 0.5\n",
+        )
+
+        self.assertEqual(settings.model_extra, {})
+
+    def test_keeps_stored_top_level_tables(self) -> None:
+        settings = self.from_stored(
+            {"model": "model", "max_memory": {"0": "20GiB"}},
+            'max_memory = { "1" = "8GiB" }\n',
+        )
+
+        self.assertEqual(settings.max_memory, {"0": "20GiB"})
+
+
+if __name__ == "__main__":
+    unittest.main()

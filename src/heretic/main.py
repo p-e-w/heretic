@@ -1327,6 +1327,15 @@ def run():
                             else:
                                 table.add_column("Value", justify="right")
 
+                            def format_value(value: Any) -> str:
+                                if isinstance(
+                                    value,
+                                    (float, np.floating),
+                                ):
+                                    return f"{value:.4f}"
+                                else:
+                                    return f"{value}"
+
                             try:
                                 first_benchmark = True
 
@@ -1350,37 +1359,29 @@ def run():
                                     first_row = True
 
                                     for metric, value in results.items():
-                                        if metric != "alias":
-                                            if first_row and not first_benchmark:
-                                                if benchmark_original_model:
-                                                    table.add_row("", "", "", "")
-                                                else:
-                                                    table.add_row("", "", "")
+                                        # Skip non-metrics.
+                                        if metric in ["name", "alias", "sample_len"]:
+                                            continue
 
-                                            def format_value(value: Any) -> str:
-                                                if isinstance(
-                                                    value,
-                                                    (float, np.floating),
-                                                ):
-                                                    return f"{value:.4f}"
-                                                else:
-                                                    return f"{value}"
-
-                                            cells = [
-                                                benchmark.name if first_row else "",
-                                                metric,
-                                                format_value(value),
-                                            ]
+                                        if first_row and not first_benchmark:
                                             if benchmark_original_model:
-                                                cells.append(
-                                                    format_value(
-                                                        original_results[metric]
-                                                    )
-                                                )
-                                            table.add_row(*cells)
+                                                table.add_row("", "", "", "")
+                                            else:
+                                                table.add_row("", "", "")
 
-                                            first_row = False
-                                            first_benchmark = False
+                                        cells = [
+                                            benchmark.name if first_row else "",
+                                            metric,
+                                            format_value(value),
+                                        ]
+                                        if benchmark_original_model:
+                                            cells.append(
+                                                format_value(original_results[metric])
+                                            )
+                                        table.add_row(*cells)
+
+                                        first_row = False
+                                        first_benchmark = False
                             except KeyboardInterrupt:
                                 pass
 

@@ -409,6 +409,7 @@ def generate_reproduce_readme(
     checkpoint_filename: str,
     trial: Trial | FrozenTrial,
     include_system_information: bool,
+    repo_id: str,
 ) -> str:
     """Generates the contents of a README.md for the reproduce/ folder."""
 
@@ -582,7 +583,7 @@ This directory contains the necessary information and assets to reproduce the re
 - [`requirements.txt`](requirements.txt): The exact versions of all Python packages.
 - [`config.toml`](config.toml): The exact configuration used, including the RNG seed.
 - [`{checkpoint_filename}`]({checkpoint_filename}): The Optuna study journal containing the history of all trials.
-- [`SHA256SUMS`](SHA256SUMS): Cryptographic hashes for all weight files.
+- [`SHA256SUMS`](https://huggingface.co/{repo_id}/blob/main/reproduce/SHA256SUMS): Cryptographic hashes for all weight files.
 - [`reproduce.json`](reproduce.json): A machine-readable file containing all reproducibility information.
 
 ## How to reproduce
@@ -686,6 +687,7 @@ def create_reproduce_folder(
     trial: Trial | FrozenTrial,
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
+    repo_id: str,
 ):
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
@@ -734,6 +736,7 @@ def create_reproduce_folder(
             checkpoint_filename,
             trial,
             include_system_information=include_system_information,
+            repo_id=repo_id,
         ),
         encoding="utf-8",
     )
@@ -781,6 +784,7 @@ def upload_reproduce_folder(
             trial=trial,
             uploaded_model_hashes=uploaded_model_hashes,
             include_system_information=include_system_information,
+            repo_id=repo_id,
         )
 
         reproduce_dir = tmp_path / "reproduce"

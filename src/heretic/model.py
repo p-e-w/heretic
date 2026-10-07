@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, TypeAlias, cast
 
 import torch
+from jinja2.exceptions import TemplateError
 from peft import LoraConfig, PeftModel, get_peft_model
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
@@ -51,6 +52,36 @@ def strftime_fixed_date(format: str) -> str:
     return datetime(2026, 1, 1, tzinfo=timezone.utc).strftime(format)
 
 
+def chat_template_supports_system_role(tokenizer: PreTrainedTokenizerBase) -> bool:
+    # Some chat templates (e.g. Gemma 2) raise an error for a system message.
+    try:
+        tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": "System"},
+                {"role": "user", "content": "User"},
+            ],
+            tokenize=False,
+        )
+    except TemplateError:
+        return False
+    return True
+
+
+def fold_system_message(chat: list[dict[str, str]]) -> list[dict[str, str]]:
+    # Moves a leading system message into the first user message,
+    # for chat templates that don't support the system role.
+    if not chat or chat[0]["role"] != "system":
+        return chat
+
+    system, rest = chat[0]["content"], chat[1:]
+    if system and rest and rest[0]["role"] == "user":
+        rest = [
+            {"role": "user", "content": f"{system}\n\n{rest[0]['content']}"},
+            *rest[1:],
+        ]
+    return rest
+
+
 # The list contains one element per layer.
 # Each element maps from the component name to a (possibly sparse) mapping
 # from the module index to an (input, output) tuple containing the I/O
@@ -86,6 +117,8 @@ class Model:
                 **self.revision_kwargs,
             ),
         )
+
+        self.supports_system_role = chat_template_supports_system_role(self.tokenizer)
 
         # Multimodal models have a processor we'll want to save.
         self.processor = None
@@ -460,16 +493,21 @@ class Model:
 
         return sorted(components)
 
+    def _apply_system_role(self, chat: list[dict[str, str]]) -> list[dict[str, str]]:
+        return chat if self.supports_system_role else fold_system_message(chat)
+
     def generate(
         self,
         prompts: list[Prompt],
         **kwargs: Any,
     ) -> tuple[BatchEncoding, GenerateDecoderOnlyOutput | LongTensor]:
         chats = [
-            [
-                {"role": "system", "content": prompt.system},
-                {"role": "user", "content": prompt.user},
-            ]
+            self._apply_system_role(
+                [
+                    {"role": "system", "content": prompt.system},
+                    {"role": "user", "content": prompt.user},
+                ]
+            )
             for prompt in prompts
         ]
 
@@ -819,7 +857,7 @@ class Model:
         chat_prompt = cast(
             str,
             self.tokenizer.apply_chat_template(
-                chat,
+                self._apply_system_role(chat),
                 add_generation_prompt=True,
                 tokenize=False,
             ),

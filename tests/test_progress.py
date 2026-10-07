@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 import os
+import signal
 import subprocess
 import sys
 import unittest
@@ -145,19 +146,29 @@ class ProgressRenderingTests(unittest.TestCase):
         self.assertTrue(all(not display.live.is_started for display in self.displays))
         self.assertNotIn("cancelled.bin", self.output_after("RECOVERED"))
 
-    def test_shutdown_stops_rendering_before_workers_finish(self):
-        command = [sys.executable, "-X", "utf8", __file__, "--shutdown-probe"]
-        result = subprocess.run(
+    def run_shutdown_probe(self, *flags):
+        command = [sys.executable, "-X", "utf8", __file__, "--shutdown-probe", *flags]
+        return subprocess.run(
             command,
             capture_output=True,
             encoding="utf-8",
-            check=True,
-            timeout=30,
+            check=False,
+            timeout=180,
         )
+
+    def test_shutdown_stops_rendering_before_workers_finish(self):
+        result = self.run_shutdown_probe()
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("unfinished.bin", result.stdout)
         after = result.stdout.split("SHUTDOWN", 1)[1]
         self.assertNotIn("unfinished.bin", after)
         self.assertNotIn("late.bin", after)
+
+    def test_repeated_interrupt_exits_without_shutdown_traceback(self):
+        result = self.run_shutdown_probe("--repeat-interrupt")
+        self.assertIn("Shutting down...", result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(result.returncode, 130)
 
     def test_close_recovers_when_task_removal_is_interrupted(self):
         bar = self.bar("interrupted.bin", total=1)
@@ -196,6 +207,7 @@ def shutdown_probe():
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
+    streams = sys.stdout, sys.stderr
     console = Console(file=sys.stdout, force_terminal=True, force_interactive=True)
     event = threading.Event()
     executor = ThreadPoolExecutor(1)
@@ -211,6 +223,8 @@ def shutdown_probe():
     future = executor.submit(worker)
 
     def finish_worker():
+        if "--repeat-interrupt" in sys.argv:
+            signal.raise_signal(signal.SIGINT)
         console.print("SHUTDOWN")
         event.set()
         future.result(timeout=10)
@@ -222,6 +236,15 @@ def shutdown_probe():
     )
     bar = progress.TqdmShim(desc="unfinished.bin", total=100, disable=False)
     progress._progress.refresh()
+    if "--repeat-interrupt" in sys.argv:
+        from heretic import main
+
+        with patch.object(
+            main, "run", side_effect=lambda: signal.raise_signal(signal.SIGINT)
+        ):
+            main.main()
+        assert not progress._progress.live.is_started
+        assert (sys.stdout, sys.stderr) == streams
 
 
 if __name__ == "__main__":

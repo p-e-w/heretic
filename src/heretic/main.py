@@ -1,7 +1,19 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import os
 import sys
+
+# Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
+if (
+    "PYTORCH_ALLOC_CONF" not in os.environ
+    and "PYTORCH_CUDA_ALLOC_CONF" not in os.environ
+):
+    os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+
+# Silence warning spam from PyTorch's C++ logging.
+if "TORCH_CPP_LOG_LEVEL" not in os.environ:
+    os.environ["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 
 # Ensure standard output/error use UTF-8 instead of system default charmap (e.g. cp1252 on Windows).
 for stream in (sys.stdout, sys.stderr):
@@ -10,6 +22,7 @@ for stream in (sys.stdout, sys.stderr):
         and (getattr(stream, "encoding", "") or "").lower() != "utf-8"
     ):
         stream.reconfigure(encoding="utf-8")  # type: ignore
+
 
 from .config import Settings
 
@@ -31,7 +44,6 @@ patch_tqdm()
 
 import logging
 import math
-import os
 import random
 import re
 import time
@@ -176,13 +188,6 @@ def obtain_export_strategy(
 
 
 def run():
-    # Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
-    if (
-        "PYTORCH_ALLOC_CONF" not in os.environ
-        and "PYTORCH_CUDA_ALLOC_CONF" not in os.environ
-    ):
-        os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
-
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print(

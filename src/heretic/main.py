@@ -1412,6 +1412,6 @@ def main():
             _progress._shutdown()
             print()
             print("[red]Shutting down... Press Ctrl+C again to force exit.[/]")
-            signal.signal(signal.SIGINT, lambda *_: os._exit(130))
+            signal.signal(signal.SIGINT, signal.SIG_DFL)
         else:
             raise

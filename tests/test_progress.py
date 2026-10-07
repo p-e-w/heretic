@@ -168,7 +168,8 @@ class ProgressRenderingTests(unittest.TestCase):
         result = self.run_shutdown_probe("--repeat-interrupt")
         self.assertIn("Shutting down...", result.stdout)
         self.assertNotIn("Traceback", result.stderr)
-        self.assertEqual(result.returncode, 130)
+        # Windows' C runtime exits with 3 for raise_signal(SIGINT).
+        self.assertEqual(result.returncode, 3 if os.name == "nt" else -signal.SIGINT)
 
     def test_close_recovers_when_task_removal_is_interrupted(self):
         bar = self.bar("interrupted.bin", total=1)

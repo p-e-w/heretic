@@ -23,7 +23,9 @@ script_directory = Path(__file__).resolve().parent
 
 project_directory = script_directory.parent
 
-tests_failed = False
+# For tracking failures as (test_name, [failed_files]) and successful runs.
+failed_tests: list[tuple[str, list[str]]] = []
+passed_tests: list[str] = []
 
 for test_directory in script_directory.iterdir():
     if test_directory.is_dir():
@@ -51,7 +53,7 @@ for test_directory in script_directory.iterdir():
 
             print()
 
-            valid_hashes: dict[str, list[str]] = {}
+            valid_hashes: dict[str, set[str]] = {}
 
             for hash_file in hash_files:
                 with open(hash_file, "r", encoding="utf-8") as file:
@@ -61,27 +63,38 @@ for test_directory in script_directory.iterdir():
                             filename = filename.removeprefix("*")
 
                             if filename not in valid_hashes:
-                                valid_hashes[filename] = []
+                                valid_hashes[filename] = set()
 
-                            valid_hashes[filename].append(sha256.lower())
+                            valid_hashes[filename].add(sha256.lower())
 
-            for filename in valid_hashes:
+            # Track which specific files failed within this test directory.
+            failed_files: list[str] = []
+            for filename, hashes in valid_hashes.items():
                 sha256 = get_file_sha256(test_directory / "model" / filename)
 
-                if sha256.lower() not in valid_hashes[filename]:
+                if sha256.lower() not in hashes:
                     print(
-                        (
-                            f"Test {test_directory.name} has FAILED!\n"
-                            f"Output file {filename} doesn't match any valid hash.\n\n"
-                            f"Valid hashes:\n"
-                            f"{chr(10).join(valid_hashes[filename])}\n\n"
-                            f"Actual hash:\n"
-                            f"{sha256}\n"
-                        )
+                        f"Test {test_directory.name} has FAILED!\n"
+                        f"Output file {filename} doesn't match any valid hash.\n\n"
+                        f"Valid hashes:\n"
+                        f"{chr(10).join(hashes)}\n\n"
+                        f"Actual hash:\n"
+                        f"{sha256}\n"
                     )
-                    tests_failed = True
+                    failed_files.append(filename)
 
-if tests_failed:
+            if failed_files:
+                failed_tests.append((test_directory.name, failed_files))
+            else:
+                passed_tests.append(test_directory.name)
+
+if failed_tests:
+    print("#" * 50)
+    print("Summary of test failures:")
+    for test_name, files in failed_tests:
+        files_str = ", ".join(files)
+        print(f"- {test_name} (failed files: {files_str})")
+    print("#" * 50)
     sys.exit("Tests failed.")
 else:
     print("All tests passed.")

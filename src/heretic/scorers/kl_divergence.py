@@ -4,20 +4,20 @@
 import torch.nn.functional as F
 from pydantic import BaseModel, Field
 
-from heretic.config import DatasetSpecification
+from heretic.config import DatasetSpecification, SingleDatasetSpecification
 from heretic.plugin import Context
 from heretic.scorer import Score, Scorer
-from heretic.utils import print
+from heretic.utils import format_dataset_specification, print
 
 
 class Settings(BaseModel):
     prompts: DatasetSpecification = Field(
-        default=DatasetSpecification(
+        default=SingleDatasetSpecification(
             dataset="mlabonne/harmless_alpaca",
             split="test[:100]",
             column="text",
         ),
-        description="Prompt dataset used to measure KL divergence from original model.",
+        description="Dataset of prompts used to measure KL divergence from original model.",
     )
 
 
@@ -42,7 +42,7 @@ class KLDivergence(Scorer):
     def init(self, ctx: Context) -> None:
         print()
         print(
-            f"Loading KLDivergence evaluation prompts from [bold]{self.settings.prompts.dataset}[/]..."
+            f"Loading KL divergence evaluation prompts from [bold]{format_dataset_specification(self.settings.prompts)}[/]..."
         )
         self.prompts = ctx.load_prompts(self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
@@ -57,21 +57,23 @@ class KLDivergence(Scorer):
     def get_score(self, ctx: Context) -> Score:
         logits = ctx.get_logits(self.prompts)
         logprobs = F.log_softmax(logits, dim=-1)
-        kl = F.kl_div(
+
+        kl_divergence = F.kl_div(
             logprobs,
             self._baseline_logprobs,
             reduction="batchmean",
             log_target=True,
         ).item()
+
         return Score(
-            value=kl,
-            rich_display=f"{kl:.4f}",
-            md_display=f"{kl:.4f}",
+            value=kl_divergence,
+            rich_display=f"[bold]{kl_divergence:.4f}[/]",
+            md_display=f"{kl_divergence:.4f}",
         )
 
     def get_baseline_score(self, ctx: Context) -> Score:
         return Score(
             value=0,
-            rich_display="0 (by definition)",
+            rich_display="[bold]0[/] [italic](by definition)[/]",
             md_display="0 *(by definition)*",
         )

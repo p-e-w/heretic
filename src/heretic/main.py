@@ -872,6 +872,11 @@ def run():
 
             reset_trial_model()
 
+            # The access token is deliberately never written to disk, so a token that
+            # was entered at the prompt is only remembered in memory, for the duration
+            # of the action loop.
+            upload_token: str | None = None
+
             action_loop_active = True
 
             while action_loop_active:
@@ -991,7 +996,7 @@ def run():
                             # We don't use huggingface_hub.login() because that stores the token on disk,
                             # and since this program will often be run on rented or shared GPU servers,
                             # it's better to not persist credentials.
-                            token = huggingface_hub.get_token()
+                            token = upload_token or huggingface_hub.get_token()
                             if not token:
                                 # NOTE: Unlike for most other values obtained from interactive inputs, it is
                                 #       not possible to set the token via the settings. This is a security
@@ -1003,6 +1008,11 @@ def run():
                                 ).ask()
                             if not token:
                                 continue
+
+                            # Remember the token so that a subsequent upload in the same
+                            # session does not prompt for it again. It is intentionally kept
+                            # out of `settings`, and is never persisted to disk.
+                            upload_token = token
 
                             user = huggingface_hub.whoami(token)
                             fullname = user.get(

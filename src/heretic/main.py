@@ -566,10 +566,24 @@ def run():
             responses = model.get_responses_batched(response_prefix_test_prompts)
             additional_prefix = commonprefix(responses).rstrip(" ")
             if additional_prefix:
-                settings.response_prefix += additional_prefix
-                print(
-                    f"* Extended prefix found: [bold]{escape(repr(settings.response_prefix))}[/]"
-                )
+                # Only whitespace (e.g. a missing trailing newline) may safely be
+                # appended to the closed Chain-of-Thought block. Any other common
+                # prefix is reasoning content: appending it would place reasoning
+                # text after the closing tag, keeping the model in reasoning mode
+                # while it writes what heretic treats as its final answer. On
+                # thinking models whose reasoning starts near-identically for every
+                # prompt (e.g. Qwen3), this degenerated the ablation direction and
+                # destroyed the model (#487).
+                if additional_prefix.isspace():
+                    settings.response_prefix += additional_prefix
+                    print(
+                        f"* Extended prefix found: [bold]{escape(repr(settings.response_prefix))}[/]"
+                    )
+                else:
+                    print(
+                        f"* Ignoring non-whitespace common prefix [bold]{escape(repr(additional_prefix))}[/] "
+                        "after the closed Chain-of-Thought block (would re-enter reasoning mode, see #487)"
+                    )
 
     evaluator = Evaluator(settings, model)
 

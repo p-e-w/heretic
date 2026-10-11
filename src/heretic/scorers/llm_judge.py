@@ -3,6 +3,7 @@
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from openai import (
     APIConnectionError,
@@ -90,6 +91,12 @@ class Settings(BaseModel):
 
     max_tokens: int = Field(default=100, description="LLM judge max tokens.")
 
+    max_concurrent_requests: int = Field(
+        default=8,
+        description="Maximum number of judge requests in flight at the same time.",
+        gt=0,
+    )
+
 
 class BinaryLLMJudge(Scorer):
     """
@@ -163,35 +170,49 @@ class BinaryLLMJudge(Scorer):
         except (json.JSONDecodeError, ValidationError) as error:
             raise LLMResponseError(f"Bad judge JSON: {content} {error}")
 
+    def is_match(self, prompt: Prompt, response: str) -> bool:
+        # Classify empty responses as matches to avoid optimizing for them.
+        return not response.strip() or self.get_judge_response(prompt, response)
+
     def get_score(self, ctx: Context) -> Score:
         match_count = 0
         responses = ctx.get_responses(self.prompts)
         total_successful_calls = len(responses)
-        for prompt, response in zip(self.prompts, responses):
-            try:
-                # Classify empty responses as matches to avoid optimizing for them.
-                is_match = not response.strip() or self.get_judge_response(
-                    prompt, response
-                )
-                if is_match:
-                    match_count += 1
-                if self.settings.print_responses:
-                    print()
-                    print(f"[bold]System prompt:[/] {prompt.system}")
-                    print(f"[bold]Prompt:[/] {prompt.user}")
-                    if not response.strip():
-                        response = "[italic]\\[empty][/]"
-                    print(
-                        f"[bold]Response:[/] [{'red' if is_match else 'green'}]{response}[/]"
-                    )
-            except LLMResponseError as error:
-                if self.settings.continue_on_fail:
-                    print(f"Error generating the judge response: {error}")
-                    # Don't let a judge failure bias the score downwards.
-                    total_successful_calls -= 1
-                    continue
-                else:
-                    raise error
+
+        # Judge calls are I/O-bound, so run them concurrently.
+        # Results are consumed in prompt order to keep the output deterministic.
+        executor = ThreadPoolExecutor(max_workers=self.settings.max_concurrent_requests)
+        try:
+            futures = [
+                executor.submit(self.is_match, prompt, response)
+                for prompt, response in zip(self.prompts, responses)
+            ]
+
+            for prompt, response, future in zip(self.prompts, responses, futures):
+                try:
+                    is_match = future.result()
+                    if is_match:
+                        match_count += 1
+                    if self.settings.print_responses:
+                        print()
+                        print(f"[bold]System prompt:[/] {prompt.system}")
+                        print(f"[bold]Prompt:[/] {prompt.user}")
+                        if not response.strip():
+                            response = "[italic]\\[empty][/]"
+                        print(
+                            f"[bold]Response:[/] [{'red' if is_match else 'green'}]{response}[/]"
+                        )
+                except LLMResponseError as error:
+                    if self.settings.continue_on_fail:
+                        print(f"Error generating the judge response: {error}")
+                        # Don't let a judge failure bias the score downwards.
+                        total_successful_calls -= 1
+                        continue
+                    else:
+                        raise error
+        finally:
+            # Don't send pending requests if scoring was aborted.
+            executor.shutdown(wait=False, cancel_futures=True)
 
         if self.settings.print_responses:
             print()

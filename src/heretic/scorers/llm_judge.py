@@ -169,7 +169,10 @@ class BinaryLLMJudge(Scorer):
         total_successful_calls = len(responses)
         for prompt, response in zip(self.prompts, responses):
             try:
-                is_match = self.get_judge_response(prompt, response)
+                # Classify empty responses as matches to avoid optimizing for them.
+                is_match = not response.strip() or self.get_judge_response(
+                    prompt, response
+                )
                 if is_match:
                     match_count += 1
                 if self.settings.print_responses:

@@ -3,8 +3,10 @@
 
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Any
+
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -13,6 +15,7 @@ from openai import (
     RateLimitError,
 )
 from pydantic import BaseModel, Field, ValidationError
+from rich.markup import escape
 
 from heretic.config import DatasetSpecification, SingleDatasetSpecification
 from heretic.plugin import Context
@@ -40,6 +43,14 @@ class JudgeResult(BaseModel):
     result: bool
 
 
+@dataclass
+class JudgeVerdict:
+    """The judge's parsed verdict, along with its raw response text."""
+
+    result: bool
+    content: str
+
+
 class Settings(BaseModel):
     api_key_env_var: str = Field(
         description="The environment variable containing the API key for the judge model's inference provider."
@@ -53,8 +64,8 @@ class Settings(BaseModel):
     )
 
     extra_body: dict[str, Any] = Field(
-          default={},
-          description="Provider-specific fields merged into the request body.",
+        default={},
+        description="Provider-specific fields merged into the request body.",
     )
 
     judge_prompt: str = Field(
@@ -72,6 +83,12 @@ class Settings(BaseModel):
     print_responses: bool = Field(
         default=False,
         description="Whether to print the abliterated model's prompt/response pairs.",
+    )
+
+    print_judge_responses: bool = Field(
+        default=False,
+        description="Whether to print the judge model's raw response "
+        "along with the prompt/response pairs.",
     )
 
     prompts: DatasetSpecification = Field(
@@ -136,7 +153,7 @@ class BinaryLLMJudge(Scorer):
         self.prompts = ctx.load_prompts(self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
-    def get_judge_response(self, prompt: Prompt, model_response: str) -> bool:
+    def get_judge_response(self, prompt: Prompt, model_response: str) -> JudgeVerdict:
         # TODO: look into using structured outputs so we can use Pydantic directly, though not every provider and model supports this.
         payload = {
             "model": self.settings.judge_model,
@@ -151,7 +168,7 @@ class BinaryLLMJudge(Scorer):
             "temperature": self.settings.temperature,
             "max_tokens": self.settings.max_tokens,
             "seed": self.settings.seed,
-            "extra_body": self.settings.extra_body
+            "extra_body": self.settings.extra_body,
         }
         try:
             response = self.client.chat.completions.create(**payload)
@@ -172,13 +189,15 @@ class BinaryLLMJudge(Scorer):
         if not content:
             raise LLMResponseError("No content in model response")
         try:
-            return JudgeResult.model_validate(json.loads(content)).result
+            judge_result = JudgeResult.model_validate(json.loads(content))
         except (json.JSONDecodeError, ValidationError) as error:
             raise LLMResponseError(f"Bad judge JSON: {content} {error}")
 
-    def is_match(self, prompt: Prompt, response: str) -> bool:
+        return JudgeVerdict(result=judge_result.result, content=content)
+
+    def is_match(self, response: str, verdict: JudgeVerdict | None) -> bool:
         # Classify empty responses as matches to avoid optimizing for them.
-        return not response.strip() or self.get_judge_response(prompt, response)
+        return not response.strip() or (verdict is not None and verdict.result)
 
     def get_score(self, ctx: Context) -> Score:
         match_count = 0
@@ -189,25 +208,17 @@ class BinaryLLMJudge(Scorer):
         # Results are consumed in prompt order to keep the output deterministic.
         executor = ThreadPoolExecutor(max_workers=self.settings.max_concurrent_requests)
         try:
-            futures = [
-                executor.submit(self.is_match, prompt, response)
+            # Empty responses are matches regardless, so they skip the judge.
+            futures: list[Future[JudgeVerdict] | None] = [
+                executor.submit(self.get_judge_response, prompt, response)
+                if response.strip()
+                else None
                 for prompt, response in zip(self.prompts, responses)
             ]
 
             for prompt, response, future in zip(self.prompts, responses, futures):
                 try:
-                    is_match = future.result()
-                    if is_match:
-                        match_count += 1
-                    if self.settings.print_responses:
-                        print()
-                        print(f"[bold]System prompt:[/] {prompt.system}")
-                        print(f"[bold]Prompt:[/] {prompt.user}")
-                        if not response.strip():
-                            response = "[italic]\\[empty][/]"
-                        print(
-                            f"[bold]Response:[/] [{'red' if is_match else 'green'}]{response}[/]"
-                        )
+                    verdict = None if future is None else future.result()
                 except LLMResponseError as error:
                     if self.settings.continue_on_fail:
                         print(f"Error generating the judge response: {error}")
@@ -215,12 +226,28 @@ class BinaryLLMJudge(Scorer):
                         total_successful_calls -= 1
                         continue
                     else:
-                        raise error
+                        raise
+
+                is_match = self.is_match(response, verdict)
+                if is_match:
+                    match_count += 1
+
+                if self.settings.print_responses or self.settings.print_judge_responses:
+                    print()
+                    print(f"[bold]System prompt:[/] {prompt.system}")
+                    print(f"[bold]Prompt:[/] {prompt.user}")
+                    if not response.strip():
+                        response = "[italic]\\[empty][/]"
+                    print(
+                        f"[bold]Response:[/] [{'red' if is_match else 'green'}]{response}[/]"
+                    )
+                    if self.settings.print_judge_responses and verdict is not None:
+                        print(f"[bold]Judge response:[/] {escape(verdict.content)}")
         finally:
             # Don't send pending requests if scoring was aborted.
             executor.shutdown(wait=False, cancel_futures=True)
 
-        if self.settings.print_responses:
+        if self.settings.print_responses or self.settings.print_judge_responses:
             print()
 
         return Score(

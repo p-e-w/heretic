@@ -14,7 +14,6 @@ classifiers = [
     "Environment :: Console",
     "Environment :: GPU",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -22,41 +21,32 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "accelerate~=1.13",
-    "bitsandbytes~=0.49",
-    "datasets~=4.7",
-    "huggingface-hub~=1.7",
+    "accelerate~=1.15",
+    "bitsandbytes~=0.50",
+    "datasets~=5.0",
+    "huggingface-hub~=1.33",
     "immutabledict~=4.3",
     "langdetect~=1.0",
     "lm-eval[hf]~=0.4",
     "numpy~=2.2",
-    "optuna~=4.7",
-    "peft~=0.19",
+    "optuna~=5.0",
+    "peft~=0.21",
     "psutil~=7.2",
     "py-cpuinfo~=9.0",
-    "pydantic-settings~=2.13",
+    "pydantic-settings~=2.15",
     "questionary~=2.1",
-    "rich~=14.3",
+    "rich~=15.0",
     "tomli-w~=1.2",
     "torch",  # version deliberately unspecified
     "torchvision",  # version deliberately unspecified
-    "tqdm~=4.67",
-    "transformers[kernels]~=5.6",
-]
-
-[project.optional-dependencies]
-research = [
-    "geom-median~=0.1",
-    "imageio~=2.37",
-    "matplotlib~=3.10",
-    "pacmap~=0.8",
-    "scikit-learn~=1.7",
+    "tqdm~=4.70",
+    "transformers[kernels]~=5.18",
 ]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.14.5",
-    "ty>=0.0.5",
+    "ruff>=0.16.9",
+    "ty>=0.0.84",
 ]
 
 [project.urls]
@@ -70,11 +60,31 @@ Changelog = "https://github.com/p-e-w/heretic/releases"
 heretic = "heretic.main:main"
 
 [build-system]
-requires = ["uv_build>=0.8.11,<0.9.0"]
+requires = ["uv_build>=0.12.21,<0.13.0"]
 build-backend = "uv_build"
 
+[tool.ruff.lint]
+ignore = [
+    "B023",  # "Function definition does not bind loop variable"
+    "BLE001",  # "Do not catch blind exception"
+    "TRY002",  # "Create your own exception"
+    "SIM117",  # "Use a single `with` statement with multiple contexts instead of nested `with` statements"
+]
+
 [tool.uv]
-exclude-newer = "7 days"
+# TODO: Re-enable before 2.0 release!
+#exclude-newer = "7 days"
+
+[tool.uv.sources]
+torch = { index = "pytorch" }
+torchvision = { index = "pytorch" }
+
+[[tool.uv.index]]
+# Default to CPU wheels for PyTorch to avoid issues in CI.
+# Can be overridden by passing `--index pytorch=<url>` to uv.
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.uv.build-backend]
 module-name = "heretic"

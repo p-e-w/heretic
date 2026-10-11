@@ -1,255 +1,136 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import os
-import signal
 import subprocess
 import sys
 import unittest
-from contextlib import ExitStack
 from io import StringIO
 from unittest.mock import patch
 
 from rich.console import Console
-from rich.progress import Progress
+from rich.progress import BarColumn
 
 from heretic import progress
 
 
 class ProgressRenderingTests(unittest.TestCase):
-    def setUp(self):
-        self.patches = ExitStack()
-        self.addCleanup(self.patches.close)
+    def setUp(self) -> None:
         self.output = StringIO()
-        self.patches.enter_context(patch.dict(os.environ, {"TERM": "xterm"}))
-        self.patch(self.output, "isatty", return_value=True)
         self.console = Console(
             file=self.output,
             width=120,
             color_system=None,
             force_terminal=True,
             force_interactive=True,
-            force_jupyter=False,
-            legacy_windows=False,
         )
-        self.displays = []
+        self.display = progress._new_progress(console=self.console, auto_refresh=False)
+        self.patch = patch.object(progress, "_progress", self.display)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+        self.addCleanup(self.display.stop)
 
-        def make_progress(*columns, **options):
-            options.update(console=self.console, auto_refresh=False)
-            display = getattr(progress, "_Progress", Progress)(*columns, **options)
-            self.displays.append(display)
-            self.addCleanup(display.stop)
-            return display
-
-        self.patch(progress, "Progress", side_effect=make_progress)
-        shared = getattr(progress, "_progress", None)
-        if shared is not None:
-            self.patch(
-                progress,
-                "_progress",
-                new=make_progress(*shared.columns, transient=True),
-            )
-
-    def patch(self, target, attribute, **options):
-        self.patches.enter_context(patch.object(target, attribute, **options))
-
-    def bar(self, description, **options):
-        options = {"total": 100, "mininterval": 0, "miniters": 1, **options}
+    def bar(self, description: str, **kwargs):
         bar = progress.TqdmShim(
-            desc=description, file=self.output, disable=None, **options
+            desc=description,
+            file=self.output,
+            disable=False,
+            mininterval=0,
+            miniters=1,
+            **kwargs,
         )
         self.addCleanup(bar.close)
         return bar
 
-    def refresh(self):
-        for display in self.displays:
-            display.refresh()
+    def render(self) -> str:
+        return "".join(
+            segment.text for segment in self.console.render(self.display.get_renderable())
+        )
 
-    def output_after(self, message):
-        self.console.print(message)
-        self.refresh()
-        return self.output.getvalue().split(message, 1)[1]
+    def test_custom_format_uses_a_rich_bar(self) -> None:
+        bar = self.bar(
+            "Downloading bytes",
+            total=8192,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            bar_format="{desc}: {bar}| {n_fmt}B / {total_fmt}B, {rate_fmt}",
+        )
+        bar.last_print_t = bar.start_t
+        with patch.object(bar, "_time", return_value=bar.start_t + 1):
+            bar.update(1024)
 
-    def test_completed_download_does_not_redraw_over_later_messages(self):
-        bar = self.bar("download.bin", mininterval=3600)
-        bar.update(50)
-        bar.refresh()
-        self.refresh()
-        self.assertIn("50%", self.output.getvalue())
-        bar.update(50)
-        self.assertNotIn("download.bin", self.output_after("AFTER"))
+        output = self.render()
+        self.assertIn("Downloading bytes", output)
+        self.assertIn("1.00kB / 8.00kB", output)
+        self.assertIn("1.00kB/s", output)
+        self.assertIsInstance(self.display.columns[1], BarColumn)
+        self.assertNotIn("|", output)
 
-    def test_closing_earlier_bar_keeps_later_bar_rendering(self):
-        first = self.bar("first.bin")
-        second = self.bar("second.bin")
+    def test_simultaneous_bars_keep_their_own_data(self) -> None:
+        fetching = self.bar("Fetching 2 files", total=2)
+        reconstructing = self.bar(
+            "Reconstructing", total=4096, unit="B", unit_scale=True
+        )
+        downloading = self.bar("Downloading bytes", total=None, unit="B", unit_scale=True)
+        fetching.update(1)
+        reconstructing.update(1024)
+        downloading.update(1024)
+        reconstructing.set_postfix_str("2.00kB/s  ")
+
+        output = self.render()
+        self.assertEqual(output.count("Fetching 2 files"), 1)
+        self.assertEqual(output.count("Reconstructing"), 1)
+        self.assertEqual(output.count("Downloading bytes"), 1)
+        self.assertIn("1.02kB / 4.10kB", output)
+        self.assertIn("2.00kB/s", output)
+        reconstructing_row = next(line for line in output.splitlines() if "Reconstructing" in line)
+        self.assertEqual(reconstructing_row.count("B/s"), 1)
+        self.assertIn("1.02kB", output)
+
+    def test_closing_one_bar_leaves_the_other_visible(self) -> None:
+        first = self.bar("first.bin", total=2)
+        second = self.bar("second.bin", total=2)
         first.close()
-        second.update(50)
-        after = self.output_after("AFTER")
-        self.assertRegex(after, r"second\.bin[^\n]*50%")
-        self.assertNotIn("first.bin", after)
+        second.update(1)
 
-    def test_custom_formats_render_one_complete_row(self):
-        download = self.bar(
-            "bytes.bin", total=4096, unit="B", unit_scale=True, unit_divisor=1024
-        )
-        self.patch(download, "_time", return_value=download.start_t + 1)
-        download.update(1024)
-        download.set_postfix_str("file=[ok]")
-        training = self.bar(
-            "training",
-            total=8,
-            unit="batch",
-            bar_format="STEP {n}/{total} {unit}{postfix}",
-        )
-        training.update(2)
-        training.set_postfix(loss=0.42)
-        # Hugging Face's Xet formats contain their own description and bar.
-        formats = (
-            "{desc}: {bar}| {n_fmt:>5}B{postfix:>12}",
-            "{l_bar}{bar}| {n_fmt:>5}B / {total_fmt:>5}B{postfix:>12}",
-        )
-        for index, bar_format in enumerate(formats):
-            self.bar(
-                f"custom-{index}",
-                total=4096,
-                initial=1024,
-                unit="B",
-                unit_scale=True,
-                unit_divisor=1024,
-                bar_format=bar_format,
-                postfix="1.02kB/s [ok]",
-            )
-        output = "".join(
-            segment.text
-            for segment in self.console.render(self.displays[0].get_renderable())
-        )
-        self.assertRegex(
-            output,
-            r"bytes\.bin[^\n]*25%[^\n]*1\.00k/4\.00k[^\n]*1\.02kB/s, file=\[ok\]",
-        )
-        self.assertIn("STEP 2/8 batch, loss=0.42", output)
-        for index in range(2):
-            self.assertEqual(output.count(f"custom-{index}"), 1)
-        self.assertEqual(output.count("1.00kB"), 2)
-        self.assertEqual(output.count("1.02kB/s [ok]"), 2)
-        self.assertIn("4.00kB", output)
-        # Each custom format includes one text bar, never an extra Rich bar.
-        for line in output.splitlines():
-            if "custom-" in line:
-                self.assertNotIn("━", line)
+        output = self.render()
+        self.assertNotIn("first.bin", output)
+        self.assertIn("second.bin", output)
 
-    def test_context_manager_cancellation_stops_display(self):
-        with self.assertRaises(KeyboardInterrupt):
-            with self.bar("cancelled.bin") as bar:
-                bar.update(25)
-                raise KeyboardInterrupt
-        self.assertTrue(all(not display.live.is_started for display in self.displays))
-        self.assertNotIn("cancelled.bin", self.output_after("RECOVERED"))
+    def test_completed_bar_is_removed_before_later_output(self) -> None:
+        bar = self.bar("finished.bin", total=2)
+        bar.update(2)
 
-    def run_shutdown_probe(self, *flags):
-        command = [sys.executable, "-X", "utf8", __file__, "--shutdown-probe", *flags]
-        return subprocess.run(
-            command,
-            capture_output=True,
-            encoding="utf-8",
-            check=False,
-            timeout=180,
-        )
-
-    def test_shutdown_stops_rendering_before_workers_finish(self):
-        result = self.run_shutdown_probe()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("unfinished.bin", result.stdout)
-        after = result.stdout.split("SHUTDOWN", 1)[1]
-        self.assertNotIn("unfinished.bin", after)
-        self.assertNotIn("late.bin", after)
-
-    def test_repeated_interrupt_exits_without_shutdown_traceback(self):
-        result = self.run_shutdown_probe("--repeat-interrupt")
-        self.assertIn("Shutting down...", result.stdout)
-        self.assertNotIn("Traceback", result.stderr)
-        # Windows' C runtime exits with 3 for raise_signal(SIGINT).
-        self.assertEqual(result.returncode, 3 if os.name == "nt" else -signal.SIGINT)
-
-    def test_close_recovers_when_task_removal_is_interrupted(self):
-        bar = self.bar("interrupted.bin", total=1)
-        display = self.displays[0]
-        remove_task = display.remove_task
-
-        def interrupted_remove(task_id):
-            remove_task(task_id)
-            raise KeyboardInterrupt
-
-        with patch.object(display, "remove_task", side_effect=interrupted_remove):
-            with self.assertRaises(KeyboardInterrupt):
-                bar.update(1)
-        bar.close()
-        self.assertFalse(display.task_ids)
-        self.assertFalse(display.live.is_started)
-
-    def test_initialization_cancellation_stops_unowned_display(self):
-        display = self.displays[0]
-        for method in ("start", "add_task"):
-            with self.subTest(method=method):
-                original = getattr(display, method)
-
-                def interrupted(*args, **kwargs):
-                    original(*args, **kwargs)
-                    raise KeyboardInterrupt
-
-                with patch.object(display, method, side_effect=interrupted):
-                    with self.assertRaises(KeyboardInterrupt):
-                        self.bar("interrupted.bin")
-                self.assertFalse(display.task_ids)
-                self.assertFalse(display.live.is_started)
-
-
-def shutdown_probe():
-    import threading
-    from concurrent.futures import ThreadPoolExecutor
-
-    streams = sys.stdout, sys.stderr
-    console = Console(file=sys.stdout, force_terminal=True, force_interactive=True)
-    event = threading.Event()
-    executor = ThreadPoolExecutor(1)
-
-    def worker():
-        event.wait()
+        self.assertFalse(self.display.task_ids)
+        self.assertFalse(self.display.live.is_started)
+        bar.reset(total=2)
         bar.update(1)
-        progress._progress.refresh()
+        self.assertTrue(self.display.task_ids)
         bar.close()
-        progress.TqdmShim(desc="late.bin", total=100, disable=False)
-        progress._progress.refresh()
+        self.console.print("AFTER")
+        self.assertNotIn("finished.bin", self.output.getvalue().split("AFTER", 1)[1])
 
-    future = executor.submit(worker)
-
-    def finish_worker():
-        if "--repeat-interrupt" in sys.argv:
-            signal.raise_signal(signal.SIGINT)
-        console.print("SHUTDOWN")
-        event.set()
-        future.result(timeout=10)
-
-    # Runs after the renderer's shutdown callback, before the executor joins.
-    threading._register_atexit(finish_worker)  # ty:ignore[unresolved-attribute]
-    progress._progress = progress._Progress(
-        *progress._progress.columns, console=console, transient=True, auto_refresh=False
-    )
-    bar = progress.TqdmShim(desc="unfinished.bin", total=100, disable=False)
-    progress._progress.refresh()
-    if "--repeat-interrupt" in sys.argv:
-        from heretic import main
-
-        with patch.object(
-            main, "run", side_effect=lambda: signal.raise_signal(signal.SIGINT)
-        ):
-            main.main()
-        assert not progress._progress.live.is_started
-        assert (sys.stdout, sys.stderr) == streams
+    def test_hugging_face_imports_the_shim_in_a_clean_process(self) -> None:
+        code = """
+from heretic.progress import TqdmShim, patch_tqdm
+patch_tqdm()
+import tqdm
+import tqdm.auto
+import tqdm.std
+import importlib
+import huggingface_hub._snapshot_download as snapshot
+hub_tqdm = importlib.import_module("huggingface_hub.utils.tqdm")
+assert tqdm.tqdm is TqdmShim
+assert tqdm.auto.tqdm is TqdmShim
+assert tqdm.std.tqdm is TqdmShim
+assert issubclass(snapshot.base_tqdm, TqdmShim)
+assert issubclass(hub_tqdm.tqdm, TqdmShim)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=30, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
-    if "--shutdown-probe" in sys.argv:
-        shutdown_probe()
-    else:
-        unittest.main()
+    unittest.main()

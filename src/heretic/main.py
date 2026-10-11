@@ -36,7 +36,7 @@ def _is_help_invocation() -> bool:
 if _is_help_invocation():
     Settings()
 
-from .progress import _progress, patch_tqdm
+from .progress import patch_tqdm
 
 # This patches tqdm class definitions, which must happen
 # before any other module imports tqdm.
@@ -46,7 +46,6 @@ import logging
 import math
 import random
 import re
-import signal
 import time
 import warnings
 from importlib.metadata import version
@@ -1408,11 +1407,7 @@ def main():
         if isinstance(error, KeyboardInterrupt) or isinstance(
             error.__context__, KeyboardInterrupt
         ):
-            # Restore the terminal before allowing a repeated Ctrl+C to force exit.
-            signal.signal(signal.SIGINT, signal.SIG_IGN)
-            _progress._shutdown()
             print()
-            print("[red]Shutting down... Press Ctrl+C again to force exit.[/]")
-            signal.signal(signal.SIGINT, signal.SIG_DFL)
+            print("[red]Shutting down...[/]")
         else:
             raise

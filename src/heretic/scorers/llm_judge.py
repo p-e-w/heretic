@@ -155,23 +155,22 @@ class BinaryLLMJudge(Scorer):
 
     def get_judge_response(self, prompt: Prompt, model_response: str) -> JudgeVerdict:
         # TODO: look into using structured outputs so we can use Pydantic directly, though not every provider and model supports this.
-        payload = {
-            "model": self.settings.judge_model,
-            "messages": [
-                {"role": "system", "content": self.settings.judge_prompt},
-                # TODO: refine format maybe make configurable?
-                {
-                    "role": "user",
-                    "content": f"PROMPT: {prompt.user}\nRESPONSE: {model_response}",
-                },
-            ],
-            "temperature": self.settings.temperature,
-            "max_tokens": self.settings.max_tokens,
-            "seed": self.settings.seed,
-            "extra_body": self.settings.extra_body,
-        }
         try:
-            response = self.client.chat.completions.create(**payload)
+            response = self.client.chat.completions.create(
+                model=self.settings.judge_model,
+                messages=[
+                    {"role": "system", "content": self.settings.judge_prompt},
+                    # TODO: refine format maybe make configurable?
+                    {
+                        "role": "user",
+                        "content": f"PROMPT: {prompt.user}\nRESPONSE: {model_response}",
+                    },
+                ],
+                temperature=self.settings.temperature,
+                max_tokens=self.settings.max_tokens,
+                seed=self.settings.seed,
+                extra_body=self.settings.extra_body,
+            )
         except APITimeoutError as e:
             raise LLMResponseError(f"Request timed out: {e}") from e
         except RateLimitError as e:

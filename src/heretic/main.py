@@ -1,7 +1,19 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import os
 import sys
+
+# Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
+if (
+    "PYTORCH_ALLOC_CONF" not in os.environ
+    and "PYTORCH_CUDA_ALLOC_CONF" not in os.environ
+):
+    os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
+
+# Silence warning spam from PyTorch's C++ logging.
+if "TORCH_CPP_LOG_LEVEL" not in os.environ:
+    os.environ["TORCH_CPP_LOG_LEVEL"] = "ERROR"
 
 # Ensure standard output/error use UTF-8 instead of system default charmap (e.g. cp1252 on Windows).
 for stream in (sys.stdout, sys.stderr):
@@ -10,6 +22,7 @@ for stream in (sys.stdout, sys.stderr):
         and (getattr(stream, "encoding", "") or "").lower() != "utf-8"
     ):
         stream.reconfigure(encoding="utf-8")  # type: ignore
+
 
 from .config import Settings
 
@@ -22,6 +35,7 @@ def _is_help_invocation() -> bool:
 # Parse and handle CLI help before importing heavyweight ML/runtime dependencies.
 if _is_help_invocation():
     Settings()
+
 
 # FIXME: Rich progress bars are currently disabled because of rendering issues
 #        when used from multiple threads in parallel (e.g. by huggingface_hub).
@@ -36,7 +50,6 @@ patch_tqdm()
 import json
 import logging
 import math
-import os
 import random
 import re
 import time
@@ -181,13 +194,6 @@ def obtain_export_strategy(
 
 
 def run():
-    # Enable expandable segments to reduce memory fragmentation on multi-GPU setups.
-    if (
-        "PYTORCH_ALLOC_CONF" not in os.environ
-        and "PYTORCH_CUDA_ALLOC_CONF" not in os.environ
-    ):
-        os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
-
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
     print(
@@ -1322,6 +1328,15 @@ def run():
                             else:
                                 table.add_column("Value", justify="right")
 
+                            def format_value(value: Any) -> str:
+                                if isinstance(
+                                    value,
+                                    (float, np.floating),
+                                ):
+                                    return f"{value:.4f}"
+                                else:
+                                    return f"{value}"
+
                             try:
                                 first_benchmark = True
 
@@ -1345,37 +1360,29 @@ def run():
                                     first_row = True
 
                                     for metric, value in results.items():
-                                        if metric != "alias":
-                                            if first_row and not first_benchmark:
-                                                if benchmark_original_model:
-                                                    table.add_row("", "", "", "")
-                                                else:
-                                                    table.add_row("", "", "")
+                                        # Skip non-metrics.
+                                        if metric in ["name", "alias", "sample_len"]:
+                                            continue
 
-                                            def format_value(value: Any) -> str:
-                                                if isinstance(
-                                                    value,
-                                                    (float, np.floating),
-                                                ):
-                                                    return f"{value:.4f}"
-                                                else:
-                                                    return f"{value}"
-
-                                            cells = [
-                                                benchmark.name if first_row else "",
-                                                metric,
-                                                format_value(value),
-                                            ]
+                                        if first_row and not first_benchmark:
                                             if benchmark_original_model:
-                                                cells.append(
-                                                    format_value(
-                                                        original_results[metric]
-                                                    )
-                                                )
-                                            table.add_row(*cells)
+                                                table.add_row("", "", "", "")
+                                            else:
+                                                table.add_row("", "", "")
 
-                                            first_row = False
-                                            first_benchmark = False
+                                        cells = [
+                                            benchmark.name if first_row else "",
+                                            metric,
+                                            format_value(value),
+                                        ]
+                                        if benchmark_original_model:
+                                            cells.append(
+                                                format_value(original_results[metric])
+                                            )
+                                        table.add_row(*cells)
+
+                                        first_row = False
+                                        first_benchmark = False
                             except KeyboardInterrupt:
                                 pass
 

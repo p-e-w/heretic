@@ -954,6 +954,7 @@ def run():
                                     save_directory,
                                     max_shard_size=settings.max_shard_size,
                                 )
+                                print(f"Model saved to [bold]{save_directory}[/].")
                             else:
                                 print("Saving merged model...")
                                 merged_model = model.get_merged_model()
@@ -966,9 +967,10 @@ def run():
                                 model.tokenizer.save_pretrained(save_directory)
                                 if model.processor is not None:
                                     model.processor.save_pretrained(save_directory)
+                                print(f"Model saved to [bold]{save_directory}[/].")
+                                # Merging replaced the trial's adapter in place.
+                                # Restore it only after the save has been reported.
                                 reset_trial_model()
-
-                            print(f"Model saved to [bold]{save_directory}[/].")
 
                             if reproduction_mode:
                                 print("Verifying hashes of weight files...")
@@ -1122,6 +1124,7 @@ def run():
                                     max_shard_size=settings.max_shard_size,
                                     token=token,
                                 )
+                                print(f"Model uploaded to [bold]{repo_id}[/].")
                             else:
                                 print("Uploading merged model...")
                                 merged_model = model.get_merged_model()
@@ -1144,6 +1147,9 @@ def run():
                                         private=private,
                                         token=token,
                                     )
+                                print(f"Model uploaded to [bold]{repo_id}[/].")
+                                # Merging replaced the trial's adapter in place.
+                                # Restore it only after the upload has been reported.
                                 reset_trial_model()
 
                             if is_hf_path(settings.model):
@@ -1207,8 +1213,6 @@ def run():
                                     )
                                 finally:
                                     settings.export_strategy = current_export_strategy
-
-                            print(f"Model uploaded to [bold]{repo_id}[/].")
 
                             if reproduction_mode:
                                 print("Verifying hashes of weight files...")

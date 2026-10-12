@@ -584,16 +584,13 @@ class Settings(BaseSettings):
         """
         Restores settings saved by an earlier run (checkpoint or reproduce.json).
 
-        The stored values are used as they are, without reading config.toml,
-        environment variables or the command line. Fields that are never stored
-        (those with exclude=True, such as save_directory) are taken from
-        `current`, the settings this run was started with.
+        The stored values replace those of `current`, the settings this run was
+        started with, as they are, and no other source is read. Settings that are
+        never stored (exclude=True, such as save_directory) keep their values from
+        `current`. `vars` returns only fields, so plugin tables come from the
+        stored values alone.
         """
-        settings = StoredSettings.model_validate(stored)
-        for name, field in cls.model_fields.items():
-            if field.exclude:
-                setattr(settings, name, getattr(current, name))
-        return settings
+        return StoredSettings.model_validate(vars(current) | stored)
 
 
 class StoredSettings(Settings):

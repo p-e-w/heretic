@@ -91,19 +91,23 @@ class StoredSettingsTests(unittest.TestCase):
 
         self.assertEqual(settings.model_extra, {})
 
-    def test_does_not_read_other_sources(self) -> None:
+    def test_other_sources_do_not_override_stored_values(self) -> None:
+        stored = {
+            "model": "model",
+            "n_trials": 50,
+            "max_response_length": 60,
+            "n_startup_trials": 20,
+        }
+
         with patch.dict(os.environ, {"HERETIC_MAX_RESPONSE_LENGTH": "9"}):
             settings = self.from_stored(
-                {"model": "model"},
+                stored,
                 "n_trials = 7\n",
                 ("heretic", "--n-startup-trials", "3"),
             )
 
-        self.assertEqual(settings.model, "model")
-        for name in ["n_trials", "max_response_length", "n_startup_trials"]:
-            self.assertEqual(
-                getattr(settings, name), Settings.model_fields[name].get_default()
-            )
+        for name, value in stored.items():
+            self.assertEqual(getattr(settings, name), value)
 
     def test_keeps_stored_top_level_tables(self) -> None:
         settings = self.from_stored(

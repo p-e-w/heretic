@@ -87,7 +87,7 @@ from .config import (
 )
 from .evaluator import Evaluator
 from .model import Model, get_model_class
-from .modifier import load_and_init_modifiers
+from .modifier import Modifier, load_and_init_modifiers
 from .plugin import Context, is_builtin_plugin
 from .reproduce import (
     check_environment,
@@ -190,6 +190,140 @@ def obtain_export_strategy(
             style=Style([("highlighted", "reverse")]),
         ),
     )
+
+
+def rescore_top_trials_on_merged_models(
+    study: optuna.study.Study,
+    sorted_trials: list[FrozenTrial],
+    settings: Settings,
+    model: Model,
+    evaluator: Evaluator,
+    modifier: Modifier,
+    objective_names: list[str],
+) -> dict[int, list[dict[str, Any]]]:
+    """
+    Re-scores the top trials on their merged (exported) models.
+
+    The scores recorded during the study come from PEFT's live-LoRA operator,
+    which applies the base matrix and the adapter separately, rounding
+    intermediate results to the model dtype. The merged operator of the
+    exported model applies `W + BA` in a single step, and the two rounding
+    orders are not mutually reproducible, so the exported model can score
+    systematically differently than the trial it was selected from
+    (see https://github.com/p-e-w/heretic/issues/490).
+
+    For each top trial, this function restores the trial's live-LoRA state,
+    merges it via `Model.get_merged_model()`, and runs the regular evaluation.
+    Memory use stays bounded: at most one merged model exists at a time.
+    Runtime stays bounded: at most `settings.n_merged_score_trials` additional
+    evaluations with the configured scorers.
+
+    Returns a mapping from trial number to merged score records (in the same
+    format as `Evaluator.get_paired_score_records()`). Trials whose merged
+    evaluation fails are omitted from the mapping.
+    """
+
+    merged_scores_by_trial: dict[int, list[dict[str, Any]]] = {}
+
+    n_rescored = min(settings.n_merged_score_trials, len(sorted_trials))
+    if n_rescored == 0:
+        return merged_scores_by_trial
+
+    print()
+    print(
+        f"Re-scoring the top [bold]{n_rescored}[/] trial(s) on merged models. "
+        "Merged (exported) models can score differently than the live LoRA "
+        "the trials were selected by."
+    )
+    if settings.quantization == QuantizationMethod.BNB_4BIT:
+        print(
+            "[yellow]WARNING: Merging a quantized model requires dequantizing "
+            "the entire model to system RAM, once per trial.[/]"
+        )
+
+    for rescored_trial in sorted_trials[:n_rescored]:
+        print()
+        print(
+            f"* [Trial {rescored_trial.user_attrs['index']:>3}] "
+            "Merging and evaluating..."
+        )
+        try:
+            # Restore this trial's live-LoRA state, mirroring what happens
+            # when a trial is selected after the optimization.
+            ctx = Context(settings=settings, model=model)
+            modifier.reset_model(ctx)
+            parameters = modifier.parameters_class.from_dict(
+                rescored_trial.user_attrs["parameters"]
+            )
+            modifier.modify_model(ctx, parameters)
+
+            merged_model = model.get_merged_model()
+
+            # Route all inference through the merged operator while scoring.
+            # For non-quantized models, merge_and_unload() has already replaced
+            # model.model in place (Model marks it for a full reload); for
+            # quantized models, this swaps in the merged CPU copy and restores
+            # the untouched live model afterwards.
+            live_model = model.model
+            model.model = merged_model
+            try:
+                merged_scores = evaluator.get_scores()
+            finally:
+                model.model = live_model
+            del merged_model
+            empty_cache()
+
+            merged_scores_by_trial[rescored_trial.number] = (
+                evaluator.get_paired_score_records(merged_scores)
+            )
+        except Exception as exception:
+            # A failed merged evaluation must not lose the optimization
+            # results, mirroring the error handling of the post-optimization
+            # actions.
+            print(
+                f"  [yellow]Merged-model evaluation failed "
+                f"({format_exception(exception)}). Only the live-LoRA scores "
+                "are available for this trial.[/]"
+            )
+            continue
+
+        live_values = {
+            record["name"]: record["score"]["value"]
+            for record in rescored_trial.user_attrs["scores"]
+        }
+        for record in merged_scores_by_trial[rescored_trial.number]:
+            name = record["name"]
+            merged_value = record["score"]["value"]
+            if name in live_values:
+                print(
+                    f"  * [bold]{name}:[/] live {live_values[name]:.4g} → "
+                    f"merged {merged_value:.4g} "
+                    f"(Δ {merged_value - live_values[name]:+.4g})"
+                )
+            else:
+                print(f"  * [bold]{name}:[/] merged {merged_value:.4g}")
+
+    if merged_scores_by_trial:
+        study.set_user_attr("merged_scores", merged_scores_by_trial)
+
+        # If every candidate has merged scores, rank by them, since the merged
+        # operator is what the exported model actually runs. Trials without
+        # merged scores keep their live-score ordering.
+        if all(trial.number in merged_scores_by_trial for trial in sorted_trials):
+            merged_values = {
+                trial.number: {
+                    record["name"]: record["score"]["value"]
+                    for record in merged_scores_by_trial[trial.number]
+                }
+                for trial in sorted_trials
+            }
+            sorted_trials.sort(
+                key=lambda trial: tuple(
+                    merged_values[trial.number][name] for name in objective_names
+                ),
+            )
+
+    return merged_scores_by_trial
 
 
 def run():
@@ -731,16 +865,48 @@ def run():
                 ),
             )
 
+            # The trial scores recorded during the optimization come from the
+            # live-LoRA operator, which the exported (merged) model does not
+            # numerically reproduce. Re-score the top trials on their merged
+            # models and show both scores, so the selection below is based on
+            # the behavior of the exported model.
+            merged_scores_by_trial = rescore_top_trials_on_merged_models(
+                study=study,
+                sorted_trials=sorted_trials,
+                settings=settings,
+                model=model,
+                evaluator=evaluator,
+                modifier=modifier,
+                objective_names=objective_names,
+            )
+
             def format_trial_title(trial: FrozenTrial) -> str:
                 prefix = f"[Trial {trial.user_attrs['index']:>3}]"
 
+                merged_records = merged_scores_by_trial.get(trial.number)
+                merged_displays = (
+                    {
+                        record["name"]: record["score"]["rich_display"]
+                        for record in merged_records
+                    }
+                    if merged_records is not None
+                    else {}
+                )
+
                 # We don't directly use the trial.values here since we need to show the
                 # CLI-formatted versions, which are stored in the trial's user attributes.
+                # When a trial was re-scored on its merged model, the live score is
+                # followed by the merged-model score.
                 score_parts: list[str] = []
                 for score in trial.user_attrs["scores"]:
                     name = score["name"]
                     value = Text.from_markup(score["score"]["rich_display"]).plain
-                    score_parts.append(f"{name}: {value}")
+                    merged_display = merged_displays.get(name)
+                    if merged_display is None:
+                        score_parts.append(f"{name}: {value}")
+                    else:
+                        merged_value = Text.from_markup(merged_display).plain
+                        score_parts.append(f"{name}: {value} → {merged_value}")
 
                 return f"{prefix} " + ", ".join(score_parts)
 
@@ -774,6 +940,12 @@ def run():
                     "chat with it to test how well it works, or run standard benchmarks on it. "
                     "You can return to this menu later to select a different trial. "
                 )
+                if merged_scores_by_trial:
+                    print(
+                        "Scores shown as `live → merged` were measured on the live LoRA "
+                        "during the optimization and again on the merged (exported) "
+                        "model; the merged value is what the exported model achieves."
+                    )
 
         while trial_loop_active:
             # Ensure a predefined trial is only processed once.

@@ -11,7 +11,6 @@ from typing import Any, cast
 import bitsandbytes.functional as BNB_F
 import torch
 import torch.linalg as LA
-import torch.nn.functional as F
 from optuna import Trial
 from peft.tuners.lora.layer import Linear
 from pydantic import (
@@ -317,18 +316,37 @@ class ARA(Modifier[Parameters]):
                     bad_input = bad_input.float().to(lora_A.device)
                     bad_output = bad_output.float().to(lora_A.device)
 
+                    # Base outputs (input @ W_base.T), constant across closures. Equal
+                    # to the captured module output minus any bias. Precomputing these
+                    # lets the closure add only the low-rank LoRA contribution instead of
+                    # rebuilding the dense effective weight and multiplying by it.
+                    bias = getattr(module.base_layer, "bias", None)
+                    if bias is None:
+                        good_output_base = good_output
+                        bad_output_base = bad_output
+                    else:
+                        bias = bias.float().to(lora_A.device)
+                        good_output_base = good_output - bias
+                        bad_output_base = bad_output - bias
+
                     def objective(A: Tensor, B: Tensor) -> Tensor:
-                        # Calculate effective weight after applying adapter.
-                        W_eff = W_base + (B @ A)
+                        # input @ (W_base + B @ A).T
+                        #   = input @ W_base.T + (input @ A.T) @ B.T
+                        # The first term is constant (good_output_base / bad_output_base),
+                        # so only the low-rank second term is recomputed. This avoids
+                        # materializing the dense effective weight and the full
+                        # input @ W_eff.T product on every closure evaluation.
+                        new_good_output = good_output_base + (good_input @ A.T) @ B.T
+                        new_bad_output = bad_output_base + (bad_input @ A.T) @ B.T
 
                         if self.settings.preserve_row_magnitudes:
-                            # Normalize to unit length, then scale by original norms,
-                            # preserving the original row norms.
-                            W_eff = F.normalize(W_eff, p=2, dim=1) * W_row_norms
-
-                        # Compute outputs using the effective weight.
-                        new_good_output = good_input @ W_eff.T
-                        new_bad_output = bad_input @ W_eff.T
+                            # Row normalization rescales each output row by
+                            # (original row norm / effective row norm), which applies
+                            # directly to the outputs as a per-column factor.
+                            eff_row_norms = LA.vector_norm(W_base + (B @ A), dim=1)
+                            scale = W_row_norms.squeeze(1) / eff_row_norms
+                            new_good_output = new_good_output * scale
+                            new_bad_output = new_bad_output * scale
 
                         return ara_loss(
                             good_output,

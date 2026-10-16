@@ -32,7 +32,7 @@ sha256sum * | Out-File -Encoding utf8NoBOM ../SHA256SUMS.LABEL
 **Verify with**:
 
 ```bash
-Get-Command sha256sum`
+Get-Command sha256sum
 ```
 
 **Expected**:

@@ -710,10 +710,11 @@ class Model:
                         )
                     )
 
-        self.generate(prompts, max_new_tokens=1)
-
-        for hook_handle in hook_handles:
-            hook_handle.remove()
+        try:
+            self.generate(prompts, max_new_tokens=1)
+        finally:
+            for hook_handle in hook_handles:
+                hook_handle.remove()
 
         return module_io
 

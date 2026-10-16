@@ -127,6 +127,17 @@ save the model, upload it to Hugging Face, chat with it to test how well it work
 run standard benchmarks on it, or any combination of those actions.
 
 
+## Streaming ARA
+
+Set `streaming = true` in `[modifier.ARA]` to fit each projection using inputs
+that include earlier edits, refreshing MLP inputs after attention edits. Heretic
+replays each edited layer over the full prompt sequence, keeping one sequence
+boundary per batch on CPU. This uses additional computation and CPU memory.
+The default is `streaming = false`. Streaming requires stateless decoder layers
+with dense, batch-first projections and does not support token-routed experts
+or layers offloaded to disk.
+
+
 ## How Heretic works
 
 Heretic implements a parametrized variant of directional ablation. For each

@@ -23,6 +23,9 @@ def _format_details(format_dict: dict[str, Any]) -> str:
     n = format_dict["n"]
     total = format_dict["total"]
     rate = format_dict["rate"]
+    elapsed = format_dict["elapsed"]
+    if rate is None and elapsed:
+        rate = (n - format_dict["initial"]) / elapsed
     unit = format_dict["unit"]
     divisor = format_dict["unit_divisor"]
     unit_scale = format_dict["unit_scale"]
@@ -36,7 +39,7 @@ def _format_details(format_dict: dict[str, Any]) -> str:
 
     n_text = _format_number(n, scale, divisor)
     total_text = _format_number(total, scale, divisor)
-    if total is None:
+    if not total:
         progress = n_text
         if unit != "it":
             progress += unit if scale else f" {unit}"
@@ -50,21 +53,20 @@ def _format_details(format_dict: dict[str, Any]) -> str:
     postfix = str(format_dict["postfix"] or "").strip().removeprefix(", ").strip()
     # Some callers provide an aggregate throughput as their postfix. It is more
     # useful than the per-bar rate and avoids displaying two speeds for one row.
-    has_rate_postfix = postfix.endswith(f"{unit}/s")
-    if rate and not has_rate_postfix:
-        if rate < 1:
-            rate_text = f"{_format_number(1 / rate, scale, divisor)}s/{unit}"
-        else:
-            rate_text = f"{_format_number(rate, scale, divisor)}{unit}/s"
-    elif not has_rate_postfix:
-        rate_text = f"?{unit}/s"
+    if postfix.endswith(f"{unit}/s"):
+        rate_text, postfix = postfix, ""
+    elif rate:
+        value, suffix = (1 / rate, f"s/{unit}") if rate < 1 else (rate, f"{unit}/s")
+        rate_text = f"{_format_number(value, scale, 1000)}{suffix}"
     else:
-        rate_text = None
+        rate_text = f"?{unit}/s"
 
-    details = progress if rate_text is None else f"{progress} • {rate_text}"
-    if postfix:
-        details += f" • {postfix}"
-    return details
+    timing = _Tqdm.format_interval(elapsed)
+    if total:
+        remaining = _Tqdm.format_interval(max(0, (total - n) / rate)) if rate else "?"
+        timing += f"<{remaining}"
+    extra = f", {postfix}" if postfix else ""
+    return f"{progress} [{timing}, {rate_text}{extra}]"
 
 
 def _new_progress(**kwargs: Any) -> Progress:
@@ -85,8 +87,14 @@ _progress = _new_progress()
 # A class that provides the same interface as tqdm,
 # but displays progress bars using Rich.
 class TqdmShim(_Tqdm):
+    @staticmethod
+    def status_printer(file: Any) -> None:
+        # Rich owns terminal output; tqdm still performs its normal bookkeeping.
+        return None
+
     def __init__(self, *args: Any, **kwargs: Any):
         self.rich_task_id: TaskID | None = None
+        self.rich_total: float | None = None
         super().__init__(*args, **kwargs)
 
     def _remove_task(self) -> None:
@@ -101,17 +109,22 @@ class TqdmShim(_Tqdm):
     def display(self, *args: Any, **kwargs: Any) -> None:
         if self.disable:
             return
-        if self.total is not None and self.n >= self.total:
+        if self.total and self.n >= self.total:
             self._remove_task()
             return
 
         format_dict = self.format_dict
         details = _format_details(format_dict)
+        rich_total = self.total or None
+        # Rich treats update(total=None) as "leave the total unchanged".
+        if rich_total is None and self.rich_total is not None:
+            self._remove_task()
+        self.rich_total = rich_total
         if self.rich_task_id is None:
             _progress.start()
             self.rich_task_id = _progress.add_task(
                 self.desc or "",
-                total=self.total,
+                total=rich_total,
                 completed=self.n,
                 details=details,
             )
@@ -119,14 +132,14 @@ class TqdmShim(_Tqdm):
             _progress.update(
                 self.rich_task_id,
                 description=self.desc or "",
-                total=self.total,
+                total=rich_total,
                 completed=self.n,
                 details=details,
             )
 
     def update(self, n: float = 1) -> bool | None:
         refreshed = super().update(n)
-        if self.total is not None and self.n >= self.total:
+        if self.total and self.n >= self.total:
             with self.get_lock():
                 self._remove_task()
         return refreshed
@@ -136,11 +149,10 @@ class TqdmShim(_Tqdm):
             self._remove_task()
 
     def close(self) -> None:
-        if self.disable:
-            return
-        super().close()
-        with self.get_lock():
-            self._remove_task()
+        try:
+            super().close()
+        finally:
+            self.clear()
 
 
 def patch_tqdm() -> None:

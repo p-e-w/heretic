@@ -24,16 +24,19 @@ class ProgressRenderingTests(unittest.TestCase):
             force_interactive=True,
         )
         self.display = progress._new_progress(console=self.console, auto_refresh=False)
-        self.patch = patch.object(progress, "_progress", self.display)
-        self.patch.start()
-        self.addCleanup(self.patch.stop)
+        for patcher in (
+            patch.object(progress, "_progress", self.display),
+            patch.object(self.output, "isatty", return_value=True),
+            patch("sys.stderr", self.output),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.addCleanup(self.display.stop)
 
     def bar(self, description: str, **kwargs):
+        kwargs.setdefault("disable", None)
         bar = progress.TqdmShim(
             desc=description,
-            file=self.output,
-            disable=False,
             mininterval=0,
             miniters=1,
             **kwargs,
@@ -43,7 +46,8 @@ class ProgressRenderingTests(unittest.TestCase):
 
     def render(self) -> str:
         return "".join(
-            segment.text for segment in self.console.render(self.display.get_renderable())
+            segment.text
+            for segment in self.console.render(self.display.get_renderable())
         )
 
     def test_custom_format_uses_a_rich_bar(self) -> None:
@@ -62,16 +66,18 @@ class ProgressRenderingTests(unittest.TestCase):
         output = self.render()
         self.assertIn("Downloading bytes", output)
         self.assertIn("1.00kB / 8.00kB", output)
-        self.assertIn("1.00kB/s", output)
+        self.assertIn("[00:01<00:07, 1.02kB/s]", output)
         self.assertIsInstance(self.display.columns[1], BarColumn)
         self.assertNotIn("|", output)
 
     def test_simultaneous_bars_keep_their_own_data(self) -> None:
         fetching = self.bar("Fetching 2 files", total=2)
-        reconstructing = self.bar(
-            "Reconstructing", total=4096, unit="B", unit_scale=True
+        reconstructing = self.bar("Reconstructing", total=0, unit="B", unit_scale=True)
+        downloading = self.bar(
+            "Downloading bytes", total=None, unit="B", unit_scale=True
         )
-        downloading = self.bar("Downloading bytes", total=None, unit="B", unit_scale=True)
+        self.assertIn("Reconstructing", self.render())
+        reconstructing.total = 4096
         fetching.update(1)
         reconstructing.update(1024)
         downloading.update(1024)
@@ -83,9 +89,17 @@ class ProgressRenderingTests(unittest.TestCase):
         self.assertEqual(output.count("Downloading bytes"), 1)
         self.assertIn("1.02kB / 4.10kB", output)
         self.assertIn("2.00kB/s", output)
-        reconstructing_row = next(line for line in output.splitlines() if "Reconstructing" in line)
+        reconstructing_row = next(
+            line for line in output.splitlines() if "Reconstructing" in line
+        )
         self.assertEqual(reconstructing_row.count("B/s"), 1)
         self.assertIn("1.02kB", output)
+        reconstructing.total = None
+        reconstructing.refresh()
+        task = next(
+            task for task in self.display.tasks if task.description == "Reconstructing"
+        )
+        self.assertIsNone(task.total)
 
     def test_closing_one_bar_leaves_the_other_visible(self) -> None:
         first = self.bar("first.bin", total=2)
@@ -110,6 +124,23 @@ class ProgressRenderingTests(unittest.TestCase):
         self.console.print("AFTER")
         self.assertNotIn("finished.bin", self.output.getvalue().split("AFTER", 1)[1])
 
+    def test_interrupted_iteration_and_disabled_close_remove_tasks(self) -> None:
+        bar = self.bar("probe", iterable=range(10))
+        with self.assertRaises(RuntimeError):
+            for _ in bar:
+                raise RuntimeError("failed probe")
+        self.assertFalse(self.display.task_ids)
+
+        raw_output = StringIO()
+        bar = self.bar("disabled", total=10, file=raw_output, disable=False)
+        bar.disable = True
+        bar.close()
+        self.assertFalse(self.display.task_ids)
+
+        bar = self.bar("closing", total=10, file=raw_output, disable=False)
+        bar.close()
+        self.assertEqual(raw_output.getvalue(), "")
+
     def test_hugging_face_imports_the_shim_in_a_clean_process(self) -> None:
         code = """
 from heretic.progress import TqdmShim, patch_tqdm
@@ -127,7 +158,11 @@ assert issubclass(snapshot.base_tqdm, TqdmShim)
 assert issubclass(hub_tqdm.tqdm, TqdmShim)
 """
         result = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, timeout=30, check=False
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 

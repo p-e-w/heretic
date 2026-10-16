@@ -218,7 +218,7 @@ column = "text"
 score_name = "Refusals (Classifier)"
 
 # Hugging Face model ID, or path to a refusal classifier model on disk.
-model = "VINAY-UMRETHE/refusal-detector"
+model = "VINAY-UMRETHE/Refusal-Classifier"
 
 # Hugging Face commit hash of the classifier model.
 # Set this to pin the exact revision for reproducible results;

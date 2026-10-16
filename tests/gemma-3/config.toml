@@ -53,8 +53,8 @@ split = "test[:5]"
 column = "text"
 
 [scorer.RefusalClassifier]
-model = "VINAY-UMRETHE/tiny-refusal-detector"
-model_commit = "c4ec1ebf5d06f3e773056db154242b1db347de6b"
+model = "VINAY-UMRETHE/Refusal-Classifier"
+model_commit = "73e88e0cd2c9092f16a3cdcaa2b987eff017ce64"
 print_responses = true
 
 [scorer.RefusalClassifier.prompts]

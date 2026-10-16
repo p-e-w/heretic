@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 # Based on a ModernBERT fine-tuned text-classification model.
-# See https://huggingface.co/VINAY-UMRETHE/refusal-detector for more information.
+# See https://huggingface.co/VINAY-UMRETHE/Refusal-Classifier for more information.
 
 from pydantic import BaseModel, Field
 from transformers import pipeline
@@ -31,7 +31,7 @@ class Settings(BaseModel):
     )
 
     model: str = Field(
-        default="VINAY-UMRETHE/refusal-detector",
+        default="VINAY-UMRETHE/Refusal-Classifier",
         description="Hugging Face model ID, or path to a refusal classifier model on disk.",
     )
 

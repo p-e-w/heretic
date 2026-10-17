@@ -36,16 +36,11 @@ def _is_help_invocation() -> bool:
 if _is_help_invocation():
     Settings()
 
-
-# FIXME: Rich progress bars are currently disabled because of rendering issues
-#        when used from multiple threads in parallel (e.g. by huggingface_hub).
-"""
 from .progress import patch_tqdm
 
 # This patches tqdm class definitions, which must happen
 # before any other module imports tqdm.
 patch_tqdm()
-"""
 
 import logging
 import math

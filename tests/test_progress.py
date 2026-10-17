@@ -58,14 +58,15 @@ class ProgressRenderingTests(unittest.TestCase):
             unit_scale=True,
             unit_divisor=1024,
             bar_format="{desc}: {bar}| {n_fmt}B / {total_fmt}B, {rate_fmt}",
+            ncols=0,
         )
         bar.last_print_t = bar.start_t
         with patch.object(bar, "_time", return_value=bar.start_t + 1):
             bar.update(1024)
 
         output = self.render()
-        self.assertIn("Downloading bytes", output)
-        self.assertIn("1.00kB / 8.00kB", output)
+        self.assertEqual(output.count("Downloading bytes"), 1)
+        self.assertIn("1.00k/8.00k B", output)
         self.assertIn("[00:01<00:07, 1.02kB/s]", output)
         self.assertIsInstance(self.display.columns[1], BarColumn)
         self.assertNotIn("|", output)
@@ -87,12 +88,12 @@ class ProgressRenderingTests(unittest.TestCase):
         self.assertEqual(output.count("Fetching 2 files"), 1)
         self.assertEqual(output.count("Reconstructing"), 1)
         self.assertEqual(output.count("Downloading bytes"), 1)
-        self.assertIn("1.02kB / 4.10kB", output)
+        self.assertIn("1.02k/4.10k B", output)
         self.assertIn("2.00kB/s", output)
         reconstructing_row = next(
             line for line in output.splitlines() if "Reconstructing" in line
         )
-        self.assertEqual(reconstructing_row.count("B/s"), 1)
+        self.assertEqual(reconstructing_row.count("B/s"), 2)
         self.assertIn("1.02kB", output)
         reconstructing.total = None
         reconstructing.refresh()
@@ -100,6 +101,27 @@ class ProgressRenderingTests(unittest.TestCase):
             task for task in self.display.tasks if task.description == "Reconstructing"
         )
         self.assertIsNone(task.total)
+
+    def test_statistics_keep_scaling_timing_and_literal_postfix(self) -> None:
+        cases = (
+            (8, 2, 2, "4/16 B [00:02<00:06,", "2.00B/s"),
+            (None, True, 1000, "1.00kB [00:02,", "500B/s"),
+            (0, False, 0, "0B [00:02,", "?B/s"),
+        )
+        for total, scale, completed, counts_and_time, rate in cases:
+            with (
+                self.subTest(total=total, unit_scale=scale),
+                self.bar("stats", total=total, unit="B", unit_scale=scale) as bar,
+            ):
+                bar.last_print_t = bar.start_t
+                bar.set_postfix_str("status=[ok]  ", refresh=False)
+                with patch.object(bar, "_time", return_value=bar.start_t + 2):
+                    bar.update(completed)
+                    bar.refresh()
+                output = self.render()
+                self.assertIn(counts_and_time, output)
+                self.assertIn(rate, output)
+                self.assertIn(", status=[ok]  ]", output)
 
     def test_closing_one_bar_leaves_the_other_visible(self) -> None:
         first = self.bar("first.bin", total=2)

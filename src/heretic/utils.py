@@ -766,7 +766,7 @@ def upload_reproduce_folder(
 
     for file in info.siblings:
         if file.rfilename.endswith(weight_extensions):
-            sha256 = getattr(file, "lfs", {}).get("sha256")
+            sha256 = (file.lfs or {}).get("sha256")
             if not sha256:
                 raise RuntimeError("Could not fetch uploaded model hashes.")
             uploaded_model_hashes[file.rfilename] = sha256

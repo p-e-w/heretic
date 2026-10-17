@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -578,3 +578,31 @@ class Settings(BaseSettings):
             file_secret_settings,
             TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )
+
+    @classmethod
+    def from_stored(cls, stored: dict[str, Any], current: "Settings") -> "Settings":
+        """
+        Restores settings saved by an earlier run (checkpoint or reproduce.json).
+
+        The stored values replace those of `current`, the settings this run was
+        started with, as they are, and no other source is read. Settings that are
+        never stored (exclude=True, such as save_directory) keep their values from
+        `current`. `vars` returns only fields, so plugin tables come from the
+        stored values alone.
+        """
+        return StoredSettings.model_validate(vars(current) | stored)
+
+
+class StoredSettings(Settings):
+    """Settings that read nothing but the values they are validated from."""
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (init_settings,)

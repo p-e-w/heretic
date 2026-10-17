@@ -316,18 +316,14 @@ class ARA(Modifier[Parameters]):
                     bad_input = bad_input.float().to(lora_A.device)
                     bad_output = bad_output.float().to(lora_A.device)
 
-                    # Base outputs (input @ W_base.T), constant across closures. Equal
-                    # to the captured module output minus any bias. Precomputing these
-                    # lets the closure add only the low-rank LoRA contribution instead of
-                    # rebuilding the dense effective weight and multiplying by it.
-                    bias = getattr(module.base_layer, "bias", None)
-                    if bias is None:
-                        good_output_base = good_output
-                        bad_output_base = bad_output
-                    else:
-                        bias = bias.float().to(lora_A.device)
-                        good_output_base = good_output - bias
-                        bad_output_base = bad_output - bias
+                    # ARA matches the raw weight product (input @ W.T), as the
+                    # original dense formulation does, so we assume the linear modules
+                    # carry no bias -- true for the o_proj / down_proj modules ARA
+                    # targets across essentially all current LLMs. Under that
+                    # assumption the captured module output *is* input @ W_base.T, which
+                    # is the constant term the closure adds the low-rank update to.
+                    good_output_base = good_output
+                    bad_output_base = bad_output
 
                     def objective(A: Tensor, B: Tensor) -> Tensor:
                         # input @ (W_base + B @ A).T

@@ -413,6 +413,16 @@ class Settings(BaseSettings):
         description="Number of trials that use random sampling for the purpose of exploration.",
     )
 
+    n_merged_score_trials: NonNegativeInt = Field(
+        default=3,
+        description=(
+            "Number of top trials for which scores are measured again on the merged "
+            "(exported) model after optimization, since merged models behave slightly "
+            "differently than the live LoRA the trials were selected by. "
+            "Set to 0 to skip this check."
+        ),
+    )
+
     seed: int | None = Field(
         default=None,
         description=(

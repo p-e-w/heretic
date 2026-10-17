@@ -316,28 +316,24 @@ class ARA(Modifier[Parameters]):
                     bad_input = bad_input.float().to(lora_A.device)
                     bad_output = bad_output.float().to(lora_A.device)
 
-                    # Base outputs (input @ W_base.T), constant across closures. Equal
-                    # to the captured module output minus any bias. Precomputing these
-                    # lets the closure add only the low-rank LoRA contribution instead of
-                    # rebuilding the dense effective weight and multiplying by it.
-                    bias = getattr(module.base_layer, "bias", None)
-                    if bias is None:
-                        good_output_base = good_output
-                        bad_output_base = bad_output
-                    else:
-                        bias = bias.float().to(lora_A.device)
-                        good_output_base = good_output - bias
-                        bad_output_base = bad_output - bias
+                    # ARA matches the raw weight product (input @ W.T), so it assumes
+                    # the linear modules carry no bias. This holds for the o_proj /
+                    # down_proj modules ARA targets across essentially all current LLMs,
+                    # and makes the captured module output exactly input @ W_base.T --
+                    # the constant term the closure adds the low-rank update to.
+                    assert module.base_layer.bias is None, (
+                        "ARA assumes bias-free linear modules"
+                    )
 
                     def objective(A: Tensor, B: Tensor) -> Tensor:
                         # input @ (W_base + B @ A).T
                         #   = input @ W_base.T + (input @ A.T) @ B.T
-                        # The first term is constant (good_output_base / bad_output_base),
-                        # so only the low-rank second term is recomputed. This avoids
-                        # materializing the dense effective weight and the full
-                        # input @ W_eff.T product on every closure evaluation.
-                        new_good_output = good_output_base + (good_input @ A.T) @ B.T
-                        new_bad_output = bad_output_base + (bad_input @ A.T) @ B.T
+                        # The first term is the (constant) captured output, so only the
+                        # low-rank second term is recomputed. This avoids materializing
+                        # the dense effective weight and the full input @ W_eff.T product
+                        # on every closure evaluation.
+                        new_good_output = good_output + (good_input @ A.T) @ B.T
+                        new_bad_output = bad_output + (bad_input @ A.T) @ B.T
 
                         if self.settings.preserve_row_magnitudes:
                             # Row normalization rescales each output row by

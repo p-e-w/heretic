@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from typing import Any, TypeAlias, cast
 
@@ -366,6 +366,45 @@ class Model:
 
         return False
 
+    @contextmanager
+    def reference_model(
+        self,
+        name: str,
+        commit: str | None = None,
+    ) -> Iterator["Model"]:
+        """Temporarily load a reference during initialization, then reload the student.
+
+        Reference inference uses the student's tokenizer and chat protocol.
+        Only one full model occupies accelerator memory at a time. Callers must
+        copy any reference outputs they need before leaving this context.
+        """
+        if isinstance(self.model, PeftModel) or self.needs_reload:
+            raise ValueError(
+                "Reference models must be collected before applying adapters"
+            )
+        reference_settings = self.settings.model_copy(
+            update={
+                "model": name,
+                "model_commit": commit,
+            }
+        )
+        self.model = None
+        empty_cache()
+        reference = None
+        try:
+            reference = Model(reference_settings)
+            if reference.tokenizer.get_vocab() != self.tokenizer.get_vocab():
+                raise ValueError(
+                    "The reference and student must use the same token vocabulary"
+                )
+            reference.tokenizer = self.tokenizer
+            yield reference
+        finally:
+            if reference is not None:
+                reference.model = None
+            empty_cache()
+            self.reset_model()
+
     def get_layers(self) -> ModuleList:
         model = self.model
 
@@ -710,10 +749,11 @@ class Model:
                         )
                     )
 
-        self.generate(prompts, max_new_tokens=1)
-
-        for hook_handle in hook_handles:
-            hook_handle.remove()
+        try:
+            self.generate(prompts, max_new_tokens=1)
+        finally:
+            for hook_handle in hook_handles:
+                hook_handle.remove()
 
         return module_io
 

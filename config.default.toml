@@ -219,6 +219,10 @@ metric = "acc_norm,none"
 
 
 [modifier.ARA]
+# Refresh each projection's inputs after upstream edits by replaying full layers.
+# Full-sequence boundaries are kept on CPU. Uses more computation than frozen I/O.
+streaming = false
+
 # Whether to renormalize the rows of the modified matrices to preserve
 # the original matrices' row magnitudes. This is believed to improve
 # intelligence retention (see Lai 2025, "Magnitude-Preserving Orthogonal Ablation").

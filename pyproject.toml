@@ -29,6 +29,7 @@ dependencies = [
     "langdetect~=1.0",
     "lm-eval[hf]~=0.4",
     "numpy~=2.2",
+    "openai>=2.45.0",
     "optuna~=5.0",
     "peft~=0.21",
     "psutil~=7.2",

@@ -169,11 +169,13 @@ from heretic.progress import TqdmShim, patch_tqdm
 patch_tqdm()
 import tqdm
 import tqdm.auto
+from tqdm.std import tqdm as std_tqdm
 import importlib
 import huggingface_hub._snapshot_download as snapshot
 hub_tqdm = importlib.import_module("huggingface_hub.utils.tqdm")
 assert tqdm.tqdm is TqdmShim
 assert tqdm.auto.tqdm is TqdmShim
+assert std_tqdm is TqdmShim
 assert issubclass(snapshot.base_tqdm, TqdmShim)
 assert issubclass(hub_tqdm.tqdm, TqdmShim)
 """

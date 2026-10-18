@@ -5,7 +5,6 @@ from typing import Any
 
 import tqdm
 import tqdm.auto
-import tqdm.std
 from rich.progress import BarColumn, Progress, TaskID, TaskProgressColumn, TextColumn
 
 _Tqdm = tqdm.tqdm
@@ -107,4 +106,3 @@ class TqdmShim(_Tqdm):
 def patch_tqdm() -> None:
     tqdm.tqdm = TqdmShim  # ty:ignore[invalid-assignment]
     tqdm.auto.tqdm = TqdmShim  # ty:ignore[invalid-assignment]
-    tqdm.std.tqdm = TqdmShim  # ty:ignore[invalid-assignment]

@@ -268,7 +268,9 @@ def run():
 
         print()
 
-        settings = Settings.from_stored(reproduction_information["settings"], settings)
+        settings = Settings.model_validate_init_only(
+            reproduction_information["settings"], settings
+        )
 
     if settings.seed is None:
         settings.seed = random.randint(0, 2**32 - 1)
@@ -401,7 +403,7 @@ def run():
             return
 
         if action == "continue":
-            settings = Settings.from_stored(
+            settings = Settings.model_validate_init_only(
                 json.loads(existing_study.user_attrs["settings"]), settings
             )
         elif action == "restart":

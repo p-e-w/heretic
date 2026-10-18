@@ -566,7 +566,7 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
-            init_settings,  # Used during resume - should override *all* other sources.
+            init_settings,  # Values passed to the constructor override all other sources.
             CliSettingsSource(
                 settings_cls,
                 cli_parse_args=True,
@@ -580,21 +580,22 @@ class Settings(BaseSettings):
         )
 
     @classmethod
-    def from_stored(cls, stored: dict[str, Any], current: "Settings") -> "Settings":
+    def model_validate_init_only(
+        cls, values: dict[str, Any], current: "Settings"
+    ) -> "Settings":
         """
-        Restores settings saved by an earlier run (checkpoint or reproduce.json).
-
-        No source is read: settings missing from `stored` get their defaults.
-        Only settings that are never stored (exclude=True, such as
-        save_directory) are taken from `current`, the settings this run was
-        started with.
+        Validates `values` without reading any other settings source: nothing
+        comes from config.toml, environment variables or the command line, and
+        settings missing from `values` get their defaults. Settings with
+        `exclude=True` (such as `save_directory`) are left out of serialized
+        settings, so they are taken from `current`.
         """
-        unstored = {
+        excluded = {
             name: getattr(current, name)
-            for name, field in Settings.model_fields.items()
+            for name, field in cls.model_fields.items()
             if field.exclude
         }
-        return InitOnlySettings.model_validate(stored | unstored)
+        return InitOnlySettings.model_validate(values | excluded)
 
 
 class InitOnlySettings(Settings):

@@ -584,17 +584,21 @@ class Settings(BaseSettings):
         """
         Restores settings saved by an earlier run (checkpoint or reproduce.json).
 
-        The stored values replace those of `current`, the settings this run was
-        started with, as they are, and no other source is read. Settings that are
-        never stored (exclude=True, such as save_directory) keep their values from
-        `current`. `vars` returns only fields, so plugin tables come from the
-        stored values alone.
+        No source is read: settings missing from `stored` get their defaults.
+        Only settings that are never stored (exclude=True, such as
+        save_directory) are taken from `current`, the settings this run was
+        started with.
         """
-        return StoredSettings.model_validate(vars(current) | stored)
+        unstored = {
+            name: getattr(current, name)
+            for name, field in Settings.model_fields.items()
+            if field.exclude
+        }
+        return InitOnlySettings.model_validate(stored | unstored)
 
 
-class StoredSettings(Settings):
-    """Settings that read nothing but the values they are validated from."""
+class InitOnlySettings(Settings):
+    """Settings validated only from the values passed in, without reading any source."""
 
     @classmethod
     def settings_customise_sources(

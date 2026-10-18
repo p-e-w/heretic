@@ -52,7 +52,7 @@ class ScorerConfigTests(unittest.TestCase):
             )
 
 
-class StoredSettingsTests(unittest.TestCase):
+class FromStoredTests(unittest.TestCase):
     def from_stored(
         self, stored: dict, config_toml: str, argv: tuple[str, ...] = ("heretic",)
     ) -> Settings:
@@ -80,7 +80,7 @@ class StoredSettingsTests(unittest.TestCase):
             settings.model_extra,
             {"modifier": {"Abliteration": {"row_normalization": "pre"}}},
         )
-        # Values that weren't stored still come from config.toml.
+        # Settings that are never stored come from the settings the run was started with.
         self.assertEqual(settings.save_directory, "out")
 
     def test_drops_plugin_tables_that_were_not_stored(self) -> None:
@@ -108,6 +108,11 @@ class StoredSettingsTests(unittest.TestCase):
 
         for name, value in stored.items():
             self.assertEqual(getattr(settings, name), value)
+
+    def test_settings_that_were_not_stored_get_defaults(self) -> None:
+        settings = self.from_stored({"model": "model"}, "n_trials = 7\n")
+
+        self.assertEqual(settings.n_trials, Settings.model_fields["n_trials"].default)
 
     def test_keeps_stored_top_level_tables(self) -> None:
         settings = self.from_stored(

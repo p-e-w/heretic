@@ -487,7 +487,7 @@ def run():
         print(f"* [bold]{len(response_prefix_test_prompts)}[/] prompts loaded")
 
         print()
-        print("Checking for common response prefix...")
+        print("Checking chat template for a Chain-of-Thought initializer...")
 
         # Detect if the model's chat template inserts a reasoning tag on its own
         # at the end of user's prompt (e.g. <think>) by using a dummy prompt.
@@ -519,10 +519,16 @@ def run():
                 # will be handled by the 'Rechecking with prefix' logic below.
                 settings.response_prefix = closed_cot_block
                 print(
+                    f"* Chat template inserts [bold]{escape(repr(cot_initializer))}[/]"
+                )
+                print(
                     f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
                 )
                 cot_skip_applied = True
                 break
+
+        if not cot_skip_applied:
+            print("* None found")
 
         # Fallback to inference for models like mistral-3 which are specifically
         # instructed to generate thinking tags using the system prompt in their
@@ -530,6 +536,8 @@ def run():
         # the end of user prompt like the case above. We expect the model to
         # generate those tags.
         if settings.response_prefix is None:
+            print()
+            print("Checking for common response prefix...")
             responses = model.get_responses_batched(response_prefix_test_prompts)
 
             # Despite being located in os.path, commonprefix actually performs

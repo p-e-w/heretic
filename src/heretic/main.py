@@ -1172,11 +1172,15 @@ def run():
                                     card.data = ModelCardData()
                                 if card.data.tags is None:
                                     card.data.tags = []
-                                card.data.tags.append("heretic")
-                                card.data.tags.append("uncensored")
-                                card.data.tags.append("decensored")
-                                card.data.tags.append("abliterated")
-                                if reproducibility_information != "none":
+                                if "heretic" not in card.data.tags:
+                                    card.data.tags.append("heretic")
+                                for tag in settings.upload_tags:
+                                    if tag not in card.data.tags:
+                                        card.data.tags.append(tag)
+                                if (
+                                    reproducibility_information != "none"
+                                    and "reproducible" not in card.data.tags
+                                ):
                                     card.data.tags.append("reproducible")
 
                                 # Must be a Hugging Face Hub repository ID,

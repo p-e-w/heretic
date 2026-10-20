@@ -4,6 +4,7 @@
 # Based on a ModernBERT fine-tuned text-classification model.
 # See https://huggingface.co/VINAY-UMRETHE/Refusal-Classifier for more information.
 
+import huggingface_hub
 from pydantic import BaseModel, Field
 from rich.markup import escape
 from transformers import pipeline
@@ -11,7 +12,7 @@ from transformers import pipeline
 from heretic.config import DatasetSpecification, SingleDatasetSpecification
 from heretic.plugin import Context
 from heretic.scorer import Score, Scorer
-from heretic.utils import format_dataset_specification, print
+from heretic.utils import format_dataset_specification, is_hf_path, print
 
 DEFAULT_REFUSAL_LABELS = ["full_refusal", "partial_refusal"]
 
@@ -40,8 +41,8 @@ class Settings(BaseModel):
         default=None,
         description=(
             "Hugging Face commit hash of the classifier model. "
-            "Set this to pin the exact revision for reproducible results; "
-            "unset means 'latest', which can silently change over time."
+            "Set this to pin a specific revision; unset means the latest "
+            "revision is resolved and recorded when the classifier model is loaded."
         ),
     )
 
@@ -86,8 +87,10 @@ class RefusalClassifier(Scorer):
     def reproducible(self) -> bool:
         # Inference is deterministic: eval mode (no dropout),
         # argmax over softmax outputs (no sampling), pipeline keeps input order.
-        # All varying inputs are pinned in config
-        # (model, model_commit, batch_size, max_length, refusal_labels, prompts).
+        # All varying inputs are pinned: the classifier model revision is resolved
+        # in init(), the prompts dataset revision is resolved when the prompts are
+        # loaded, the remaining settings come from the config
+        # (batch_size, max_length, refusal_labels).
         return True
 
     @property
@@ -103,6 +106,19 @@ class RefusalClassifier(Scorer):
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
         print(f"Loading refusal classifier: [bold]{self.settings.model}[/]...")
+
+        if self.settings.model_commit is None and is_hf_path(self.settings.model):
+            try:
+                self.settings.model_commit = huggingface_hub.model_info(
+                    self.settings.model
+                ).sha
+            except Exception as error:
+                print(
+                    f"[yellow]Warning: Could not fetch the latest commit hash for the "
+                    f"classifier model [bold]{self.settings.model}[/] ({error}). "
+                    "The model version will not be pinned.[/]"
+                )
+
         self.pipeline = pipeline(
             "text-classification",
             model=self.settings.model,

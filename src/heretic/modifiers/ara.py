@@ -316,24 +316,28 @@ class ARA(Modifier[Parameters]):
                     bad_input = bad_input.float().to(lora_A.device)
                     bad_output = bad_output.float().to(lora_A.device)
 
-                    # ARA matches the raw weight product (input @ W.T), so it assumes
-                    # the linear modules carry no bias. This holds for the o_proj /
-                    # down_proj modules ARA targets across essentially all current LLMs,
-                    # and makes the captured module output exactly input @ W_base.T --
-                    # the constant term the closure adds the low-rank update to.
-                    assert module.base_layer.bias is None, (
-                        "ARA assumes bias-free linear modules"
-                    )
+                    # The captured module output is input @ W_base.T + bias. ARA only
+                    # modifies the weight, so the bias is a constant offset that row
+                    # normalization must not rescale: work with the bias-free product
+                    # input @ W_base.T and add the bias back to the modified output.
+                    bias = cast(Tensor | None, module.base_layer.bias)
+                    if bias is None:
+                        good_product = good_output
+                        bad_product = bad_output
+                    else:
+                        bias = bias.detach().float().to(lora_A.device)
+                        good_product = good_output - bias
+                        bad_product = bad_output - bias
 
                     def objective(A: Tensor, B: Tensor) -> Tensor:
                         # input @ (W_base + B @ A).T
                         #   = input @ W_base.T + (input @ A.T) @ B.T
-                        # The first term is the (constant) captured output, so only the
+                        # The first term is the (constant) captured product, so only the
                         # low-rank second term is recomputed. This avoids materializing
                         # the dense effective weight and the full input @ W_eff.T product
                         # on every closure evaluation.
-                        new_good_output = good_output + (good_input @ A.T) @ B.T
-                        new_bad_output = bad_output + (bad_input @ A.T) @ B.T
+                        new_good_output = good_product + (good_input @ A.T) @ B.T
+                        new_bad_output = bad_product + (bad_input @ A.T) @ B.T
 
                         if self.settings.preserve_row_magnitudes:
                             # Row normalization rescales each output row by
@@ -343,6 +347,10 @@ class ARA(Modifier[Parameters]):
                             scale = W_row_norms.squeeze(1) / eff_row_norms
                             new_good_output = new_good_output * scale
                             new_bad_output = new_bad_output * scale
+
+                        if bias is not None:
+                            new_good_output = new_good_output + bias
+                            new_bad_output = new_bad_output + bias
 
                         return ara_loss(
                             good_output,

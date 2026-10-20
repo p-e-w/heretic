@@ -7,39 +7,44 @@ import torch
 import torch.linalg as LA
 
 
-def _dense_output(good_input, W_base, A, B, W_row_norms, preserve):
-    # The original formulation: build the dense effective weight, then multiply.
+def _dense_output(good_input, W_base, bias, A, B, W_row_norms, preserve):
+    # Reference: build the dense effective weight, multiply, then add the bias.
     W_eff = W_base + (B @ A)
     if preserve:
         W_eff = torch.nn.functional.normalize(W_eff, p=2, dim=1) * W_row_norms
-    return good_input @ W_eff.T
+    out = good_input @ W_eff.T
+    return out if bias is None else out + bias
 
 
-def _lowrank_output(good_input, good_output_base, W_base, A, B, W_row_norms, preserve):
-    # The reformulation used by ARA.modify_model: constant base output plus the
-    # rank-r update, with row normalization applied as a per-output-row rescale.
-    out = good_output_base + (good_input @ A.T) @ B.T
+def _lowrank_output(good_input, good_output, W_base, bias, A, B, W_row_norms, preserve):
+    # The reformulation used by ARA.modify_model: the captured output minus the
+    # bias, plus the rank-r update, rescaled per output row, then the bias again.
+    product = good_output if bias is None else good_output - bias
+    out = product + (good_input @ A.T) @ B.T
     if preserve:
         eff_row_norms = LA.vector_norm(W_base + (B @ A), dim=1)
         out = out * (W_row_norms.squeeze(1) / eff_row_norms)
-    return out
+    return out if bias is None else out + bias
 
 
 class LowRankEquivalenceTests(unittest.TestCase):
-    def _check(self, preserve: bool) -> None:
+    def _check(self, preserve: bool, with_bias: bool = False) -> None:
         torch.manual_seed(0)
         d_out, d_in, r, n = 128, 320, 8, 40
         W_base = torch.randn(d_out, d_in, dtype=torch.float64)
         A = torch.randn(r, d_in, dtype=torch.float64) * 0.01
         B = torch.randn(d_out, r, dtype=torch.float64) * 0.01
         good_input = torch.randn(n, d_in, dtype=torch.float64)
-        # "captured" module output (no bias here): good_input @ W_base.T
-        good_output_base = good_input @ W_base.T
+        bias = torch.randn(d_out, dtype=torch.float64) if with_bias else None
+        # The module output captured by the hook: good_input @ W_base.T (+ bias).
+        good_output = good_input @ W_base.T
+        if bias is not None:
+            good_output = good_output + bias
         W_row_norms = LA.vector_norm(W_base, dim=1, keepdim=True)
 
-        dense = _dense_output(good_input, W_base, A, B, W_row_norms, preserve)
+        dense = _dense_output(good_input, W_base, bias, A, B, W_row_norms, preserve)
         lowrank = _lowrank_output(
-            good_input, good_output_base, W_base, A, B, W_row_norms, preserve
+            good_input, good_output, W_base, bias, A, B, W_row_norms, preserve
         )
         self.assertTrue(
             torch.allclose(dense, lowrank, rtol=1e-9, atol=1e-9),
@@ -51,6 +56,12 @@ class LowRankEquivalenceTests(unittest.TestCase):
 
     def test_equivalent_with_row_normalization(self) -> None:
         self._check(preserve=True)
+
+    def test_equivalent_with_bias(self) -> None:
+        self._check(preserve=False, with_bias=True)
+
+    def test_equivalent_with_bias_and_row_normalization(self) -> None:
+        self._check(preserve=True, with_bias=True)
 
 
 if __name__ == "__main__":

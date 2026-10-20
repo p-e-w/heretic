@@ -541,6 +541,15 @@ class Settings(BaseSettings):
         description='Which reproducibility information to add to the Hugging Face repository: "full", "basic", "none", or unset to prompt the user.',
     )
 
+    upload_tags: list[str] = Field(
+        default=[
+            "uncensored",
+            "decensored",
+            "abliterated",
+        ],
+        description="Tags to add to the Hugging Face repository when uploading the model.",
+    )
+
     ignore_mismatches: bool | None = Field(
         default=None,
         description="Whether to attempt to reproduce the model even if there are environment mismatches, or unset to prompt the user.",

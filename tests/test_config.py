@@ -134,5 +134,30 @@ class ModelValidateInitOnlyTests(unittest.TestCase):
         self.assertEqual(settings.max_memory, {"0": "20GiB"})
 
 
+class SettingsUploadTagsTests(unittest.TestCase):
+    def test_default_upload_tags(self) -> None:
+        with patch("sys.argv", ["heretic"]):
+            settings = Settings(model="dummy")
+            self.assertEqual(
+                settings.upload_tags,
+                ["uncensored", "decensored", "abliterated"],
+            )
+
+    def test_custom_upload_tags_override(self) -> None:
+        with patch("sys.argv", ["heretic"]):
+            settings = Settings(model="dummy", upload_tags=["custom-tag", "experiment"])
+            self.assertEqual(settings.upload_tags, ["custom-tag", "experiment"])
+
+    def test_empty_upload_tags(self) -> None:
+        with patch("sys.argv", ["heretic"]):
+            settings = Settings(model="dummy", upload_tags=[])
+            self.assertEqual(settings.upload_tags, [])
+
+    def test_upload_tags_from_cli(self) -> None:
+        with patch("sys.argv", ["heretic", "--upload-tags", '["cli-tag", "test"]']):
+            settings = Settings(model="dummy")
+            self.assertEqual(settings.upload_tags, ["cli-tag", "test"])
+
+
 if __name__ == "__main__":
     unittest.main()

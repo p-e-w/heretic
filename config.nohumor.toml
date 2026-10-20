@@ -3,6 +3,10 @@
 
 max_response_length = 300
 
+upload_tags = [
+    "no-humor",
+]
+
 [scorer.KeywordRate]
 score_name = "Responses with humor"
 

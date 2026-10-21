@@ -20,7 +20,7 @@ model_action = "save"
 save_directory = "model"
 
 scorers = [
-    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "none" },
     { plugin = "heretic.scorers.refusal_classifier.RefusalClassifier", optimization = "minimize" },
     { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
 ]

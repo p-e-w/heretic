@@ -4,6 +4,7 @@
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from typing import Any, TypeAlias, cast
 
 import torch
@@ -177,6 +178,7 @@ class Model:
             raise Exception("Failed to load model with all configured dtypes.")
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
+        self._validate_additional_layer_modules()
 
         all_components = {}
         for layer_index in range(len(self.get_layers())):
@@ -380,6 +382,22 @@ class Model:
         # Text-only models.
         return model.model.layers  # ty: ignore[unresolved-attribute, invalid-return-type]
 
+    def _validate_additional_layer_modules(self) -> None:
+        # Validate across all layers because hybrid architectures may use
+        # different projections in different layer types.
+        layers = self.get_layers()
+        for component, patterns in self.settings.additional_layer_modules.items():
+            for pattern in patterns:
+                if not any(
+                    fnmatchcase(name, pattern)
+                    for layer in layers
+                    for name, _ in layer.named_modules()
+                ):
+                    raise ValueError(
+                        f"additional_layer_modules pattern {pattern!r} for {component!r} "
+                        "matches no module in any decoder layer"
+                    )
+
     def get_layer_modules(self, layer_index: int) -> dict[str, list[Module]]:
         layer = self.get_layers()[layer_index]
 
@@ -444,9 +462,52 @@ class Model:
             for expert in layer.moe.experts:  # ty:ignore[not-iterable, unresolved-attribute]
                 try_add("mlp.down_proj", expert.output_linear)  # ty: ignore[unresolved-attribute]
 
+        # Explicit extra projections for unrecognized architectures.
+        # Deduplicate modules matched by multiple patterns or built-in paths.
+        for component, patterns in self.settings.additional_layer_modules.items():
+            for name, module in layer.named_modules():
+                if not any(fnmatchcase(name, pattern) for pattern in patterns):
+                    continue
+                weight = getattr(module, "weight", None)
+                if weight is None:
+                    weight = getattr(
+                        getattr(module, "base_layer", None), "weight", None
+                    )
+                if not isinstance(weight, Tensor) or weight.ndim != 2:
+                    raise ValueError(
+                        f"Additional module {name!r} in layer {layer_index} "
+                        "must have a 2D weight matrix"
+                    )
+                owners = [
+                    existing_component
+                    for existing_component, existing_modules in modules.items()
+                    if any(existing is module for existing in existing_modules)
+                ]
+                if owners:
+                    if owners != [component]:
+                        raise ValueError(
+                            f"Module {name!r} in layer {layer_index} is already "
+                            f"assigned to {owners}, cannot assign it to {component!r}"
+                        )
+                    continue
+                try_add(component, module)
+
         # We need at least one module across all components for abliteration to work.
         total_modules = sum(len(mods) for mods in modules.values())
-        assert total_modules > 0, "No abliterable modules found in layer"
+        if total_modules == 0:
+            candidates = [
+                f"{name} ({module.in_features}->{module.out_features})"
+                for name, module in layer.named_modules()
+                if isinstance(module, torch.nn.Linear)
+            ]
+            summary = ", ".join(candidates[:20]) or "none"
+            if len(candidates) > 20:
+                summary += ", ..."
+            raise AssertionError(
+                f"No abliterable modules found in layer {layer_index} "
+                f"({type(layer).__name__}). Linear submodules: {summary}. "
+                "Specify additional_layer_modules in config.toml."
+            )
 
         return modules
 

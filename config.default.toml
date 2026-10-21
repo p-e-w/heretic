@@ -102,6 +102,14 @@ max_shard_size = "5GB"
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 
+# Optional additional output projections, relative to each decoder layer.
+# Only configure this for model architectures Heretic does not recognize.
+# Patterns can match multiple modules, for example MoE experts.
+# Supported component keys include "attn.o_proj" and "mlp.down_proj".
+# [additional_layer_modules]
+# "attn.o_proj" = ["attention.o_proj"]
+# "mlp.down_proj" = ["feedforward.down_proj", "mlp.experts.*.down_proj"]
+
 # Dataset of prompts to use for automatically determining the optimal batch size.
 [batch_size_test_prompts]
 dataset = "mlabonne/harmless_alpaca"

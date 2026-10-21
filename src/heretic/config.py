@@ -259,6 +259,31 @@ class Settings(BaseSettings):
         description="Device map to pass to Accelerate when loading the model.",
     )
 
+    additional_layer_modules: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description=(
+            "Extra output projections to abliterate, grouped by component name. "
+            "Patterns use fnmatch syntax and are relative to each decoder layer."
+        ),
+    )
+
+    @field_validator("additional_layer_modules")
+    @classmethod
+    def validate_additional_layer_modules(
+        cls, value: dict[str, list[str]]
+    ) -> dict[str, list[str]]:
+        for component, patterns in value.items():
+            if (
+                not component.strip()
+                or not patterns
+                or any(not p.strip() for p in patterns)
+            ):
+                raise ValueError(
+                    "additional_layer_modules requires non-empty component names "
+                    "and non-empty lists of non-empty patterns"
+                )
+        return value
+
     max_memory: dict[str, str] | None = Field(
         default=None,
         description='Maximum memory to allocate per device (e.g., { "0" = "20GB", "cpu" = "64GB" }).',

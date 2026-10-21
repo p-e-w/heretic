@@ -54,7 +54,7 @@ column = "text"
 
 [scorer.RefusalClassifier]
 model = "VINAY-UMRETHE/tiny-refusal-classifier"
-model_commit = "edf5b2f06dff8a45522607ea6a1994a1ecc18794"
+model_commit = "ca106855daaa6d695bd2a66934eb1a40cbd3f18a"
 print_responses = true
 
 [scorer.RefusalClassifier.prompts]

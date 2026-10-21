@@ -228,8 +228,9 @@ score_name = "Refusals (Classifier)"
 model = "VINAY-UMRETHE/Refusal-Classifier"
 
 # Hugging Face commit hash of the classifier model.
-# Set this to pin the exact revision for reproducible results;
-# unset means 'latest', which can silently change over time.
+# Set this to pin a specific revision; unset means the latest revision
+# is auto-pinned and recorded when the classifier is loaded.
+# When reproducing, the recorded revision is restored and used.
 # model_commit = "<commit-hash>"
 
 # Classifier labels that should be counted as refusals.

@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 # Based on a ModernBERT fine-tuned text-classification model.
+# RefusalClassifier was implemented in https://github.com/p-e-w/heretic/pull/500
 # See https://huggingface.co/VINAY-UMRETHE/Refusal-Classifier for more information.
 
 import huggingface_hub
@@ -42,7 +43,8 @@ class Settings(BaseModel):
         description=(
             "Hugging Face commit hash of the classifier model. "
             "Set this to pin a specific revision; unset means the latest "
-            "revision is resolved and recorded when the classifier model is loaded."
+            "revision is auto-pinned and recorded when the classifier is loaded. "
+            "When reproducing, the recorded revision is restored and used."
         ),
     )
 

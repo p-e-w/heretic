@@ -614,7 +614,7 @@ class Model:
     ) -> Tensor:
         # We only generate one token, and we return the residual vectors
         # at that token position, for each prompt and layer.
-        _, outputs = self.generate(
+        inputs, outputs = self.generate(
             prompts,
             max_new_tokens=1,
             output_hidden_states=True,
@@ -631,6 +631,32 @@ class Model:
         # Hidden states for the first (only) generated token.
         # This cast is valid because we passed output_hidden_states=True above.
         hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
+
+        if hidden_states is None:
+            # Some remote-code models (e.g. ZGCM-1) rebuild the model inputs in their own
+            # prepare_inputs_for_generation, returning a fresh dict rather than merging the
+            # remaining kwargs, so output_hidden_states never reaches forward() and generate()
+            # returns no hidden states. A plain forward pass over the same prompts yields the
+            # hidden states at the last prompt position that generate would have reported.
+            forward_inputs = dict(inputs)
+
+            # Supply left-padding-aware position ids, as prepare_inputs_for_generation normally
+            # would. A model that falls back to a plain arange over the padded sequence would
+            # otherwise place the real tokens at the wrong absolute positions. This is a no-op
+            # for purely relative (RoPE) position encoding, where shifting a contiguous block
+            # of tokens cancels out, but it is required for absolute position encodings.
+            attention_mask = forward_inputs.get("attention_mask")
+            if attention_mask is not None and "position_ids" not in forward_inputs:
+                position_ids = attention_mask.long().cumsum(-1) - 1
+                position_ids.masked_fill_(attention_mask == 0, 0)
+                forward_inputs["position_ids"] = position_ids
+
+            with torch.no_grad():
+                hidden_states = self.model(
+                    **forward_inputs,
+                    output_hidden_states=True,
+                    use_cache=False,
+                ).hidden_states
 
         # The returned tensor has shape (prompt, layer, component).
         residuals = torch.stack(

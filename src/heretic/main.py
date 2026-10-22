@@ -511,6 +511,21 @@ def run():
         cot_skip_applied = False
 
         for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
+            # Check if the template already inserts the full closed CoT block
+            # (e.g. When thinking is disabled by the chat template).
+            # We allow flexible spacing/newlines between the initializer and ender.
+            cot_ender = closed_cot_block.removeprefix(cot_initializer)
+            pattern_closed = (
+                rf"{re.escape(cot_initializer)}\s*{re.escape(cot_ender)}\s*$"
+            )
+            if re.search(pattern_closed, dummy_prompt):
+                settings.response_prefix = ""
+                print(
+                    f"* Chat template inserts full closed block [bold]{escape(repr(closed_cot_block))}[/]"
+                )
+                cot_skip_applied = True
+                break
+
             # Match the tag and ignore any whitespace characters following it at the end
             # (if any), including spaces, tabs, and linebreaks. This is required for models
             # having whitespaces after the tags.
@@ -525,7 +540,7 @@ def run():
                     f"* Chat template inserts [bold]{escape(repr(cot_initializer))}[/]"
                 )
                 print(
-                    f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
+                    f"* Remaining Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
                 )
                 cot_skip_applied = True
                 break

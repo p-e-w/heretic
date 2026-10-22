@@ -68,6 +68,9 @@ class Settings(BaseModel):
     @field_validator("keyword_markers")
     @classmethod
     def validate_keyword_markers(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("keyword marker list cannot be empty")
+
         if any(not marker.strip() for marker in value):
             raise ValueError("keyword markers cannot be empty or whitespace")
 

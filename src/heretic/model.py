@@ -496,6 +496,16 @@ class Model:
                         f"Additional module {name!r} in layer {layer_index} "
                         "must have a 2D weight matrix"
                     )
+                config = getattr(self.model.config, "text_config", None)
+                hidden_size = getattr(config or self.model.config, "hidden_size", None)
+                projection = getattr(module, "base_layer", module)
+                out_features = getattr(projection, "out_features", None)
+                if hidden_size is None or out_features != hidden_size:
+                    raise ValueError(
+                        f"Additional module {name!r} in layer {layer_index} has "
+                        f"out_features={out_features!r}; expected {hidden_size!r} "
+                        "(residual stream size)"
+                    )
                 owners = [
                     existing_component
                     for existing_component, existing_modules in modules.items()

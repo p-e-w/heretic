@@ -48,14 +48,13 @@ def make_model(layers, extra):
     model.settings = Settings.model_construct(
         model="test/model", additional_layer_modules=extra
     )
-    model.model = nn.Module()
-    model.model.model = nn.Module()
+    model.model = TinyModel(TinyConfig(hidden_size=4))
     model.model.model.layers = nn.ModuleList(layers)
     return model
 
 
 def make_peft_model(extra):
-    base_model = TinyModel(TinyConfig())
+    base_model = TinyModel(TinyConfig(hidden_size=4))
     peft_model = get_peft_model(
         base_model,
         LoraConfig(
@@ -219,6 +218,22 @@ class AdditionalLayerModulesTest(unittest.TestCase):
                 found = model.get_layer_modules(0)
                 self.assertEqual(len(found["attn.o_proj"]), 1)
                 self.assertIsInstance(found["attn.o_proj"][0], BaseTunerLayer)
+
+    def test_incompatible_output_size_is_rejected(self):
+        layer = CustomLayer()
+        layer.feedforward.down_proj = nn.Linear(8, 8)
+        model = make_model([layer], {"mlp.down_proj": ["feedforward.down_proj"]})
+        with self.assertRaisesRegex(ValueError, "out_features=8.*expected 4"):
+            model.get_layer_modules(0)
+
+    def test_broad_glob_rejects_incompatible_projections(self):
+        layer = StandardLayer()
+        layer.self_attn.q_proj = nn.Linear(4, 8)
+        layer.self_attn.k_proj = nn.Linear(4, 2)
+        layer.self_attn.v_proj = nn.Linear(4, 2)
+        model = make_model([layer], {"attn.o_proj": ["self_attn.*"]})
+        with self.assertRaisesRegex(ValueError, "self_attn.q_proj.*out_features=8"):
+            model.get_layer_modules(0)
 
     def test_container_is_rejected(self):
         model = make_model([CustomLayer()], {"attn.o_proj": ["attention"]})

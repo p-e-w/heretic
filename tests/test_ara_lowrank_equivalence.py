@@ -16,10 +16,11 @@ def _dense_output(good_input, W_base, bias, A, B, W_row_norms, preserve):
     return out if bias is None else out + bias
 
 
-def _lowrank_output(good_input, good_output, W_base, bias, A, B, W_row_norms, preserve):
-    # The reformulation used by ARA.modify_model: the captured output minus the
-    # bias, plus the rank-r update, rescaled per output row, then the bias again.
-    product = good_output if bias is None else good_output - bias
+def _lowrank_output(good_input, W_base, bias, A, B, W_row_norms, preserve):
+    # The reformulation used by ARA.modify_model: the base product (computed once,
+    # independent of the adapter) plus the rank-r update, rescaled per output row,
+    # then the bias.
+    product = good_input @ W_base.T
     out = product + (good_input @ A.T) @ B.T
     if preserve:
         eff_row_norms = LA.vector_norm(W_base + (B @ A), dim=1)
@@ -36,16 +37,10 @@ class LowRankEquivalenceTests(unittest.TestCase):
         B = torch.randn(d_out, r, dtype=torch.float64) * 0.01
         good_input = torch.randn(n, d_in, dtype=torch.float64)
         bias = torch.randn(d_out, dtype=torch.float64) if with_bias else None
-        # The module output captured by the hook: good_input @ W_base.T (+ bias).
-        good_output = good_input @ W_base.T
-        if bias is not None:
-            good_output = good_output + bias
         W_row_norms = LA.vector_norm(W_base, dim=1, keepdim=True)
 
         dense = _dense_output(good_input, W_base, bias, A, B, W_row_norms, preserve)
-        lowrank = _lowrank_output(
-            good_input, good_output, W_base, bias, A, B, W_row_norms, preserve
-        )
+        lowrank = _lowrank_output(good_input, W_base, bias, A, B, W_row_norms, preserve)
         self.assertTrue(
             torch.allclose(dense, lowrank, rtol=1e-9, atol=1e-9),
             msg=f"max abs diff = {(dense - lowrank).abs().max().item():.2e}",

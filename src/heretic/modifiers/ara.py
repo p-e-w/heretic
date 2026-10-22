@@ -316,23 +316,25 @@ class ARA(Modifier[Parameters]):
                     bad_input = bad_input.float().to(lora_A.device)
                     bad_output = bad_output.float().to(lora_A.device)
 
-                    # The captured module output is input @ W_base.T + bias. ARA only
-                    # modifies the weight, so the bias is a constant offset that row
-                    # normalization must not rescale: work with the bias-free product
-                    # input @ W_base.T and add the bias back to the modified output.
+                    # The base product input @ W_base.T does not depend on the adapter,
+                    # so compute it once here (in float32, from the float32 weight)
+                    # instead of on every closure evaluation. It must not be taken from
+                    # the captured module output: that was computed in the model's dtype
+                    # (e.g. bfloat16) and would change the objective.
+                    good_product = good_input @ W_base.T
+                    bad_product = bad_input @ W_base.T
+
+                    # ARA only modifies the weight. If the module has a bias, the
+                    # captured output includes it, so add it back to the modified output
+                    # (after row normalization, which must not rescale the bias).
                     bias = cast(Tensor | None, module.base_layer.bias)
-                    if bias is None:
-                        good_product = good_output
-                        bad_product = bad_output
-                    else:
+                    if bias is not None:
                         bias = bias.detach().float().to(lora_A.device)
-                        good_product = good_output - bias
-                        bad_product = bad_output - bias
 
                     def objective(A: Tensor, B: Tensor) -> Tensor:
                         # input @ (W_base + B @ A).T
                         #   = input @ W_base.T + (input @ A.T) @ B.T
-                        # The first term is the (constant) captured product, so only the
+                        # The first term is the precomputed base product, so only the
                         # low-rank second term is recomputed. This avoids materializing
                         # the dense effective weight and the full input @ W_eff.T product
                         # on every closure evaluation.

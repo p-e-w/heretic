@@ -441,10 +441,18 @@ class Model:
         with suppress(Exception):
             try_add("mlp.down_proj", layer.mlp.down_proj)  # ty: ignore[unresolved-attribute]
 
+        # DeepSeek V4.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_b_proj)  # ty: ignore[unresolved-attribute]
+
         # Some MoE models (e.g. Qwen3).
         with suppress(Exception):
             for expert in layer.mlp.experts:  # ty:ignore[not-iterable, unresolved-attribute]
                 try_add("mlp.down_proj", expert.down_proj)  # ty: ignore[unresolved-attribute]
+
+        # Shared experts of MoE models (e.g. DeepSeek V4 and GLM 5.3).
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_experts.down_proj)  # ty: ignore[unresolved-attribute]
 
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
@@ -631,6 +639,20 @@ class Model:
         # Hidden states for the first (only) generated token.
         # This cast is valid because we passed output_hidden_states=True above.
         hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
+
+        # Models with Hyper-Connections (e.g. DeepSeek V4 and GLM 5.3) have several
+        # residual streams, so their hidden states have shape
+        # (prompt, position, stream, component). We use the mean of the streams.
+        # The last entry has no stream dimension, because Transformers replaces it
+        # with the model output, where the streams have already been merged.
+        hidden_states = tuple(
+            (
+                layer_hidden_states.mean(dim=2)
+                if layer_hidden_states.dim() == 4
+                else layer_hidden_states
+            )
+            for layer_hidden_states in hidden_states
+        )
 
         # The returned tensor has shape (prompt, layer, component).
         residuals = torch.stack(

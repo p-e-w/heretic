@@ -4,8 +4,13 @@
 import unittest
 from types import SimpleNamespace
 
+from peft import LoraConfig, get_peft_model
+from peft.tuners.tuners_utils import BaseTunerLayer
+from pydantic import ValidationError
 from torch import nn
+from transformers import PretrainedConfig, PreTrainedModel
 
+from heretic.config import Settings
 from heretic.model import Model
 
 
@@ -25,6 +30,19 @@ class StandardLayer(nn.Module):
         self.self_attn.o_proj = nn.Linear(8, 4)
 
 
+class TinyConfig(PretrainedConfig):
+    model_type = "additional-layer-modules-test"
+
+
+class TinyModel(PreTrainedModel):
+    config_class = TinyConfig
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.model = nn.Module()
+        self.model.layers = nn.ModuleList([StandardLayer()])
+
+
 def make_model(layers, extra):
     model = Model.__new__(Model)
     model.settings = SimpleNamespace(additional_layer_modules=extra)
@@ -34,7 +52,63 @@ def make_model(layers, extra):
     return model
 
 
+def make_peft_model(extra):
+    base_model = TinyModel(TinyConfig())
+    peft_model = get_peft_model(
+        base_model,
+        LoraConfig(
+            r=2,
+            lora_alpha=2,
+            target_modules=["self_attn.o_proj"],
+        ),
+    )
+    model = Model.__new__(Model)
+    model.settings = SimpleNamespace(additional_layer_modules=extra)
+    model.model = peft_model
+    return model
+
+
 class AdditionalLayerModulesTest(unittest.TestCase):
+    def test_settings_validate_and_round_trip_supported_components(self):
+        additional_layer_modules = {
+            "attn.o_proj": ["attention.o_proj"],
+            "mlp.down_proj": ["feedforward.down_proj"],
+        }
+        settings = Settings.model_validate(
+            {
+                "model": "test/model",
+                "additional_layer_modules": additional_layer_modules,
+            }
+        )
+
+        restored = Settings.model_validate_json(settings.model_dump_json())
+
+        self.assertEqual(
+            restored.additional_layer_modules,
+            additional_layer_modules,
+        )
+
+    def test_settings_reject_unknown_component(self):
+        with self.assertRaisesRegex(ValidationError, "unsupported components"):
+            Settings.model_validate(
+                {
+                    "model": "test/model",
+                    "additional_layer_modules": {
+                        "attn.out_proj": ["attention.o_proj"]
+                    },
+                }
+            )
+
+    def test_empty_configuration_preserves_builtin_discovery(self):
+        model = make_model([StandardLayer()], {})
+
+        found = model.get_layer_modules(0)
+
+        self.assertEqual(list(found), ["attn.o_proj"])
+        self.assertIs(
+            found["attn.o_proj"][0], model.get_layers()[0].self_attn.o_proj
+        )
+
     def test_custom_architecture_paths(self):
         model = make_model(
             [CustomLayer(), CustomLayer()],
@@ -109,6 +183,36 @@ class AdditionalLayerModulesTest(unittest.TestCase):
         self.assertIs(
             model.get_layer_modules(0)["attn.o_proj"][0], layer.attention.o_proj
         )
+
+    def test_peft_wrapper_is_atomic_for_glob_selection(self):
+        model = make_peft_model({"attn.o_proj": ["self_attn.*"]})
+
+        model._validate_additional_layer_modules()
+        found = model.get_layer_modules(0)
+
+        self.assertEqual(len(found["attn.o_proj"]), 1)
+        self.assertIsInstance(found["attn.o_proj"][0], BaseTunerLayer)
+
+    def test_peft_internals_cannot_be_selected_directly(self):
+        internal_patterns = [
+            ("self_attn.o_proj.base_layer", "self_attn.o_proj.base_layer"),
+            ("self_attn.o_proj.lora_A.*", "self_attn.o_proj.lora_A.default"),
+            ("self_attn.o_proj.lora_B.*", "self_attn.o_proj.lora_B.default"),
+        ]
+
+        for pattern, internal_name in internal_patterns:
+            with self.subTest(pattern=pattern):
+                model = make_peft_model({"attn.o_proj": [pattern]})
+                self.assertIn(
+                    internal_name,
+                    dict(model.get_layers()[0].named_modules()),
+                )
+                with self.assertRaisesRegex(ValueError, "matches no module"):
+                    model._validate_additional_layer_modules()
+
+                found = model.get_layer_modules(0)
+                self.assertEqual(len(found["attn.o_proj"]), 1)
+                self.assertIsInstance(found["attn.o_proj"][0], BaseTunerLayer)
 
     def test_container_is_rejected(self):
         model = make_model([CustomLayer()], {"attn.o_proj": ["attention"]})

@@ -20,6 +20,10 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+SUPPORTED_ABLITERABLE_COMPONENTS: frozenset[str] = frozenset(
+    {"attn.o_proj", "mlp.down_proj"}
+)
+
 # !!!IMPORTANT!!!
 #
 # Any settings added to the classes defined in this module
@@ -282,6 +286,15 @@ class Settings(BaseSettings):
                     "additional_layer_modules requires non-empty component names "
                     "and non-empty lists of non-empty patterns"
                 )
+
+        unsupported_components = sorted(set(value) - SUPPORTED_ABLITERABLE_COMPONENTS)
+        if unsupported_components:
+            raise ValueError(
+                "additional_layer_modules contains unsupported components "
+                f"{unsupported_components}; supported components are "
+                f"{sorted(SUPPORTED_ABLITERABLE_COMPONENTS)}"
+            )
+
         return value
 
     max_memory: dict[str, str] | None = Field(

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import suppress
 from datetime import datetime, timezone
 from fnmatch import fnmatchcase
@@ -9,6 +9,7 @@ from typing import Any, TypeAlias, cast
 
 import torch
 from peft import LoraConfig, PeftModel, get_peft_model
+from peft.tuners.tuners_utils import BaseTunerLayer
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
 from torch.utils.hooks import RemovableHandle
@@ -391,12 +392,29 @@ class Model:
                 if not any(
                     fnmatchcase(name, pattern)
                     for layer in layers
-                    for name, _ in layer.named_modules()
+                    for name, _ in self._named_selectable_layer_modules(layer)
                 ):
                     raise ValueError(
                         f"additional_layer_modules pattern {pattern!r} for {component!r} "
                         "matches no module in any decoder layer"
                     )
+
+    @staticmethod
+    def _named_selectable_layer_modules(
+        layer: Module,
+    ) -> Iterator[tuple[str, Module]]:
+        peft_wrapper_prefixes: list[str] = []
+
+        for name, module in layer.named_modules():
+            if any(name.startswith(prefix) for prefix in peft_wrapper_prefixes):
+                continue
+
+            if isinstance(module, BaseTunerLayer):
+                # Treat PEFT wrappers as leaves. Their base layer and adapter modules
+                # are implementation details, not additional abliterable projections.
+                peft_wrapper_prefixes.append(f"{name}." if name else "")
+
+            yield name, module
 
     def get_layer_modules(self, layer_index: int) -> dict[str, list[Module]]:
         layer = self.get_layers()[layer_index]
@@ -465,7 +483,7 @@ class Model:
         # Explicit extra projections for unrecognized architectures.
         # Deduplicate modules matched by multiple patterns or built-in paths.
         for component, patterns in self.settings.additional_layer_modules.items():
-            for name, module in layer.named_modules():
+            for name, module in self._named_selectable_layer_modules(layer):
                 if not any(fnmatchcase(name, pattern) for pattern in patterns):
                     continue
                 weight = getattr(module, "weight", None)

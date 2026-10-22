@@ -105,7 +105,7 @@ system_prompt = "You are a helpful assistant."
 # Optional additional output projections, relative to each decoder layer.
 # Only configure this for model architectures Heretic does not recognize.
 # Patterns can match multiple modules, for example MoE experts.
-# Supported component keys include "attn.o_proj" and "mlp.down_proj".
+# Supported component keys are "attn.o_proj" and "mlp.down_proj".
 # [additional_layer_modules]
 # "attn.o_proj" = ["attention.o_proj"]
 # "mlp.down_proj" = ["feedforward.down_proj", "mlp.experts.*.down_proj"]

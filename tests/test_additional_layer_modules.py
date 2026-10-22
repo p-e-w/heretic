@@ -2,7 +2,7 @@
 """Additional output projection configuration for custom decoder layers."""
 
 import unittest
-from types import SimpleNamespace
+from unittest.mock import patch
 
 from peft import LoraConfig, get_peft_model
 from peft.tuners.tuners_utils import BaseTunerLayer
@@ -45,7 +45,9 @@ class TinyModel(PreTrainedModel):
 
 def make_model(layers, extra):
     model = Model.__new__(Model)
-    model.settings = SimpleNamespace(additional_layer_modules=extra)
+    model.settings = Settings.model_construct(
+        model="test/model", additional_layer_modules=extra
+    )
     model.model = nn.Module()
     model.model.model = nn.Module()
     model.model.model.layers = nn.ModuleList(layers)
@@ -63,12 +65,20 @@ def make_peft_model(extra):
         ),
     )
     model = Model.__new__(Model)
-    model.settings = SimpleNamespace(additional_layer_modules=extra)
+    model.settings = Settings.model_construct(
+        model="test/model", additional_layer_modules=extra
+    )
     model.model = peft_model
     return model
 
 
 class AdditionalLayerModulesTest(unittest.TestCase):
+    def setUp(self) -> None:
+        # Settings parses CLI arguments by default; isolate it from unittest flags.
+        argv_patch = patch("sys.argv", ["heretic"])
+        argv_patch.start()
+        self.addCleanup(argv_patch.stop)
+
     def test_settings_validate_and_round_trip_supported_components(self):
         additional_layer_modules = {
             "attn.o_proj": ["attention.o_proj"],
@@ -93,9 +103,7 @@ class AdditionalLayerModulesTest(unittest.TestCase):
             Settings.model_validate(
                 {
                     "model": "test/model",
-                    "additional_layer_modules": {
-                        "attn.out_proj": ["attention.o_proj"]
-                    },
+                    "additional_layer_modules": {"attn.out_proj": ["attention.o_proj"]},
                 }
             )
 
@@ -105,9 +113,7 @@ class AdditionalLayerModulesTest(unittest.TestCase):
         found = model.get_layer_modules(0)
 
         self.assertEqual(list(found), ["attn.o_proj"])
-        self.assertIs(
-            found["attn.o_proj"][0], model.get_layers()[0].self_attn.o_proj
-        )
+        self.assertIs(found["attn.o_proj"][0], model.get_layers()[0].self_attn.o_proj)
 
     def test_custom_architecture_paths(self):
         model = make_model(

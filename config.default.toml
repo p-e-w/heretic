@@ -102,13 +102,25 @@ max_shard_size = "5GB"
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 
-# Optional additional output projections, relative to each decoder layer.
-# Configure additional projections that built-in detection does not find.
-# Patterns can match multiple modules, for example MoE experts.
-# Supported component keys are "attn.o_proj" and "mlp.down_proj".
-# [additional_layer_modules]
-# "attn.o_proj" = ["attention.o_proj"]
-# "mlp.down_proj" = ["feedforward.down_proj"]
+# Complete set of output projections, relative to each decoder layer.
+# Edit these lists to add or remove targets; unspecified components are not selected.
+# Patterns can match multiple modules, including MoE experts.
+[layer_module_targets]
+"attn.o_proj" = [
+    "self_attn.o_proj",
+    "linear_attn.out_proj",
+    "conv.out_proj",
+    "self_attn.out_proj",
+]
+"mlp.down_proj" = [
+    "mlp.down_proj",
+    "mlp.experts.*.down_proj",
+    "block_sparse_moe.experts.*.w2",
+    "feed_forward.w2",
+    "feed_forward.experts.*.w2",
+    "shared_mlp.output_linear",
+    "moe.experts.*.output_linear",
+]
 
 # Dataset of prompts to use for automatically determining the optimal batch size.
 [batch_size_test_prompts]

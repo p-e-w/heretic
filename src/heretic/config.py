@@ -20,9 +20,27 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-SUPPORTED_ABLITERABLE_COMPONENTS: frozenset[str] = frozenset(
-    {"attn.o_proj", "mlp.down_proj"}
-)
+
+def default_layer_module_targets() -> dict[str, list[str]]:
+    # Existing output projections, relative to each decoder layer.
+    return {
+        "attn.o_proj": [
+            "self_attn.o_proj",
+            "linear_attn.out_proj",
+            "conv.out_proj",
+            "self_attn.out_proj",
+        ],
+        "mlp.down_proj": [
+            "mlp.down_proj",
+            "mlp.experts.*.down_proj",
+            "block_sparse_moe.experts.*.w2",
+            "feed_forward.w2",
+            "feed_forward.experts.*.w2",
+            "shared_mlp.output_linear",
+            "moe.experts.*.output_linear",
+        ],
+    }
+
 
 # !!!IMPORTANT!!!
 #
@@ -263,38 +281,27 @@ class Settings(BaseSettings):
         description="Device map to pass to Accelerate when loading the model.",
     )
 
-    additional_layer_modules: dict[str, list[str]] = Field(
-        default_factory=dict,
+    layer_module_targets: dict[str, list[str]] = Field(
+        default_factory=default_layer_module_targets,
         description=(
-            "Extra output projections to abliterate, grouped by component name. "
+            "Complete set of abliterable module paths, grouped by component name. "
             "Patterns use fnmatch syntax and are relative to each decoder layer."
         ),
     )
 
-    @field_validator("additional_layer_modules")
+    @field_validator("layer_module_targets")
     @classmethod
-    def validate_additional_layer_modules(
+    def validate_layer_module_targets(
         cls, value: dict[str, list[str]]
     ) -> dict[str, list[str]]:
         for component, patterns in value.items():
-            if (
-                not component.strip()
-                or not patterns
-                or any(not p.strip() for p in patterns)
+            if not component.strip() or any(
+                not pattern.strip() for pattern in patterns
             ):
                 raise ValueError(
-                    "additional_layer_modules requires non-empty component names "
-                    "and non-empty lists of non-empty patterns"
+                    "layer_module_targets requires non-empty component names "
+                    "and non-empty patterns"
                 )
-
-        unsupported_components = sorted(set(value) - SUPPORTED_ABLITERABLE_COMPONENTS)
-        if unsupported_components:
-            raise ValueError(
-                "additional_layer_modules contains unsupported components "
-                f"{unsupported_components}; supported components are "
-                f"{sorted(SUPPORTED_ABLITERABLE_COMPONENTS)}"
-            )
-
         return value
 
     max_memory: dict[str, str] | None = Field(

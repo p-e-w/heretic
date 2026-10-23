@@ -6,6 +6,7 @@ import unittest
 from typing import cast
 from unittest.mock import patch
 
+from pydantic import ValidationError
 from rich.console import Console
 
 from heretic.config import Settings as HereticSettings
@@ -23,6 +24,20 @@ class FakeContext:
 
 
 class KeywordRateTests(unittest.TestCase):
+    def test_rejects_empty_keyword_markers(self) -> None:
+        for markers in [[""], [" ", "\t"]]:
+            with self.subTest(markers=markers):
+                with self.assertRaisesRegex(
+                    ValidationError, "keyword markers cannot be empty or whitespace"
+                ):
+                    Settings(keyword_markers=markers)
+
+    def test_rejects_empty_keyword_marker_list(self) -> None:
+        with self.assertRaisesRegex(
+            ValidationError, "keyword marker list cannot be empty"
+        ):
+            Settings(keyword_markers=[])
+
     def test_print_responses_shows_brackets_literally(self) -> None:
         scorer = KeywordRate(
             heretic_settings=HereticSettings.model_construct(),

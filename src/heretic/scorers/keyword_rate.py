@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from rich.markup import escape
 
 from heretic.config import DatasetSpecification, SingleDatasetSpecification
@@ -64,6 +64,17 @@ class Settings(BaseModel):
         default=REFUSAL_MARKERS,
         description="Strings whose presence in a response (case insensitive) identifies the response as a keyword match.",
     )
+
+    @field_validator("keyword_markers")
+    @classmethod
+    def validate_keyword_markers(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("keyword marker list cannot be empty")
+
+        if any(not marker.strip() for marker in value):
+            raise ValueError("keyword markers cannot be empty or whitespace")
+
+        return value
 
     print_responses: bool = Field(
         default=False,

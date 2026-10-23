@@ -2,8 +2,9 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 # Based on a ModernBERT fine-tuned text-classification model.
-# RefusalClassifier was implemented in https://github.com/p-e-w/heretic/pull/500
-# See https://huggingface.co/VINAY-UMRETHE/Refusal-Classifier for more information.
+# For more information, see:
+# Implementation: https://github.com/p-e-w/heretic/pull/500
+# Classifier model: https://huggingface.co/VINAY-UMRETHE/Refusal-Classifier
 
 import huggingface_hub
 from pydantic import BaseModel, Field

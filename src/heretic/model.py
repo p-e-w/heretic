@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import datetime, timezone
 from typing import Any, TypeAlias, cast
 
@@ -29,6 +29,7 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, Settings
+from .fast_dispatch import fast_dispatch
 from .system import empty_cache
 from .utils import Prompt, batchify, format_exception, print
 
@@ -156,17 +157,19 @@ class Model:
                 if quantization_config is not None:
                     extra_kwargs["quantization_config"] = quantization_config
 
-                self.model = get_model_class(settings.model).from_pretrained(
-                    settings.model,
-                    dtype=dtype,
-                    device_map=settings.device_map,
-                    max_memory=self.max_memory,
-                    trust_remote_code=True
-                    if settings.model in self.trusted_models
-                    else None,
-                    **self.revision_kwargs,
-                    **extra_kwargs,
-                )
+                context = fast_dispatch() if settings.fast_dispatch else nullcontext()
+                with context:
+                    self.model = get_model_class(settings.model).from_pretrained(
+                        settings.model,
+                        dtype=dtype,
+                        device_map=settings.device_map,
+                        max_memory=self.max_memory,
+                        trust_remote_code=True
+                        if settings.model in self.trusted_models
+                        else None,
+                        **self.revision_kwargs,
+                        **extra_kwargs,
+                    )
 
                 self.dtype = self.model.dtype
 
@@ -311,15 +314,17 @@ class Model:
 
             # Load base model in full precision on CPU to avoid VRAM issues
             print("* Loading base model on CPU (this may take a while)...")
-            base_model = get_model_class(self.settings.model).from_pretrained(
-                self.settings.model,
-                torch_dtype=self.model.dtype,
-                device_map="cpu",
-                trust_remote_code=True
-                if self.settings.model in self.trusted_models
-                else None,
-                **self.revision_kwargs,
-            )
+            context = fast_dispatch() if self.settings.fast_dispatch else nullcontext()
+            with context:
+                base_model = get_model_class(self.settings.model).from_pretrained(
+                    self.settings.model,
+                    torch_dtype=self.model.dtype,
+                    device_map="cpu",
+                    trust_remote_code=True
+                    if self.settings.model in self.trusted_models
+                    else None,
+                    **self.revision_kwargs,
+                )
 
             # Apply LoRA adapters to the CPU model
             print("* Applying LoRA adapters...")
@@ -381,17 +386,19 @@ class Model:
         if quantization_config is not None:
             extra_kwargs["quantization_config"] = quantization_config
 
-        self.model = get_model_class(self.settings.model).from_pretrained(
-            self.settings.model,
-            dtype=self.dtype,
-            device_map=self.settings.device_map,
-            max_memory=self.max_memory,
-            trust_remote_code=True
-            if self.settings.model in self.trusted_models
-            else None,
-            **self.revision_kwargs,
-            **extra_kwargs,
-        )
+        context = fast_dispatch() if self.settings.fast_dispatch else nullcontext()
+        with context:
+            self.model = get_model_class(self.settings.model).from_pretrained(
+                self.settings.model,
+                dtype=self.dtype,
+                device_map=self.settings.device_map,
+                max_memory=self.max_memory,
+                trust_remote_code=True
+                if self.settings.model in self.trusted_models
+                else None,
+                **self.revision_kwargs,
+                **extra_kwargs,
+            )
 
         self.needs_reload = False
 

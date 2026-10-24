@@ -264,6 +264,15 @@ class Settings(BaseSettings):
         description='Maximum memory to allocate per device (e.g., { "0" = "20GB", "cpu" = "64GB" }).',
     )
 
+    fast_dispatch: bool = Field(
+        default=False,
+        description=(
+            "Skip Accelerate's per-tensor CUDA cache clears while loading the model. "
+            "Speeds up loading of models with very many tensors at the cost of "
+            "higher peak VRAM usage."
+        ),
+    )
+
     offload_outputs_to_cpu: bool = Field(
         default=True,
         description=(

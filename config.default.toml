@@ -27,6 +27,11 @@ device_map = "auto"
 # Maximum memory to allocate per device.
 # max_memory = { "0" = "20GB", "cpu" = "64GB" }
 
+# Skip Accelerate's per-tensor CUDA cache clears during model loading.
+# This can make loading much faster for models with very many tensors,
+# at the cost of higher peak VRAM usage.
+fast_dispatch = false
+
 # Whether to move intermediate analysis tensors (such as residuals and logprobs)
 # to CPU memory as soon as possible to reduce peak VRAM usage.
 # This lowers peak VRAM usage during residual analysis and evaluation,

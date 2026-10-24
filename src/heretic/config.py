@@ -20,6 +20,28 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+
+def default_layer_module_targets() -> dict[str, list[str]]:
+    # Existing output projections, relative to each decoder layer.
+    return {
+        "attn.o_proj": [
+            "self_attn.o_proj",
+            "linear_attn.out_proj",
+            "conv.out_proj",
+            "self_attn.out_proj",
+        ],
+        "mlp.down_proj": [
+            "mlp.down_proj",
+            "mlp.experts.*.down_proj",
+            "block_sparse_moe.experts.*.w2",
+            "feed_forward.w2",
+            "feed_forward.experts.*.w2",
+            "shared_mlp.output_linear",
+            "moe.experts.*.output_linear",
+        ],
+    }
+
+
 # !!!IMPORTANT!!!
 #
 # Any settings added to the classes defined in this module
@@ -258,6 +280,29 @@ class Settings(BaseSettings):
         default="auto",
         description="Device map to pass to Accelerate when loading the model.",
     )
+
+    layer_module_targets: dict[str, list[str]] = Field(
+        default_factory=default_layer_module_targets,
+        description=(
+            "Complete set of abliterable module paths, grouped by component name. "
+            "Patterns use fnmatch syntax and are relative to each decoder layer."
+        ),
+    )
+
+    @field_validator("layer_module_targets")
+    @classmethod
+    def validate_layer_module_targets(
+        cls, value: dict[str, list[str]]
+    ) -> dict[str, list[str]]:
+        for component, patterns in value.items():
+            if not component.strip() or any(
+                not pattern.strip() for pattern in patterns
+            ):
+                raise ValueError(
+                    "layer_module_targets requires non-empty component names "
+                    "and non-empty patterns"
+                )
+        return value
 
     max_memory: dict[str, str] | None = Field(
         default=None,

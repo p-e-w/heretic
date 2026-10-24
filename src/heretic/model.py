@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import suppress
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from typing import Any, TypeAlias, cast
 
 import torch
 from peft import LoraConfig, PeftModel, get_peft_model
+from peft.tuners.tuners_utils import BaseTunerLayer
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
 from torch.utils.hooks import RemovableHandle
@@ -411,73 +413,81 @@ class Model:
         # Text-only models.
         return model.model.layers  # ty: ignore[unresolved-attribute, invalid-return-type]
 
+    @staticmethod
+    def _named_selectable_layer_modules(
+        layer: Module,
+    ) -> Iterator[tuple[str, Module]]:
+        peft_wrapper_prefixes: list[str] = []
+
+        for name, module in layer.named_modules():
+            if any(name.startswith(prefix) for prefix in peft_wrapper_prefixes):
+                continue
+
+            if isinstance(module, BaseTunerLayer):
+                # Treat PEFT wrappers as leaves. Their base layer and adapter modules
+                # are implementation details, not additional abliterable projections.
+                peft_wrapper_prefixes.append(f"{name}." if name else "")
+
+            yield name, module
+
     def get_layer_modules(self, layer_index: int) -> dict[str, list[Module]]:
         layer = self.get_layers()[layer_index]
 
-        modules = {}
-
-        def try_add(component: str, module: Any):
-            # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
-            if isinstance(module, Module):
-                if component not in modules:
-                    modules[component] = []
-                modules[component].append(module)
-            else:
-                # Assert for unexpected types (catches architecture changes)
-                assert not isinstance(module, Tensor), (
-                    f"Unexpected Tensor in {component} - expected nn.Module"
-                )
-
-        # Standard self-attention out-projection (most models).
-        with suppress(Exception):
-            try_add("attn.o_proj", layer.self_attn.o_proj)  # ty: ignore[unresolved-attribute]
-
-        # Qwen3.5 MoE hybrid layers use GatedDeltaNet (linear attention) instead of
-        # standard self-attention, so self_attn.o_proj doesn't exist on those layers.
-        with suppress(Exception):
-            try_add("attn.o_proj", layer.linear_attn.out_proj)  # ty: ignore[unresolved-attribute]
-
-        # Most dense models.
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.mlp.down_proj)  # ty: ignore[unresolved-attribute]
-
-        # Some MoE models (e.g. Qwen3).
-        with suppress(Exception):
-            for expert in layer.mlp.experts:  # ty:ignore[not-iterable, unresolved-attribute]
-                try_add("mlp.down_proj", expert.down_proj)  # ty: ignore[unresolved-attribute]
-
-        # Phi-3.5-MoE (and possibly others).
-        with suppress(Exception):
-            for expert in layer.block_sparse_moe.experts:  # ty:ignore[not-iterable, unresolved-attribute]
-                try_add("mlp.down_proj", expert.w2)  # ty: ignore[unresolved-attribute]
-
-        # LFM dense operator blocks.
-        with suppress(Exception):
-            try_add("attn.o_proj", layer.conv.out_proj)  # ty: ignore[unresolved-attribute]
-
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.feed_forward.w2)  # ty: ignore[unresolved-attribute]
-
-        # LFM transformer blocks.
-        with suppress(Exception):
-            try_add("attn.o_proj", layer.self_attn.out_proj)  # ty: ignore[unresolved-attribute]
-
-        with suppress(Exception):
-            for expert in layer.feed_forward.experts:  # ty:ignore[not-iterable, unresolved-attribute]
-                try_add("mlp.down_proj", expert.w2)  # ty: ignore[unresolved-attribute]
-
-        # Granite MoE Hybrid - attention layers with shared_mlp.
-        with suppress(Exception):
-            try_add("mlp.down_proj", layer.shared_mlp.output_linear)  # ty: ignore[unresolved-attribute]
-
-        # Granite MoE Hybrid - MoE layers with experts.
-        with suppress(Exception):
-            for expert in layer.moe.experts:  # ty:ignore[not-iterable, unresolved-attribute]
-                try_add("mlp.down_proj", expert.output_linear)  # ty: ignore[unresolved-attribute]
+        modules: dict[str, list[Module]] = {}
+        for component, patterns in self.settings.layer_module_targets.items():
+            for name, module in self._named_selectable_layer_modules(layer):
+                if not any(fnmatchcase(name, pattern) for pattern in patterns):
+                    continue
+                weight = getattr(module, "weight", None)
+                if weight is None:
+                    weight = getattr(
+                        getattr(module, "base_layer", None), "weight", None
+                    )
+                if not isinstance(weight, Tensor) or weight.ndim != 2:
+                    raise ValueError(
+                        f"Module {name!r} in layer {layer_index} "
+                        "must have a 2D weight matrix"
+                    )
+                config = getattr(self.model.config, "text_config", None)
+                hidden_size = getattr(config or self.model.config, "hidden_size", None)
+                projection = getattr(module, "base_layer", module)
+                out_features = getattr(projection, "out_features", None)
+                if hidden_size is None or out_features != hidden_size:
+                    raise ValueError(
+                        f"Module {name!r} in layer {layer_index} has "
+                        f"out_features={out_features!r}; expected {hidden_size!r} "
+                        "(residual stream size)"
+                    )
+                owners = [
+                    existing_component
+                    for existing_component, existing_modules in modules.items()
+                    if any(existing is module for existing in existing_modules)
+                ]
+                if owners:
+                    if owners != [component]:
+                        raise ValueError(
+                            f"Module {name!r} in layer {layer_index} is already "
+                            f"assigned to {owners}, cannot assign it to {component!r}"
+                        )
+                    continue
+                modules.setdefault(component, []).append(module)
 
         # We need at least one module across all components for abliteration to work.
         total_modules = sum(len(mods) for mods in modules.values())
-        assert total_modules > 0, "No abliterable modules found in layer"
+        if total_modules == 0:
+            candidates = [
+                f"{name} ({module.in_features}->{module.out_features})"
+                for name, module in layer.named_modules()
+                if isinstance(module, torch.nn.Linear)
+            ]
+            summary = ", ".join(candidates[:20]) or "none"
+            if len(candidates) > 20:
+                summary += ", ..."
+            raise AssertionError(
+                f"No abliterable modules found in layer {layer_index} "
+                f"({type(layer).__name__}). Linear submodules: {summary}. "
+                "Configure layer_module_targets in config.toml."
+            )
 
         return modules
 

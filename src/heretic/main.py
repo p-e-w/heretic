@@ -193,6 +193,29 @@ def obtain_export_strategy(
     )
 
 
+def get_cot_prefix_extension(responses: list[str]) -> str | None:
+    """
+    Determine the extension for a closed Chain-of-Thought response prefix,
+    based on responses generated with the closed prefix prepended.
+
+    Returns the common prefix of the responses if it consists entirely of
+    whitespace (the case this check exists for: a prefix missing a trailing
+    newline or similar), and None otherwise.
+
+    Models that generate their own Chain-of-Thought (e.g. Qwen3) start their
+    reasoning near-identically for every prompt, so the common prefix of the
+    responses is then the beginning of the reasoning text. Appending it would
+    put reasoning back into the response prefix and keep the model in CoT
+    mode while writing what Heretic treats as the final answer.
+    """
+    additional_prefix = commonprefix(responses).rstrip(" ")
+
+    if additional_prefix.strip():
+        return None
+
+    return additional_prefix
+
+
 def run():
     # Modified "Pagga" font from https://budavariam.github.io/asciiart-text/
     print(f"[cyan]█░█░█▀▀░█▀▄░█▀▀░▀█▀░█░█▀▀[/]  v{version('heretic-llm')}")
@@ -575,12 +598,21 @@ def run():
             # is actually complete (e.g. not missing a trailing newline).
             print("* Rechecking with prefix...")
             responses = model.get_responses_batched(response_prefix_test_prompts)
-            additional_prefix = commonprefix(responses).rstrip(" ")
+            additional_prefix = get_cot_prefix_extension(responses)
             if additional_prefix:
                 settings.response_prefix += additional_prefix
                 print(
                     f"* Extended prefix found: [bold]{escape(repr(settings.response_prefix))}[/]"
                 )
+            else:
+                ignored_prefix = commonprefix(responses).rstrip(" ")
+
+                if ignored_prefix:
+                    print(
+                        "* Ignoring non-whitespace common prefix "
+                        f"[bold]{escape(repr(ignored_prefix))}[/] to avoid "
+                        "keeping the model in Chain-of-Thought mode"
+                    )
 
     evaluator = Evaluator(settings, model)
 

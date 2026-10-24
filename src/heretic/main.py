@@ -494,7 +494,7 @@ def run():
 
         # Detect if the model's chat template inserts a reasoning tag on its own
         # at the end of user's prompt (e.g. <think>) by using a dummy prompt.
-        # If found, then we use the full closed CoT as the response prefix.
+        # If found, then we use the rest of the closed CoT as the response prefix.
         # LiquidAI's LFM models do this (Lfm2ForCausalLM).
 
         # This cast is valid because str is the return type
@@ -518,9 +518,11 @@ def run():
             match = re.search(pattern, dummy_prompt)
 
             if match:
-                # We use only the closed CoT block here. Any whitespaces
+                # We use only the rest of the closed CoT block here. Any whitespaces
                 # will be handled by the 'Rechecking with prefix' logic below.
-                settings.response_prefix = closed_cot_block
+                settings.response_prefix = closed_cot_block.removeprefix(
+                    cot_initializer
+                )
                 print(
                     f"* Chat template inserts [bold]{escape(repr(cot_initializer))}[/]"
                 )

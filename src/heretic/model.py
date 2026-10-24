@@ -30,6 +30,8 @@ from transformers.generation import (
 
 from .config import QuantizationMethod, Settings
 from .fast_dispatch import fast_dispatch
+from .qwen4_ple import copy_auxiliary_tensors
+from .qwen4_ple import install as install_qwen4_ple
 from .system import empty_cache
 from .utils import Prompt, batchify, format_exception, print
 
@@ -100,6 +102,8 @@ class Model:
         self.revision_kwargs = {}
         if settings.model_commit is not None:
             self.revision_kwargs["revision"] = settings.model_commit
+
+        install_qwen4_ple(settings.model, settings.ple_from_disk)
 
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
@@ -314,6 +318,7 @@ class Model:
 
             # Load base model in full precision on CPU to avoid VRAM issues
             print("* Loading base model on CPU (this may take a while)...")
+            install_qwen4_ple(self.settings.model, self.settings.ple_from_disk)
             context = fast_dispatch() if self.settings.fast_dispatch else nullcontext()
             with context:
                 base_model = get_model_class(self.settings.model).from_pretrained(
@@ -347,6 +352,10 @@ class Model:
             # Mark for full reload if user switches trials later.
             self.needs_reload = True
             return merged_model
+
+    def save_auxiliary_tensors(self, save_directory: str) -> None:
+        print("* Copying auxiliary tensors...")
+        copy_auxiliary_tensors(self.settings.model, save_directory)
 
     def reset_model(self) -> bool:
         """
@@ -386,6 +395,7 @@ class Model:
         if quantization_config is not None:
             extra_kwargs["quantization_config"] = quantization_config
 
+        install_qwen4_ple(self.settings.model, self.settings.ple_from_disk)
         context = fast_dispatch() if self.settings.fast_dispatch else nullcontext()
         with context:
             self.model = get_model_class(self.settings.model).from_pretrained(

@@ -970,6 +970,7 @@ def run():
                                     save_directory,
                                     max_shard_size=settings.max_shard_size,
                                 )
+                                model.save_auxiliary_tensors(save_directory)
                                 del merged_model
                                 empty_cache()
                                 model.tokenizer.save_pretrained(save_directory)

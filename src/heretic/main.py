@@ -510,18 +510,17 @@ def run():
 
         cot_skip_applied = False
 
-        for cot_initializer, closed_cot_block in settings.chain_of_thought_skips:
+        for cot_initializer, cot_finalizer in settings.chain_of_thought_blocks:
             # Check if the template already inserts the full closed CoT block
             # (e.g. When thinking is disabled by the chat template).
             # We allow flexible spacing/newlines between the initializer and ender.
-            cot_ender = closed_cot_block.removeprefix(cot_initializer)
             pattern_closed = (
-                rf"{re.escape(cot_initializer)}\s*{re.escape(cot_ender)}\s*$"
+                rf"{re.escape(cot_initializer)}\s*{re.escape(cot_finalizer)}\s*$"
             )
             if re.search(pattern_closed, dummy_prompt):
                 settings.response_prefix = ""
                 print(
-                    f"* Chat template inserts full closed block [bold]{escape(repr(closed_cot_block))}[/]"
+                    f"* Chat template inserts full closed block [bold]{escape(repr(cot_initializer + cot_finalizer))}[/]"
                 )
                 cot_skip_applied = True
                 break
@@ -535,7 +534,7 @@ def run():
             if match:
                 # We use only the closed CoT block here. Any whitespaces
                 # will be handled by the 'Rechecking with prefix' logic below.
-                settings.response_prefix = closed_cot_block
+                settings.response_prefix = cot_initializer + cot_finalizer
                 print(
                     f"* Chat template inserts [bold]{escape(repr(cot_initializer))}[/]"
                 )
@@ -573,10 +572,10 @@ def run():
 
                 for (
                     cot_initializer,
-                    closed_cot_block,
-                ) in settings.chain_of_thought_skips:
+                    cot_finalizer,
+                ) in settings.chain_of_thought_blocks:
                     if settings.response_prefix.startswith(cot_initializer):
-                        settings.response_prefix = closed_cot_block
+                        settings.response_prefix = cot_initializer + cot_finalizer
                         print(
                             f"* Closed Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
                         )

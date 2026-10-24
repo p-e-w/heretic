@@ -551,7 +551,7 @@ def run():
                 # 'Rechecking with prefix' logic below.
                 settings.response_prefix = cot_finalizer
                 print(
-                    f"* Chat template inserts CoT initializer [bold]{escape(repr(cot_initializer))}[/]"
+                    f"* Chat template inserts CoT initializer: [bold]{escape(repr(cot_initializer))}[/]"
                 )
                 print(
                     f"* Remaining CoT finalizer: [bold]{escape(repr(settings.response_prefix))}[/]"

@@ -127,6 +127,31 @@ save the model, upload it to Hugging Face, chat with it to test how well it work
 run standard benchmarks on it, or any combination of those actions.
 
 
+## Streaming ARA
+
+Set `streaming = true` in `[modifier.ARA]` to fit each projection using inputs
+that include earlier edits, refreshing MLP inputs after attention edits. Heretic
+replays each edited layer over the full prompt sequence, keeping one sequence
+boundary per batch on CPU. This uses additional computation and CPU memory.
+The default is `streaming = false`. Streaming requires stateless decoder layers
+with dense, batch-first projections and does not support token-routed experts
+or layers offloaded to disk.
+
+
+## Backward restoration
+
+After saving a merged ARA checkpoint, use
+`heretic.modifiers.backward_restoration.BackwardRestoration` to fit its features
+toward the original model on harmless prompts while retaining the edited model's
+behavior on a separate set of prompts (e.g. harmful). Set `model` to the edited checkpoint and
+`modifier.BackwardRestoration.original_model` to the original. Both modes keep
+teacher targets fixed: `streaming = false` fits frozen student inputs, while
+`true` refreshes them after each edit. Restoration requires matching vocabularies
+and dense projection layouts. Set `scorer.KLDivergence.reference_model` to the
+original checkpoint for evaluation. See
+[`config.restoration.toml`](config.restoration.toml) for a complete example.
+
+
 ## How Heretic works
 
 Heretic implements a parametrized variant of directional ablation. For each

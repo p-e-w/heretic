@@ -961,6 +961,11 @@ def run():
                             else:
                                 print("Saving merged model...")
                                 merged_model = model.get_merged_model()
+                                ctx = Context(settings=settings, model=model)
+                                parameters = modifier.parameters_class.from_dict(
+                                    trial.user_attrs["parameters"]
+                                )
+                                modifier.bake(ctx, merged_model, parameters)
                                 merged_model.save_pretrained(
                                     save_directory,
                                     max_shard_size=settings.max_shard_size,

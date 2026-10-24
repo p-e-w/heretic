@@ -419,6 +419,10 @@ class Model:
         def try_add(component: str, module: Any):
             # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
             if isinstance(module, Module):
+                # Packed quantized layers (e.g. AutoRound/GPTQ) cannot be
+                # targeted by PEFT and do not expose a dense .weight matrix.
+                if hasattr(module, "qweight"):
+                    return
                 if component not in modules:
                     modules[component] = []
                 modules[component].append(module)
@@ -445,6 +449,14 @@ class Model:
         with suppress(Exception):
             for expert in layer.mlp.experts:  # ty:ignore[not-iterable, unresolved-attribute]
                 try_add("mlp.down_proj", expert.down_proj)  # ty: ignore[unresolved-attribute]
+
+        # Shared expert of MoE models (e.g. Qwen4-Exp).
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_expert.down_proj)  # ty: ignore[unresolved-attribute]
+
+        # Shared experts, plural spelling (e.g. DeepSeek V4).
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_experts.down_proj)  # ty: ignore[unresolved-attribute]
 
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
@@ -631,6 +643,33 @@ class Model:
         # Hidden states for the first (only) generated token.
         # This cast is valid because we passed output_hidden_states=True above.
         hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
+
+        # Models with several residual streams (e.g. Qwen4-Exp's Gated
+        # Residual) have a wider residual: either an explicit stream
+        # dimension, or a flattened hc_count * hidden_size dimension.
+        # Collapse the streams to their mean so that every layer has the
+        # same width as the model's output projections.
+        text_config = self.model.config
+        get_text_config = getattr(text_config, "get_text_config", None)
+        if callable(get_text_config):
+            text_config = get_text_config()
+        hidden_size = getattr(text_config, "hidden_size", None)
+        hc_count = getattr(text_config, "hc_count", 1)
+
+        def collapse_streams(layer_hidden_states: FloatTensor) -> FloatTensor:
+            if layer_hidden_states.dim() == 4:
+                return layer_hidden_states.mean(dim=-2)
+            if (
+                hidden_size
+                and hc_count > 1
+                and layer_hidden_states.shape[-1] == hc_count * hidden_size
+            ):
+                return layer_hidden_states.unflatten(-1, (hc_count, hidden_size)).mean(
+                    dim=-2
+                )
+            return layer_hidden_states
+
+        hidden_states = tuple(collapse_streams(h) for h in hidden_states)
 
         # The returned tensor has shape (prompt, layer, component).
         residuals = torch.stack(

@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
 
     steps:
       - name: Check out code
@@ -39,6 +39,13 @@ jobs:
 
       - name: Check typing
         run: uv run ty check --output-format=github --error-on-warning .
+
+      - name: Run tests
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          uv run python -m unittest discover -s tests -p 'test_*.py'
+          uv run tests/run_tests.py 2>&1
 
       - name: Build package
         run: uv build

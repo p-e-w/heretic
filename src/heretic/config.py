@@ -264,6 +264,24 @@ class Settings(BaseSettings):
         description='Maximum memory to allocate per device (e.g., { "0" = "20GB", "cpu" = "64GB" }).',
     )
 
+    fast_dispatch: bool = Field(
+        default=False,
+        description=(
+            "Skip Accelerate's per-tensor CUDA cache clears while loading the model. "
+            "Speeds up loading of models with very many tensors at the cost of "
+            "higher peak VRAM usage."
+        ),
+    )
+
+    ple_from_disk: bool = Field(
+        default=False,
+        description=(
+            "Read Qwen4-Exp's PLE n-gram embedding table from disk instead of "
+            "loading it as a regular parameter. Requires a local checkpoint "
+            "directory, and avoids ~95 GiB of RAM usage."
+        ),
+    )
+
     offload_outputs_to_cpu: bool = Field(
         default=True,
         description=(

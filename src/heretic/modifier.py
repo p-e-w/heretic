@@ -8,6 +8,7 @@ from typing import Any, Generic, Protocol, TypeVar, get_args
 from optuna import Trial
 from optuna.trial import FrozenTrial
 from pydantic import BaseModel
+from transformers import PreTrainedModel
 
 from .config import (
     ModifierConfig,
@@ -85,6 +86,19 @@ class Modifier(Plugin, ABC, Generic[Parameters]):
         """
         Reset the model (obtainable via `ctx.get_model()`),
         undoing any changes made by `modify_model`.
+        """
+
+    def bake(
+        self,
+        ctx: Context,
+        merged_model: PreTrainedModel,
+        parameters: Parameters,
+    ) -> None:
+        """
+        Bake any changes that cannot be represented as LoRA adapters into a
+        merged model before it is saved.
+
+        The default implementation does nothing.
         """
 
     def render_trial_parameters(self, trial: Trial | FrozenTrial) -> dict[str, str]:

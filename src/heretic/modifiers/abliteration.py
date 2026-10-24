@@ -21,6 +21,7 @@ from torch import Tensor
 
 from heretic.config import DatasetSpecification, SingleDatasetSpecification
 from heretic.modifier import Context, Modifier, Serializable
+from heretic.qwen4_bake import bake_quantized_experts
 from heretic.utils import format_dataset_specification, print
 
 
@@ -458,6 +459,60 @@ class Abliteration(Modifier[Parameters]):
                     weight_B = cast(Tensor, module.lora_B["default"].weight)
                     weight_A.data = lora_A.to(weight_A.dtype)
                     weight_B.data = lora_B.to(weight_B.dtype)
+
+    def bake(
+        self,
+        ctx: Context,
+        merged_model: Any,
+        parameters: Parameters,
+    ) -> None:
+        """Bake the routed-expert half of the MLP ablation into the weights."""
+        if not hasattr(self, "residual_directions"):
+            return
+
+        distribution = parameters.weight_distributions.get("mlp.down_proj")
+        if distribution is None:
+            return
+
+        layers = ctx.get_model().get_layers()
+        directions: list[Tensor | None] = []
+        weights: list[float] = []
+
+        for layer_index in range(len(layers)):
+            distance = abs(layer_index - distribution.max_weight_position)
+            if distribution.min_weight_distance <= 0:
+                weight = distribution.max_weight if distance == 0 else 0.0
+            elif distance > distribution.min_weight_distance:
+                weight = 0.0
+            else:
+                weight = distribution.max_weight + (
+                    distance / distribution.min_weight_distance
+                ) * (distribution.min_weight - distribution.max_weight)
+
+            if weight == 0:
+                directions.append(None)
+                weights.append(0.0)
+                continue
+
+            if parameters.direction_index is None:
+                direction = self.residual_directions[layer_index + 1]
+            else:
+                fraction, index = math.modf(parameters.direction_index + 1)
+                direction = F.normalize(
+                    self.residual_directions[int(index)].lerp(
+                        self.residual_directions[int(index) + 1],
+                        fraction,
+                    ),
+                    p=2,
+                    dim=0,
+                )
+
+            directions.append(direction)
+            weights.append(weight)
+
+        print("* Baking routed experts...")
+        baked = bake_quantized_experts(layers, directions, weights)
+        print(f"* Baked {baked} routed expert down projections")
 
     def reset_model(self, ctx: Context) -> None:
         model = ctx.get_model()

@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import datetime, timezone
 from typing import Any, TypeAlias, cast
 
@@ -29,6 +29,9 @@ from transformers.generation import (
 )
 
 from .config import QuantizationMethod, Settings
+from .fast_dispatch import fast_dispatch
+from .qwen4_ple import copy_auxiliary_tensors
+from .qwen4_ple import install as install_qwen4_ple
 from .system import empty_cache
 from .utils import Prompt, batchify, format_exception, print
 
@@ -100,6 +103,8 @@ class Model:
         if settings.model_commit is not None:
             self.revision_kwargs["revision"] = settings.model_commit
 
+        install_qwen4_ple(settings.model, settings.ple_from_disk)
+
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
@@ -156,17 +161,19 @@ class Model:
                 if quantization_config is not None:
                     extra_kwargs["quantization_config"] = quantization_config
 
-                self.model = get_model_class(settings.model).from_pretrained(
-                    settings.model,
-                    dtype=dtype,
-                    device_map=settings.device_map,
-                    max_memory=self.max_memory,
-                    trust_remote_code=True
-                    if settings.model in self.trusted_models
-                    else None,
-                    **self.revision_kwargs,
-                    **extra_kwargs,
-                )
+                context = fast_dispatch() if settings.fast_dispatch else nullcontext()
+                with context:
+                    self.model = get_model_class(settings.model).from_pretrained(
+                        settings.model,
+                        dtype=dtype,
+                        device_map=settings.device_map,
+                        max_memory=self.max_memory,
+                        trust_remote_code=True
+                        if settings.model in self.trusted_models
+                        else None,
+                        **self.revision_kwargs,
+                        **extra_kwargs,
+                    )
 
                 self.dtype = self.model.dtype
 
@@ -311,15 +318,18 @@ class Model:
 
             # Load base model in full precision on CPU to avoid VRAM issues
             print("* Loading base model on CPU (this may take a while)...")
-            base_model = get_model_class(self.settings.model).from_pretrained(
-                self.settings.model,
-                torch_dtype=self.model.dtype,
-                device_map="cpu",
-                trust_remote_code=True
-                if self.settings.model in self.trusted_models
-                else None,
-                **self.revision_kwargs,
-            )
+            install_qwen4_ple(self.settings.model, self.settings.ple_from_disk)
+            context = fast_dispatch() if self.settings.fast_dispatch else nullcontext()
+            with context:
+                base_model = get_model_class(self.settings.model).from_pretrained(
+                    self.settings.model,
+                    torch_dtype=self.model.dtype,
+                    device_map="cpu",
+                    trust_remote_code=True
+                    if self.settings.model in self.trusted_models
+                    else None,
+                    **self.revision_kwargs,
+                )
 
             # Apply LoRA adapters to the CPU model
             print("* Applying LoRA adapters...")
@@ -342,6 +352,10 @@ class Model:
             # Mark for full reload if user switches trials later.
             self.needs_reload = True
             return merged_model
+
+    def save_auxiliary_tensors(self, save_directory: str) -> None:
+        print("* Copying auxiliary tensors...")
+        copy_auxiliary_tensors(self.settings.model, save_directory)
 
     def reset_model(self) -> bool:
         """
@@ -381,17 +395,20 @@ class Model:
         if quantization_config is not None:
             extra_kwargs["quantization_config"] = quantization_config
 
-        self.model = get_model_class(self.settings.model).from_pretrained(
-            self.settings.model,
-            dtype=self.dtype,
-            device_map=self.settings.device_map,
-            max_memory=self.max_memory,
-            trust_remote_code=True
-            if self.settings.model in self.trusted_models
-            else None,
-            **self.revision_kwargs,
-            **extra_kwargs,
-        )
+        install_qwen4_ple(self.settings.model, self.settings.ple_from_disk)
+        context = fast_dispatch() if self.settings.fast_dispatch else nullcontext()
+        with context:
+            self.model = get_model_class(self.settings.model).from_pretrained(
+                self.settings.model,
+                dtype=self.dtype,
+                device_map=self.settings.device_map,
+                max_memory=self.max_memory,
+                trust_remote_code=True
+                if self.settings.model in self.trusted_models
+                else None,
+                **self.revision_kwargs,
+                **extra_kwargs,
+            )
 
         self.needs_reload = False
 
@@ -419,6 +436,10 @@ class Model:
         def try_add(component: str, module: Any):
             # Only add if it's a proper nn.Module (PEFT can wrap these with LoRA)
             if isinstance(module, Module):
+                # Packed quantized layers (e.g. AutoRound/GPTQ) cannot be
+                # targeted by PEFT and do not expose a dense .weight matrix.
+                if hasattr(module, "qweight"):
+                    return
                 if component not in modules:
                     modules[component] = []
                 modules[component].append(module)
@@ -445,6 +466,14 @@ class Model:
         with suppress(Exception):
             for expert in layer.mlp.experts:  # ty:ignore[not-iterable, unresolved-attribute]
                 try_add("mlp.down_proj", expert.down_proj)  # ty: ignore[unresolved-attribute]
+
+        # Shared expert of MoE models (e.g. Qwen4-Exp).
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_expert.down_proj)  # ty: ignore[unresolved-attribute]
+
+        # Shared experts, plural spelling (e.g. DeepSeek V4).
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_experts.down_proj)  # ty: ignore[unresolved-attribute]
 
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
@@ -631,6 +660,33 @@ class Model:
         # Hidden states for the first (only) generated token.
         # This cast is valid because we passed output_hidden_states=True above.
         hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
+
+        # Models with several residual streams (e.g. Qwen4-Exp's Gated
+        # Residual) have a wider residual: either an explicit stream
+        # dimension, or a flattened hc_count * hidden_size dimension.
+        # Collapse the streams to their mean so that every layer has the
+        # same width as the model's output projections.
+        text_config = self.model.config
+        get_text_config = getattr(text_config, "get_text_config", None)
+        if callable(get_text_config):
+            text_config = get_text_config()
+        hidden_size = getattr(text_config, "hidden_size", None)
+        hc_count = getattr(text_config, "hc_count", 1)
+
+        def collapse_streams(layer_hidden_states: FloatTensor) -> FloatTensor:
+            if layer_hidden_states.dim() == 4:
+                return layer_hidden_states.mean(dim=-2)
+            if (
+                hidden_size
+                and hc_count > 1
+                and layer_hidden_states.shape[-1] == hc_count * hidden_size
+            ):
+                return layer_hidden_states.unflatten(-1, (hc_count, hidden_size)).mean(
+                    dim=-2
+                )
+            return layer_hidden_states
+
+        hidden_states = tuple(collapse_streams(h) for h in hidden_states)
 
         # The returned tensor has shape (prompt, layer, component).
         residuals = torch.stack(

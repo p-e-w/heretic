@@ -478,6 +478,9 @@ def run():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
+    # For more information about response_prefix, see the implementations:
+    # https://github.com/p-e-w/heretic/pull/423
+    # https://github.com/p-e-w/heretic/pull/523
     if settings.response_prefix is None:
         print()
         print(
@@ -492,10 +495,12 @@ def run():
         print()
         print("Checking chat template for a Chain-of-Thought initializer...")
 
-        # Detect if the model's chat template inserts a reasoning tag on its own
+        # Detect if the model's chat template inserts a CoT initializer on its own
         # at the end of user's prompt (e.g. <think>) by using a dummy prompt.
-        # If found, then we use the full closed CoT as the response prefix.
-        # LiquidAI's LFM models do this (Lfm2ForCausalLM).
+        # If found, then we use the finalizer as the response prefix (e.g. </think>)
+        # so that when it's concatenated, it completes the closed CoT block.
+        # LiquidAI's LFM2.5 models and Qwen's Qwen3.5 models do this by
+        # inserting the CoT initializer to enable thinking by default.
 
         # This cast is valid because str is the return type
         # for a single chat operation with tokenize=False.
@@ -511,35 +516,45 @@ def run():
         cot_skip_applied = False
 
         for cot_initializer, cot_finalizer in settings.chain_of_thought_blocks:
-            # Check if the template already inserts the full closed CoT block
+            # Check if the chat template already inserts the full closed CoT block
             # (e.g. When thinking is disabled by the chat template).
-            # We allow flexible spacing/newlines between the initializer and ender.
+            # Smaller variants like Qwen/Qwen3.5-2B do this by inserting the full
+            # CoT block to disable thinking by default, while larger variants only
+            # insert the initializer to enable thinking by default (>=4B).
+            # We allow flexible spacing/newlines between the initializer and finalizer.
             pattern_closed = (
-                rf"{re.escape(cot_initializer)}\s*{re.escape(cot_finalizer)}\s*$"
+                rf"{re.escape(cot_initializer)}\s*{re.escape(cot_finalizer)}\s*"
             )
             if re.search(pattern_closed, dummy_prompt):
                 settings.response_prefix = ""
                 print(
                     f"* Chat template inserts full closed block [bold]{escape(repr(cot_initializer + cot_finalizer))}[/]"
                 )
+                print("* Response prefix not required")
                 cot_skip_applied = True
                 break
 
-            # Match the tag and ignore any whitespace characters following it at the end
+            # Match the initializer and ignore any whitespace characters following it at the end
             # (if any), including spaces, tabs, and linebreaks. This is required for models
-            # having whitespaces after the tags.
+            # having whitespaces after the initializer.
             pattern = rf"{re.escape(cot_initializer)}\s*$"
             match = re.search(pattern, dummy_prompt)
 
             if match:
-                # We use only the closed CoT block here. Any whitespaces
-                # will be handled by the 'Rechecking with prefix' logic below.
-                settings.response_prefix = cot_initializer + cot_finalizer
+                # The chat template already inserted the initializer, so we just
+                # supply the finalizer as the response prefix. So that when
+                # concatenated to the prompts during generation, it forms a full
+                # closed CoT block (e.g. <think></think>).
+                # Passing full CoT block for models which only insert the initializer
+                # is wrong, see: https://github.com/p-e-w/heretic/pull/514
+                # Any trailing whitespaces will be handled by the
+                # 'Rechecking with prefix' logic below.
+                settings.response_prefix = cot_finalizer
                 print(
-                    f"* Chat template inserts [bold]{escape(repr(cot_initializer))}[/]"
+                    f"* Chat template inserts CoT initializer [bold]{escape(repr(cot_initializer))}[/]"
                 )
                 print(
-                    f"* Remaining Chain-of-Thought block: [bold]{escape(repr(settings.response_prefix))}[/]"
+                    f"* Remaining CoT finalizer: [bold]{escape(repr(settings.response_prefix))}[/]"
                 )
                 cot_skip_applied = True
                 break
@@ -548,10 +563,10 @@ def run():
             print("* None found")
 
         # Fallback to inference for models like mistral-3 which are specifically
-        # instructed to generate thinking tags using the system prompt in their
-        # chat template, instead of inserting a prefix tag (e.g. <think>) at
-        # the end of user prompt like the case above. We expect the model to
-        # generate those tags.
+        # instructed to generate the CoT block using the system prompt in their
+        # chat template, instead of inserting a initializer at the end of
+        # the user prompt like the case above. Here, we expect the model to
+        # generate those initializer and finalizer for a full closed CoT.
         if settings.response_prefix is None:
             print()
             print("Checking for common response prefix...")

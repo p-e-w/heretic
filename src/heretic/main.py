@@ -478,9 +478,6 @@ def run():
         settings.batch_size = best_batch_size
         print(f"* Chosen batch size: [bold]{settings.batch_size}[/]")
 
-    # For more information about response_prefix, see the implementations:
-    # https://github.com/p-e-w/heretic/pull/423
-    # https://github.com/p-e-w/heretic/pull/523
     if settings.response_prefix is None:
         print()
         print(
@@ -525,11 +522,14 @@ def run():
             # Smaller variants like Qwen/Qwen3.5-2B do this by inserting the full
             # CoT block to disable thinking by default, while larger variants only
             # insert the initializer to enable thinking by default (>=4B).
-            # We allow flexible spacing/newlines between the initializer and finalizer.
+            # We allow arbitrary characters and whitespaces, including newlines via
+            # re.DOTALL between the initializer and the finalizer.
+            # This makes the logic more generic for patterns which pre-fill
+            # some text (e.g. <think>Some instruction</think>).
             pattern_closed = (
-                rf"{re.escape(cot_initializer)}\s*{re.escape(cot_finalizer)}\s*"
+                rf"{re.escape(cot_initializer)}.*{re.escape(cot_finalizer)}"
             )
-            if re.search(pattern_closed, dummy_prompt):
+            if re.search(pattern_closed, dummy_prompt, flags=re.DOTALL):
                 settings.response_prefix = ""
                 print(
                     f"* Chat template inserts full closed block [bold]{escape(repr(cot_initializer + cot_finalizer))}[/]"
@@ -538,19 +538,14 @@ def run():
                 cot_skip_applied = True
                 break
 
-            # Match the initializer and ignore any whitespace characters following it at the end
-            # (if any), including spaces, tabs, and linebreaks. This is required for models
-            # having whitespaces after the initializer.
-            pattern_initializer = rf"{re.escape(cot_initializer)}\s*"
-            match = re.search(pattern_initializer, dummy_prompt)
-
-            if match:
+            if cot_initializer in dummy_prompt:
                 # The chat template already inserted the initializer, so we just
                 # supply the finalizer as the response prefix. So that when
                 # concatenated to the prompts during generation, it forms a full
                 # closed CoT block (e.g. <think></think>).
                 # Passing a full closed CoT block for models which only insert the
-                # initializer is wrong, see: https://github.com/p-e-w/heretic/pull/514
+                # initializer is wrong, resulting in: '<think>\n<think></think>\n\n'
+                # during the generation for Qwen3.5 models (>=4B) as an example.
                 # Any trailing whitespaces will be handled by the
                 # 'Rechecking with prefix' logic below.
                 settings.response_prefix = cot_finalizer
@@ -558,7 +553,7 @@ def run():
                     f"* Chat template inserts CoT initializer: [bold]{escape(repr(cot_initializer))}[/]"
                 )
                 print(
-                    f"* Remaining CoT finalizer: [bold]{escape(repr(settings.response_prefix))}[/]"
+                    f"* Remaining CoT finalizer: [bold]{escape(repr(cot_finalizer))}[/]"
                 )
                 cot_skip_applied = True
                 break
@@ -603,7 +598,13 @@ def run():
             else:
                 print("* None found")
 
-        if cot_skip_applied:
+        # Only recheck if we actually supply a prefix to find any missed whitespaces
+        # like '</think>' (supplied finalizer) or '[THINK][/THINK]' (supplied closed CoT
+        # block for models instructed to think, e.g. mistral-3).
+        # When the chat template already inserts a full closed block, response_prefix is ""
+        # and rechecking is not required. Otherwise it would just run inference
+        # and set common words as the response_prefix (e.g. 'Sure,', 'I cannot').
+        if cot_skip_applied and settings.response_prefix:
             # When using a Chain-of-Thought skip, we need to check that the prefix
             # is actually complete (e.g. not missing a trailing newline).
             print("* Rechecking with prefix...")

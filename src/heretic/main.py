@@ -532,9 +532,9 @@ def run():
             if re.search(pattern_closed, dummy_prompt, flags=re.DOTALL):
                 settings.response_prefix = ""
                 print(
-                    f"* Chat template inserts full closed block [bold]{escape(repr(cot_initializer + cot_finalizer))}[/]"
+                    f"* Chat template inserts full closed CoT block [bold]{escape(repr(cot_initializer + cot_finalizer))}[/]"
                 )
-                print("* Response prefix not required")
+                print("* Response prefix is not required")
                 cot_skip_applied = True
                 break
 

@@ -502,13 +502,24 @@ def run():
         # so that when it's concatenated, it completes the closed CoT block.
         # LiquidAI's LFM2.5 models and Qwen's Qwen3.5 models do this by
         # inserting the CoT initializer to enable thinking by default.
+        #
+        # If the model supports system messages, we provide a custom one to
+        # override the default system instructions for this case. Because they
+        # may contain CoT examples like '[THINK]...[/THINK]', which would trigger
+        # false-positive matches when searching in the dummy prompt (e.g. Mistral-3).
+        dummy_messages = []
+        if getattr(model, "supports_system_role", False):
+            dummy_messages.append(
+                {"role": "system", "content": "You are a helpful assistant."}
+            )
+        dummy_messages.append({"role": "user", "content": "This is a dummy prompt."})
 
         # This cast is valid because str is the return type
         # for a single chat operation with tokenize=False.
         dummy_prompt = cast(
             str,
             model.tokenizer.apply_chat_template(
-                [{"role": "user", "content": "This is a dummy prompt."}],
+                dummy_messages,
                 add_generation_prompt=True,
                 tokenize=False,
             ),
@@ -563,9 +574,12 @@ def run():
 
         # Fallback to inference for models like mistral-3 which are specifically
         # instructed to generate the CoT block using the system prompt in their
-        # chat template, instead of inserting a initializer at the end of
-        # the user prompt like the case above. Here, we expect the model to
-        # generate those initializer and finalizer for a full closed CoT.
+        # chat template, instead of inserting an initializer at the end of
+        # the user prompt like the case above. The test prompts do not
+        # override the system prompt, so here we expect the model to generate
+        # the initializer, which we then close using the finalizer.
+        # Some models may inherently generate the CoT block simply due
+        # to their training, regardless of instructions.
         if settings.response_prefix is None:
             print()
             print("Checking for common response prefix...")

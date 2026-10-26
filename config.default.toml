@@ -99,6 +99,13 @@ study_checkpoint_dir = "checkpoints"
 # Maximum size for individual safetensors files generated when exporting a model.
 max_shard_size = "5GB"
 
+# Tags to add to the Hugging Face repository when uploading the model.
+upload_tags = [
+    "uncensored",
+    "decensored",
+    "abliterated",
+]
+
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
 
@@ -109,12 +116,14 @@ system_prompt = "You are a helpful assistant."
 "attn.o_proj" = [
     "self_attn.o_proj",
     "linear_attn.out_proj",
+    "self_attn.o_b_proj",
     "conv.out_proj",
     "self_attn.out_proj",
 ]
 "mlp.down_proj" = [
     "mlp.down_proj",
     "mlp.experts.*.down_proj",
+    "mlp.shared_experts.down_proj",
     "block_sparse_moe.experts.*.w2",
     "feed_forward.w2",
     "feed_forward.experts.*.w2",

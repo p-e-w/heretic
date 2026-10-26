@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -27,12 +27,14 @@ def default_layer_module_targets() -> dict[str, list[str]]:
         "attn.o_proj": [
             "self_attn.o_proj",
             "linear_attn.out_proj",
+            "self_attn.o_b_proj",
             "conv.out_proj",
             "self_attn.out_proj",
         ],
         "mlp.down_proj": [
             "mlp.down_proj",
             "mlp.experts.*.down_proj",
+            "mlp.shared_experts.down_proj",
             "block_sparse_moe.experts.*.w2",
             "feed_forward.w2",
             "feed_forward.experts.*.w2",
@@ -586,6 +588,15 @@ class Settings(BaseSettings):
         description='Which reproducibility information to add to the Hugging Face repository: "full", "basic", "none", or unset to prompt the user.',
     )
 
+    upload_tags: list[str] = Field(
+        default=[
+            "uncensored",
+            "decensored",
+            "abliterated",
+        ],
+        description="Tags to add to the Hugging Face repository when uploading the model.",
+    )
+
     ignore_mismatches: bool | None = Field(
         default=None,
         description="Whether to attempt to reproduce the model even if there are environment mismatches, or unset to prompt the user.",
@@ -611,7 +622,7 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
-            init_settings,  # Used during resume - should override *all* other sources.
+            init_settings,  # Values passed to the constructor override all other sources.
             CliSettingsSource(
                 settings_cls,
                 cli_parse_args=True,
@@ -623,3 +634,36 @@ class Settings(BaseSettings):
             file_secret_settings,
             TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
         )
+
+    @classmethod
+    def model_validate_init_only(
+        cls, values: dict[str, Any], current: "Settings"
+    ) -> "Settings":
+        """
+        Validates `values` without reading any other settings source: nothing
+        comes from config.toml, environment variables or the command line, and
+        settings missing from `values` get their defaults. Settings with
+        `exclude=True` (such as `save_directory`) are left out of serialized
+        settings, so they are taken from `current`.
+        """
+        excluded = {
+            name: getattr(current, name)
+            for name, field in cls.model_fields.items()
+            if field.exclude
+        }
+        return InitOnlySettings.model_validate(values | excluded)
+
+
+class InitOnlySettings(Settings):
+    """Settings validated only from the values passed in, without reading any source."""
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (init_settings,)

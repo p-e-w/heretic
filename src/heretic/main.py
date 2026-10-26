@@ -508,7 +508,7 @@ def run():
         # may contain CoT examples like '[THINK]...[/THINK]', which would trigger
         # false-positive matches when searching in the dummy prompt (e.g. Mistral-3).
         dummy_messages = []
-        if getattr(model, "supports_system_role", False):
+        if model.supports_system_role:
             dummy_messages.append(
                 {"role": "system", "content": "You are a helpful assistant."}
             )

@@ -94,12 +94,12 @@ class Analyzer:
         b_r_similarities = F.cosine_similarity(b, r, dim=-1)
         b_star_r_star_similarities = F.cosine_similarity(b_star, r_star, dim=-1)
 
-        g_norms = LA.vector_norm(g, dim=-1)
-        g_star_norms = LA.vector_norm(g_star, dim=-1)
-        b_norms = LA.vector_norm(b, dim=-1)
-        b_star_norms = LA.vector_norm(b_star, dim=-1)
-        r_norms = LA.vector_norm(r, dim=-1)
-        r_star_norms = LA.vector_norm(r_star, dim=-1)
+        g_norms = LA.vector_norm(g.float(), dim=-1)
+        g_star_norms = LA.vector_norm(g_star.float(), dim=-1)
+        b_norms = LA.vector_norm(b.float(), dim=-1)
+        b_star_norms = LA.vector_norm(b_star.float(), dim=-1)
+        r_norms = LA.vector_norm(r.float(), dim=-1)
+        r_star_norms = LA.vector_norm(r_star.float(), dim=-1)
 
         residuals = (
             torch.cat(

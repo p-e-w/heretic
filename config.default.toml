@@ -42,29 +42,29 @@ max_batch_size = 128
 # Maximum number of tokens to generate for each response.
 max_response_length = 100
 
-# List of pairs of the form [cot_initializer, closed_cot_block] used to skip
+# List of pairs of the form [cot_initializer, cot_finalizer] used to skip
 # the Chain-of-Thought block in responses, so that evaluation happens
 # at the start of the actual response.
-chain_of_thought_skips = [
+chain_of_thought_blocks = [
     # Most thinking models.
     [
         "<think>",
-        "<think></think>",
+        "</think>",
     ],
     # gpt-oss.
     [
         "<|channel|>analysis<|message|>",
-        "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>",
+        "<|end|><|start|>assistant<|channel|>final<|message|>",
     ],
     # Unknown, suggested by user.
     [
         "<thought>",
-        "<thought></thought>",
+        "</thought>",
     ],
     # Unknown, suggested by user.
     [
         "[THINK]",
-        "[THINK][/THINK]",
+        "[/THINK]",
     ],
 ]
 

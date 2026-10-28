@@ -480,6 +480,10 @@ class Model:
         with suppress(Exception):
             try_add("mlp.down_proj", layer.mlp.shared_experts.down_proj)  # ty: ignore[unresolved-attribute]
 
+        # Shared expert of MoE models (e.g. Qwen4-Exp).
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_expert.down_proj)  # ty: ignore[unresolved-attribute]
+
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
             for expert in layer.block_sparse_moe.experts:  # ty:ignore[not-iterable, unresolved-attribute]

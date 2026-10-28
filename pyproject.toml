@@ -1,7 +1,7 @@
 [project]
 name = "heretic-llm"
-version = "2.0.0.dev0"
-description = "Fully automatic censorship removal for language models"
+version = "2.0.0"
+description = "Training-free language model modification"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [
@@ -10,7 +10,7 @@ authors = [
 requires-python = ">=3.10"
 keywords = ["llm", "transformer", "abliteration"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Environment :: GPU",
     "Intended Audience :: Science/Research",
@@ -19,6 +19,9 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
 ]
 dependencies = [
     "accelerate~=1.15",
@@ -72,8 +75,7 @@ ignore = [
 ]
 
 [tool.uv]
-# TODO: Re-enable before 2.0 release!
-#exclude-newer = "7 days"
+exclude-newer = "7 days"
 
 [tool.uv.sources]
 torch = { index = "pytorch" }

@@ -18,6 +18,10 @@ resolution-markers = [
     "python_full_version < '3.11' and sys_platform == 'darwin'",
 ]
 
+[options]
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer-span = "P7D"
+
 [[package]]
 name = "absl-py"
 version = "2.5.0"
@@ -1078,7 +1082,7 @@ wheels = [
 
 [[package]]
 name = "heretic-llm"
-version = "2.0.0.dev0"
+version = "2.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },

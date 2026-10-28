@@ -4,7 +4,7 @@
 
 &nbsp;
 
-[![#1 Repository of the Day](https://trendshift.io/api/badge/repositories/20538)](https://trendshift.io/repositories/20538)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[<img width="540" height="55" alt="Statistics" src="https://github.com/user-attachments/assets/c9b5a660-7ef9-43c7-991c-fd9d63ea8bd8" />](https://heretic.sdad.pro/)
+[![#1 Repository of the Day](https://trendshift.io/api/badge/repositories/20538)](https://trendshift.io/repositories/20538)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[![Statistics](https://github.com/user-attachments/assets/c9b5a660-7ef9-43c7-991c-fd9d63ea8bd8)](https://heretic.sdad.pro/)
 
 
 ## Modify any LLM that you can run on your hardware[^1]

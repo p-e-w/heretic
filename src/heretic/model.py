@@ -44,6 +44,32 @@ def get_model_class(
         return AutoModelForCausalLM
 
 
+def _collapse_flattened_residual_streams(
+    hidden_states: tuple[FloatTensor, ...],
+    config: Any,
+) -> tuple[FloatTensor, ...]:
+    """
+    Average flattened multi-stream hidden states to hidden_size.
+
+    Some models (e.g. Qwen4-Exp) flatten their residual streams into the
+    component dimension instead of exposing a separate stream dimension, so
+    their hidden states have shape (prompt, position, streams * hidden_size).
+    The final entry is the merged model output (hidden_size) and is unchanged.
+    """
+    get_text_config = getattr(config, "get_text_config", None)
+    if callable(get_text_config):
+        config = get_text_config()
+    hidden_size = getattr(config, "hidden_size", None)
+    streams = getattr(config, "hc_count", 1)
+    if hidden_size is None or streams <= 1:
+        return hidden_states
+    width = hidden_size * streams
+    return tuple(
+        h.unflatten(-1, (streams, hidden_size)).mean(-2) if h.shape[-1] == width else h
+        for h in hidden_states
+    )
+
+
 # Some chat templates (e.g. gpt-oss) insert the current date into the prompt,
 # which makes the residuals, and therefore the modified model, depend on the day
 # Heretic is run. Rendering templates with a fixed date keeps results reproducible.
@@ -652,6 +678,11 @@ class Model:
                 else layer_hidden_states
             )
             for layer_hidden_states in hidden_states
+        )
+
+        hidden_states = _collapse_flattened_residual_streams(
+            cast(tuple[FloatTensor, ...], hidden_states),
+            self.model.config,
         )
 
         # The returned tensor has shape (prompt, layer, component).

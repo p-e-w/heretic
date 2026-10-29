@@ -1,0 +1,49 @@
+# Run this after saving a merged model from ordinary or streaming ARA.
+# Copy this file to config.toml and replace both model paths with your checkpoints.
+model = "path/to/edited-model"
+
+modifiers = [
+    { plugin = "heretic.modifiers.backward_restoration.BackwardRestoration" },
+]
+
+scorers = [
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
+]
+
+[modifier.BackwardRestoration]
+original_model = "Qwen/Qwen3-4B-Instruct-2507"
+# Pin the original checkpoint for reproducible runs.
+# original_model_commit = "..."
+
+# `false` fits frozen student inputs. `true` refreshes inputs after each edit.
+# Both modes use the same frozen teacher outputs and normalization.
+streaming = true
+lora_rank = 64
+n_optimization_steps = 5
+learning_rate = 1.0
+max_iter = 20
+history_size = 10
+update_penalty = 0.0001
+print_loss = false
+
+[modifier.BackwardRestoration.good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:400]"
+column = "text"
+
+[modifier.BackwardRestoration.retention_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:400]"
+column = "text"
+
+# Measure restoration against the original checkpoint, with separate test prompts.
+# Without reference_model, KL measures drift from the edited starting checkpoint.
+[scorer.KLDivergence]
+reference_model = "Qwen/Qwen3-4B-Instruct-2507"
+# reference_model_commit = "..."
+
+[scorer.KLDivergence.prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[:100]"
+column = "text"

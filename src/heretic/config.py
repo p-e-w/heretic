@@ -332,31 +332,31 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
-    chain_of_thought_skips: list[tuple[str, str]] = Field(
+    chain_of_thought_blocks: list[tuple[str, str]] = Field(
         default=[
             # Most thinking models.
             (
                 "<think>",
-                "<think></think>",
+                "</think>",
             ),
             # gpt-oss.
             (
                 "<|channel|>analysis<|message|>",
-                "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>",
+                "<|end|><|start|>assistant<|channel|>final<|message|>",
             ),
             # Unknown, suggested by user.
             (
                 "<thought>",
-                "<thought></thought>",
+                "</thought>",
             ),
             # Unknown, suggested by user.
             (
                 "[THINK]",
-                "[THINK][/THINK]",
+                "[/THINK]",
             ),
         ],
         description=(
-            "List of pairs of the form (cot_initializer, closed_cot_block) used to skip "
+            "List of pairs of the form (cot_initializer, cot_finalizer) used to skip "
             "the Chain-of-Thought block in responses, so that evaluation happens "
             "at the start of the actual response."
         ),

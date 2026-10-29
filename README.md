@@ -44,9 +44,10 @@ The community has created and published
 of models with Heretic.
 Heretic models have been independently benchmarked using standard metrics
 like MMLU and GSM8K, and have been found to compare favorably against models
-produced with competing abliteration tools:
-[1](https://old.reddit.com/r/LocalLLaMA/comments/1sojjoc/abliterlitics_benchmark_and_tensor_analysis/),
-[2](https://old.reddit.com/r/LocalLLaMA/comments/1sy18lx/abliterlitics_benchmarks_and_tensor_comparison/).
+produced with competing abliteration tools.[^2][^3]
+
+[^2]: https://old.reddit.com/r/LocalLLaMA/comments/1sojjoc/abliterlitics_benchmark_and_tensor_analysis/
+[^3]: https://old.reddit.com/r/LocalLLaMA/comments/1sy18lx/abliterlitics_benchmarks_and_tensor_comparison/
 
 &nbsp;
 
@@ -132,24 +133,77 @@ when passed to the modifier, minimize or maximize a set of configurable scores o
 
 Heretic ships with two modifiers:
 
-* **Arbitrary-Rank Ablation (ARA)** *(Weidmann 2026)*: This is the default modifier,
-  and was specifically developed for use in Heretic. You can find an overview of
-  how ARA works in [the original pull request](https://github.com/p-e-w/heretic/pull/211),
+* **Arbitrary-Rank Ablation (ARA)**[^4]: This is the default modifier, and was
+  specifically developed for use in Heretic. You can find an overview of how ARA
+  works in [the original pull request](https://github.com/p-e-w/heretic/pull/211),
   and see the precise implementation in [`ara.py`](/src/heretic/modifiers/ara.py).
-  A more detailed explanation will be available soon.
 
-* **Directional ablation aka "abliteration"**
-  *([Arditi et al. 2024](https://arxiv.org/abs/2406.11717))*:
-  The classic method for refusal suppression. Heretic's implementation uses a flexible
-  ablation weight kernel over the layers, and supports both projected abliteration
-  *([Lai 2025 (1)](https://huggingface.co/blog/grimjim/projected-abliteration))*
-  and norm preservation (MPOA)
-  *([Lai 2025 (2)](https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration))*.
+* **Directional ablation aka "abliteration"**[^5]: The classic method for refusal
+  suppression. Heretic's implementation uses a flexible ablation weight kernel over
+  the layers, and supports both projected abliteration[^6] and norm preservation (MPOA)[^7].
   The complete code is in [`abliteration.py`](/src/heretic/modifiers/abliteration.py).
+
+[^4]: *Weidmann 2026.* A preprint explaining the technique will be available soon.
+[^5]: *[Arditi et al. 2024](https://arxiv.org/abs/2406.11717)*
+[^6]: *[Lai 2025 (1)](https://huggingface.co/blog/grimjim/projected-abliteration)*
+[^7]: *[Lai 2025 (2)](https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration)*
 
 You can use the `modifiers` setting to switch between modifier implementations.
 Despite the name of the setting using a plural form, Heretic currently allows
 only a single modifier for a given processing run. This may change in the future.
+
+
+## Reproducibility and the Heretic Grimoire
+
+Heretic has the ability to create *reproducible models* whose repositories contain
+all information required to produce a byte-for-byte identical model on demand,
+provided that the environment is perfectly identical to the original one. PyTorch
+doesn't guarantee that operations return identical outputs unless hardware, drivers,
+operating system, and the entire software stack including all package versions
+are exactly the same.
+
+Heretic manages all that complexity for you. When uploading a processed model to
+Hugging Face, Heretic offers to include reproducibility information. This is entirely
+optional, but if you choose to do so, the uploaded repository will contain a
+`reproduce` folder with detailed instructions for recreating the model
+([example](https://huggingface.co/heretic-org/LFM2.5-VL-3B-heretic/tree/main/reproduce)).
+This folder contains both human-readable instructions and a machine-readable manifest
+file named `reproduce.json`, which includes all the information Heretic needs to
+**automatically** reproduce the model.
+
+Automatic reproduction can be performed with
+
+```sh
+heretic --reproduce path/to/reproduce.json
+```
+
+Heretic will guide you through the process, checking your environment against the one
+that was used to create the model, and pointing out potentially problematic mismatches.
+The multi-hour computations that were required to make the original model do **not**
+have to be re-done, and the entire process typically takes a few minutes. After you
+have exported the resulting model, Heretic will verify the hashes of the weight files
+against those stored in the reproduction manifest (they may or may not be identical,
+depending on how closely your system resembles the original one).
+
+Many people have uploaded models with reproducibility information to Hugging Face.
+Since a reproduction manifest is only around 9 kilobytes in size, these manifests
+form a portable library of models that can be reproduced at will.
+
+### That library is called the Heretic Grimoire. You can view it [here](https://huggingface.co/spaces/heretic-org/Heretic-Grimoire).
+
+But you don't have to rely on an externally hosted web application to access the
+library of manifests: The Grimoire is fundamentally designed as a *distributed* system,
+and you can fetch your own local copies of publicly available manifests from
+Hugging Face whenever you want by running
+
+```sh
+heretic --collect-reproducibles path/to/target/folder/
+```
+
+You now have a local backup of all reproducible Heretic models, properly catalogued.
+To update this collection, simply run the command again. It functions as an
+append-only backup, never deleting files even if the corresponding model no longer
+exists on Hugging Face.
 
 
 ## Heretic is made by humans!

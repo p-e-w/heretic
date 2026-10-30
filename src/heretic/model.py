@@ -44,6 +44,32 @@ def get_model_class(
         return AutoModelForCausalLM
 
 
+def _collapse_flattened_residual_streams(
+    hidden_states: tuple[FloatTensor, ...],
+    config: Any,
+) -> tuple[FloatTensor, ...]:
+    """
+    Average flattened multi-stream hidden states to hidden_size.
+
+    Some models (e.g. Qwen4-Exp) flatten their residual streams into the
+    component dimension instead of exposing a separate stream dimension, so
+    their hidden states have shape (prompt, position, streams * hidden_size).
+    The final entry is the merged model output (hidden_size) and is unchanged.
+    """
+    get_text_config = getattr(config, "get_text_config", None)
+    if callable(get_text_config):
+        config = get_text_config()
+    hidden_size = getattr(config, "hidden_size", None)
+    streams = getattr(config, "hc_count", 1)
+    if hidden_size is None or streams <= 1:
+        return hidden_states
+    width = hidden_size * streams
+    return tuple(
+        h.unflatten(-1, (streams, hidden_size)).mean(-2) if h.shape[-1] == width else h
+        for h in hidden_states
+    )
+
+
 # Some chat templates (e.g. gpt-oss) insert the current date into the prompt,
 # which makes the residuals, and therefore the modified model, depend on the day
 # Heretic is run. Rendering templates with a fixed date keeps results reproducible.
@@ -437,6 +463,10 @@ class Model:
         with suppress(Exception):
             try_add("attn.o_proj", layer.linear_attn.out_proj)  # ty: ignore[unresolved-attribute]
 
+        # DeepSeek V4.
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_b_proj)  # ty: ignore[unresolved-attribute]
+
         # Most dense models.
         with suppress(Exception):
             try_add("mlp.down_proj", layer.mlp.down_proj)  # ty: ignore[unresolved-attribute]
@@ -445,6 +475,14 @@ class Model:
         with suppress(Exception):
             for expert in layer.mlp.experts:  # ty:ignore[not-iterable, unresolved-attribute]
                 try_add("mlp.down_proj", expert.down_proj)  # ty: ignore[unresolved-attribute]
+
+        # Shared experts of MoE models (e.g. DeepSeek V4 and GLM 5.3).
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_experts.down_proj)  # ty: ignore[unresolved-attribute]
+
+        # Shared expert of MoE models (e.g. Qwen4-Exp).
+        with suppress(Exception):
+            try_add("mlp.down_proj", layer.mlp.shared_expert.down_proj)  # ty: ignore[unresolved-attribute]
 
         # Phi-3.5-MoE (and possibly others).
         with suppress(Exception):
@@ -631,6 +669,25 @@ class Model:
         # Hidden states for the first (only) generated token.
         # This cast is valid because we passed output_hidden_states=True above.
         hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
+
+        # Models with Hyper-Connections (e.g. DeepSeek V4 and GLM 5.3) have several
+        # residual streams, so their hidden states have shape
+        # (prompt, position, stream, component). We use the mean of the streams.
+        # The last entry has no stream dimension, because Transformers replaces it
+        # with the model output, where the streams have already been merged.
+        hidden_states = tuple(
+            (
+                layer_hidden_states.mean(dim=2)
+                if layer_hidden_states.dim() == 4
+                else layer_hidden_states
+            )
+            for layer_hidden_states in hidden_states
+        )
+
+        hidden_states = _collapse_flattened_residual_streams(
+            cast(tuple[FloatTensor, ...], hidden_states),
+            self.model.config,
+        )
 
         # The returned tensor has shape (prompt, layer, component).
         residuals = torch.stack(

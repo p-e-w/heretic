@@ -1,10 +1,27 @@
-<img width="128" align="right" alt="Logo" src="https://github.com/user-attachments/assets/df5f2840-2f92-4991-aa57-252747d7182e" />
+<div align="center">
 
-# Heretic: Training-free language model modification<br><sub>Remove censorship, suppress slop, reduce sycophancy, and more.<br>In an afternoon, on your gaming PC.</sub><br><br>[![Discord](https://img.shields.io/discord/1447831134212984903?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/gdXc48gSyT) [![Matrix](https://img.shields.io/badge/Matrix-black?logo=matrix&style=for-the-badge)](https://matrix.to/#/#heretic:matrix.org) [![Follow us on Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg)](https://huggingface.co/heretic-org) [![Codeberg mirror](https://img.shields.io/badge/Codeberg%20mirror-black?logo=codeberg&style=for-the-badge)](https://codeberg.org/p-e-w/heretic)
+<img width="128" alt="Heretic logo" src="https://github.com/user-attachments/assets/df5f2840-2f92-4991-aa57-252747d7182e" />
+
+# Heretic
+
+### Training-free language model modification
+
+**Remove censorship**, suppress slop, reduce sycophancy, and more.<br>
+All in an afternoon, on your gaming PC.
+
+[![Discord](https://img.shields.io/discord/1447831134212984903?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/gdXc48gSyT)&nbsp;&nbsp;&nbsp;&nbsp;
+[![Matrix](https://img.shields.io/badge/Matrix-black?logo=matrix&style=for-the-badge)](https://matrix.to/#/#heretic:matrix.org)&nbsp;&nbsp;&nbsp;
+[![Follow us on Hugging Face](https://huggingface.co/datasets/huggingface/badges/resolve/main/follow-us-on-hf-md-dark.svg)](https://huggingface.co/heretic-org)&nbsp;&nbsp;&nbsp;
+[![Codeberg mirror](https://img.shields.io/badge/Codeberg%20mirror-black?logo=codeberg&style=for-the-badge)](https://codeberg.org/p-e-w/heretic)
+
+</div>
+
+-----
 
 &nbsp;
 
-[![#1 Repository of the Day](https://trendshift.io/api/badge/repositories/20538)](https://trendshift.io/repositories/20538)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[![Statistics](https://github.com/user-attachments/assets/c9b5a660-7ef9-43c7-991c-fd9d63ea8bd8)](https://heretic.sdad.pro/)
+[![#1 Repository of the Day](https://trendshift.io/api/badge/repositories/20538)](https://trendshift.io/repositories/20538)&nbsp;&nbsp;&nbsp;&nbsp;
+[![Model and download statistics](https://github.com/user-attachments/assets/c9b5a660-7ef9-43c7-991c-fd9d63ea8bd8)](https://heretic.sdad.pro/)
 
 
 ## Modify any LLM that you can run on your hardware[^1]
@@ -51,7 +68,7 @@ produced with competing abliteration tools.[^2][^3]
 
 &nbsp;
 
-<img width="600" alt="Screenshot" src="https://github.com/user-attachments/assets/a030f595-67ef-49a6-9d9a-779fdf752b58" />
+<img width="600" alt="Heretic screenshot" src="https://github.com/user-attachments/assets/a030f595-67ef-49a6-9d9a-779fdf752b58" />
 
 &nbsp;
 

@@ -807,3 +807,11 @@ def upload_reproduce_folder(
                     repo_id=repo_id,
                     token=token,
                 )
+
+
+def is_interactive() -> bool:
+    """Check if running in an interactive environment."""
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except Exception:
+        return False

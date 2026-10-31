@@ -201,7 +201,7 @@ class Settings(BaseSettings):
     evaluate_model: str | None = Field(
         default=None,
         description=(
-            "If this model ID or path is set, then instead of abliterating the main model, "
+            "If this model ID or path is set, then instead of modifying the main model, "
             "evaluate this model relative to the main model."
         ),
         exclude=True,
@@ -210,7 +210,7 @@ class Settings(BaseSettings):
     collect_reproducibles: str | None = Field(
         default=None,
         description=(
-            "If this directory path is set, then instead of abliterating a model, "
+            "If this directory path is set, then instead of modifying a model, "
             "download all reproduce.json files from public Heretic model repositories "
             "on Hugging Face, and store them in that directory for archival purposes."
         ),
@@ -221,7 +221,7 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "If this path or URL to a reproduce.json file is set, load reproduction information "
-            "from that file, and attempt to reproduce the abliterated model it originated from."
+            "from that file, and attempt to reproduce the modified model it originated from."
         ),
         exclude=True,
     )
@@ -405,7 +405,7 @@ class Settings(BaseSettings):
 
     n_trials: PositiveInt = Field(
         default=100,
-        description="Number of abliteration trials to run during optimization.",
+        description="Number of trials to run during optimization.",
     )
 
     n_startup_trials: NonNegativeInt = Field(
@@ -425,6 +425,11 @@ class Settings(BaseSettings):
         default="checkpoints",
         description="Directory to save and load study progress to/from.",
         exclude=True,
+    )
+
+    modified_model_type: str = Field(
+        default="decensored",
+        description="Adjective describing the type of model produced by the configuration.",
     )
 
     benchmarks: list[BenchmarkSpecification] = Field(
@@ -485,7 +490,7 @@ class Settings(BaseSettings):
                 description="An Adversarial Winograd Schema Challenge at Scale",
             ),
         ],
-        description="Benchmarks to offer to the user for evaluating abliterated models.",
+        description="Benchmarks to offer to the user for evaluating modified models.",
         exclude=True,
     )
 
@@ -516,7 +521,7 @@ class Settings(BaseSettings):
 
     model_action: str | None = Field(
         default=None,
-        description='Action to take with the decensored model: "save", "upload", or unset to prompt the user.',
+        description='Action to take with the modified model: "save", "upload", or unset to prompt the user.',
     )
 
     save_directory: str | None = Field(

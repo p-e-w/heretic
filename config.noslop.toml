@@ -3,6 +3,8 @@
 
 max_response_length = 300
 
+modified_model_type = "slop-reduced"
+
 upload_tags = [
     "no-slop",
 ]

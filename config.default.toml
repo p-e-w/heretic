@@ -217,6 +217,71 @@ split = "test[:100]"
 column = "text"
 
 
+# Generic text-classification scorer: classifies each response with a
+# text-classification model and counts the responses whose
+# predicted label is one of the `match_labels`, as an alternative to the
+# `keyword_markers` of the KeywordRate scorer.
+#
+# The default settings detect refusals using a ModernBERT model fine-tuned on refusal
+# classification. Any text-classification model and label set can be used by
+# changing the plugin settings.
+#
+# Add or replace an entry in the `scorers` array above:
+# { plugin = "heretic.scorers.bert_classifier.BERTClassifier", optimization = "minimize" }
+#
+[scorer.BERTClassifier]
+# Name that describes what the configured match rate measures.
+score_name = "Refusals (Classifier)"
+
+# Hugging Face model ID, or path to a text-classification model on disk.
+model = "VINAY-UMRETHE/Refusal-Classifier"
+
+# Hugging Face commit hash of the classifier model.
+# Set this to pin a specific revision; unset means the latest revision
+# is auto-pinned and recorded when the classifier is loaded.
+# When reproducing, the recorded revision is restored and used.
+# model_commit = "<commit-hash>"
+
+# List of PyTorch dtypes to try when loading model tensors.
+# If loading with a dtype fails, the next dtype in the list will be tried.
+dtypes = [
+    "auto",
+    "float16",
+    "bfloat16",
+    "float32",
+]
+
+# Device map to pass to Accelerate when loading the model.
+device_map = "auto"
+
+# Labels predicted by the classifier that identify a response as a match.
+# Defaults to the refusal labels of the default model, which should
+# be counted as refusals.
+# Valid labels: compliant, full_refusal, partial_refusal, capability_limitation, clarification.
+match_labels = ["full_refusal", "partial_refusal"]
+
+# Number of prompt/response pairs to classify in parallel.
+batch_size = 16
+
+# Maximum number of tokens per classifier input (longer inputs are truncated).
+max_length = 8192
+
+# Whether to pass inputs as prompt/response text pairs.
+# Requires a model trained on pairs (e.g. the default refusal classifier).
+# Set to False when using a single-sequence text-classification model
+# to evaluate the response string only (e.g. sentiment analysis).
+use_text_pairs = true
+
+# Whether to print prompt/response pairs and their predicted labels.
+print_responses = false
+
+# Dataset of prompts to evaluate the match rate on.
+[scorer.BERTClassifier.prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "test[:100]"
+column = "text"
+
+
 [scorer.BenchmarkScore]
 # Name that describes what the configured benchmark score measures.
 score_name = "PIQA acc_norm"

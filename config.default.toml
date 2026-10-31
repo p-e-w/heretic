@@ -93,6 +93,12 @@ n_trials = 100
 # Number of trials that use random sampling for the purpose of exploration.
 n_startup_trials = 30
 
+# Number of top trials for which scores are measured again on the merged
+# (exported) model after optimization, since merged models behave slightly
+# differently than the live LoRA the trials were selected by.
+# Set to 0 to skip this check.
+n_merged_score_trials = 3
+
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"
 

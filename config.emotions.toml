@@ -39,6 +39,8 @@ scorers = [
     { plugin = "heretic.scorers.bert_classifier.BERTClassifier", optimization = "maximize", instance_name = "positive_emotions" },
 ]
 
+modified_model_type = "happiness-increased"
+
 upload_tags = [
     "personality-steering",
     "emotion-steering",

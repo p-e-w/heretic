@@ -44,7 +44,7 @@ Heretic can, depending on the configuration:
 * Reduce humor ([`config.nohumor.toml`](/config.nohumor.toml))
 * Reduce sycophancy ([`config.nosyco.toml`](/config.nosyco.toml))
 * Modify Chain-of-Thought length
-* Alter emotional alignment
+* Alter emotional alignment ([`config.emotions.toml`](/config.emotions.toml))
 * Change default response tone/formality
 
 and many, many other things.

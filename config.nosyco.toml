@@ -3,6 +3,8 @@
 
 max_response_length = 100
 
+modified_model_type = "sycophancy-reduced"
+
 upload_tags = [
     "no-sycophancy",
 ]

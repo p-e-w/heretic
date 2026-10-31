@@ -175,7 +175,7 @@ def obtain_export_strategy(
             "How do you want to export the model?",
             choices=[
                 Choice(
-                    title="Merge the abliteration LoRA and export the full model"
+                    title="Merge the LoRA and export the full model"
                     + (
                         ""
                         if settings.quantization == QuantizationMethod.NONE
@@ -184,7 +184,7 @@ def obtain_export_strategy(
                     value=ExportStrategy.MERGE,
                 ),
                 Choice(
-                    title="Export the abliteration LoRA only (can be merged later)",
+                    title="Export the LoRA only (can be merged later)",
                     value=ExportStrategy.ADAPTER,
                 ),
             ],
@@ -944,7 +944,7 @@ def run():
                 action = ask_if_unset(
                     settings.model_action,
                     questionary.select(
-                        "What do you want to do with the decensored model?",
+                        f"What do you want to do with the {settings.modified_model_type} model?",
                         choices=[
                             Choice(
                                 title="Save the model to a local folder",
@@ -1366,11 +1366,11 @@ def run():
 
                             scope = questionary.select(
                                 (
-                                    "Do you want to benchmark the original model along with the decensored model? "
+                                    f"Do you want to benchmark the original model along with the {settings.modified_model_type} model? "
                                     "Benchmarking both models allows you to compare the scores, but it takes twice as much time."
                                 ),
                                 choices=[
-                                    "Benchmark only the decensored model",
+                                    f"Benchmark only the {settings.modified_model_type} model",
                                     "Benchmark both models",
                                 ],
                                 style=Style([("highlighted", "reverse")]),

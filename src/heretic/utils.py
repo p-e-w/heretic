@@ -344,7 +344,7 @@ def get_readme_intro(
     else:
         reproducibility_instructions = ""
 
-    return f"""# This is a decensored version of {
+    return f"""# This is a {settings.modified_model_type} version of {
         model_link
     }, made using [Heretic](https://heretic-project.org) v{version("heretic-llm")}
 {reproducibility_instructions}

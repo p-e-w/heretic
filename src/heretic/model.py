@@ -242,7 +242,7 @@ class Model:
                     all_components[component] = 0
                 all_components[component] += len(modules)
 
-        print("* Abliterable components:")
+        print("* Modifiable components:")
         for component, count in all_components.items():
             print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
 
@@ -250,7 +250,7 @@ class Model:
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PreTrainedModel)
 
-        # Always use LoRA adapters for abliteration (faster reload, no weight modification).
+        # Always use LoRA adapters for modification (faster reload, no weight modification).
         # Collect actual leaf module names from the model for LoRA targeting.
         # This is more robust than splitting component keys (e.g. "attn.o_proj" -> "o_proj")
         # because hybrid models like Qwen3.5 MoE have modules with different names
@@ -513,13 +513,13 @@ class Model:
             for expert in layer.moe.experts:  # ty:ignore[not-iterable, unresolved-attribute]
                 try_add("mlp.down_proj", expert.output_linear)  # ty: ignore[unresolved-attribute]
 
-        # We need at least one module across all components for abliteration to work.
+        # We need at least one module across all components.
         total_modules = sum(len(mods) for mods in modules.values())
-        assert total_modules > 0, "No abliterable modules found in layer"
+        assert total_modules > 0, "No modifiable modules found in layer"
 
         return modules
 
-    def get_abliterable_components(self) -> list[str]:
+    def get_modifiable_components(self) -> list[str]:
         components: set[str] = set()
 
         # Scan all layers because hybrid models (e.g. Qwen3.5 MoE) have different

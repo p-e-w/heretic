@@ -126,6 +126,21 @@ def format_exception(error: Exception) -> str:
 
 def ask_if_unset(value: T, question: Question, unsafe: bool = False) -> T:
     if value is None:
+        # Handle non-interactive environments
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            # In non-interactive mode, try unsafe_ask first (some questionary versions),
+            # and if it fails with EOFError, raise a clearer error
+            try:
+                if unsafe:
+                    return question.unsafe_ask()
+                else:
+                    return question.ask()
+            except (EOFError, OSError):
+                raise EOFError(
+                    "Interactive prompt required but no TTY available. "
+                    "Use command-line flags like --trial-index, --model-action, "
+                    "--save-directory, or --upload-repo-id to run non-interactively."
+                )
         if unsafe:
             return question.unsafe_ask()
         else:
@@ -792,3 +807,11 @@ def upload_reproduce_folder(
                     repo_id=repo_id,
                     token=token,
                 )
+
+
+def is_interactive() -> bool:
+    """Check if running in an interactive environment."""
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except Exception:
+        return False

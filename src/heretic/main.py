@@ -854,16 +854,26 @@ def run():
                 if settings.trial_index is None:
                     print()
 
-                trial = ask_if_unset(
-                    None
-                    if settings.trial_index is None
-                    else sorted_trials[settings.trial_index],
-                    questionary.select(
-                        "Which trial do you want to use?",
-                        choices=choices,
-                        style=Style([("highlighted", "reverse")]),
-                    ),
-                )
+                # Handle non-interactive mode
+                if (settings.trial_index is None and 
+                    (not sys.stdin.isatty() or not sys.stdout.isatty())):
+                    print("\n[bold yellow]Non-interactive mode detected. Auto-selecting first trial from Pareto front.[/]")
+                    trial = sorted_trials[0] if sorted_trials else None
+                else:
+                    try:
+                        trial = ask_if_unset(
+                            None
+                            if settings.trial_index is None
+                            else sorted_trials[settings.trial_index],
+                            questionary.select(
+                                "Which trial do you want to use?",
+                                choices=choices,
+                                style=Style([("highlighted", "reverse")]),
+                            ),
+                        )
+                    except (EOFError, OSError):
+                        print("\n[bold yellow]Non-interactive mode detected. Auto-selecting first trial from Pareto front.[/]")
+                        trial = sorted_trials[0] if sorted_trials else None
 
                 if trial is None or trial == "":
                     return
@@ -941,37 +951,61 @@ def run():
                 if settings.model_action is None:
                     print()
 
-                action = ask_if_unset(
-                    settings.model_action,
-                    questionary.select(
-                        "What do you want to do with the decensored model?",
-                        choices=[
-                            Choice(
-                                title="Save the model to a local folder",
-                                value="save",
+                # Handle non-interactive mode
+                if (settings.model_action is None and 
+                    (not sys.stdin.isatty() or not sys.stdout.isatty())):
+                    if settings.save_directory is not None:
+                        print("\n[bold yellow]Non-interactive mode detected. Auto-selecting save action.[/]")
+                        action = "save"
+                    elif settings.upload_repo_id is not None:
+                        print("\n[bold yellow]Non-interactive mode detected. Auto-selecting upload action.[/]")
+                        action = "upload"
+                    else:
+                        print("\n[bold yellow]Non-interactive mode detected. Exiting without action.[/]")
+                        break
+                else:
+                    try:
+                        action = ask_if_unset(
+                            settings.model_action,
+                            questionary.select(
+                                "What do you want to do with the decensored model?",
+                                choices=[
+                                    Choice(
+                                        title="Save the model to a local folder",
+                                        value="save",
+                                    ),
+                                    Choice(
+                                        title="Upload the model to Hugging Face",
+                                        value="upload",
+                                    ),
+                                    Choice(
+                                        title="Chat with the model",
+                                        value="chat",
+                                    ),
+                                    Choice(
+                                        title="Benchmark the model",
+                                        value="benchmark",
+                                    ),
+                                    Choice(
+                                        title="Exit program"
+                                        if reproduction_mode
+                                        else "Return to the trial selection menu",
+                                        value="",
+                                    ),
+                                ],
+                                style=Style([("highlighted", "reverse")]),
                             ),
-                            Choice(
-                                title="Upload the model to Hugging Face",
-                                value="upload",
-                            ),
-                            Choice(
-                                title="Chat with the model",
-                                value="chat",
-                            ),
-                            Choice(
-                                title="Benchmark the model",
-                                value="benchmark",
-                            ),
-                            Choice(
-                                title="Exit program"
-                                if reproduction_mode
-                                else "Return to the trial selection menu",
-                                value="",
-                            ),
-                        ],
-                        style=Style([("highlighted", "reverse")]),
-                    ),
-                )
+                        )
+                    except (EOFError, OSError):
+                        if settings.save_directory is not None:
+                            print("\n[bold yellow]Non-interactive mode detected. Auto-selecting save action.[/]")
+                            action = "save"
+                        elif settings.upload_repo_id is not None:
+                            print("\n[bold yellow]Non-interactive mode detected. Auto-selecting upload action.[/]")
+                            action = "upload"
+                        else:
+                            print("\n[bold yellow]Non-interactive mode detected. Exiting without action.[/]")
+                            break
 
                 if action is None or action == "":
                     if reproduction_mode:

@@ -87,7 +87,7 @@ modifiers = [
     { plugin = "heretic.modifiers.ara.ARA" },
 ]
 
-# Number of abliteration trials to run during optimization.
+# Number of trials to run during optimization.
 n_trials = 100
 
 # Number of trials that use random sampling for the purpose of exploration.
@@ -95,6 +95,9 @@ n_startup_trials = 30
 
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"
+
+# Adjective describing the type of model produced by the configuration.
+modified_model_type = "decensored"
 
 # Maximum size for individual safetensors files generated when exporting a model.
 max_shard_size = "5GB"

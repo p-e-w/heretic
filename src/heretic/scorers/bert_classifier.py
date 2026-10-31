@@ -170,7 +170,7 @@ class BERTClassifier(Scorer):
                 raise RuntimeError(
                     f"[red]Failed to fetch the latest commit hash for the classifier model "
                     f"[bold]{self.settings.model}[/] ({error}). "
-                    "Pinning the model commit is required for exact reproducibility."
+                    f"Pinning the model commit is required for exact reproducibility.[/]"
                 )
 
         self.pipeline = None

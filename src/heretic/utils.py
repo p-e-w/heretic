@@ -152,21 +152,20 @@ class Prompt:
     user: str
 
 
-def get_split_slice(split_str: str, length: int) -> tuple[int, int]:
-    """Resolves a split specification into absolute (start, end) indices."""
-
-    # The split name is the part before the slice, e.g. "train" in "train[:400]".
-    split_name = split_str.split("[")[0]
+def get_split_slices(split_str: str, length: int) -> list[tuple[int, int]]:
+    """Resolve every native instruction for a single local source, in order."""
+    instruction = ReadInstruction.from_spec(split_str)
+    # ReadInstruction validates and normalizes the syntax. Only the first
+    # source name is needed to associate this local dataset with its length.
+    split_name = instruction.to_spec().partition("+")[0].partition("[")[0]
 
     # Associate the split with its number of examples (lines).
     name_to_length = {split_name: length}
 
-    # Convert the instructions to absolute indices and select the first one.
-    absolute_instruction = ReadInstruction.from_spec(split_str).to_absolute(
-        name_to_length
-    )[0]
-
-    return absolute_instruction.from_, absolute_instruction.to
+    return [
+        (absolute.from_, absolute.to)
+        for absolute in instruction.to_absolute(name_to_length)
+    ]
 
 
 def _load_prompts_single(
@@ -185,8 +184,8 @@ def _load_prompts_single(
         # of the lines using slice notation (e.g. "[:400]"). A synthetic split
         # name is prepended because ReadInstruction expects a named split.
         if split_str is not None:
-            start, end = get_split_slice(f"_{split_str}", len(prompts))
-            prompts = prompts[start:end]
+            slices = get_split_slices(f"_{split_str}", len(prompts))
+            prompts = [prompt for start, end in slices for prompt in prompts[start:end]]
     else:
         # All dataset sources require an explicit split and column.
         if split_str is None:
@@ -224,8 +223,14 @@ def _load_prompts_single(
                 "Loading dataset dicts is not supported"
             )
             # Parse the split instructions and apply them.
-            start, end = get_split_slice(split_str, len(dataset))
-            dataset = dataset[start:end]
+            slices = get_split_slices(split_str, len(dataset))
+            dataset = {
+                specification.column: [
+                    prompt
+                    for start, end in slices
+                    for prompt in dataset[start:end][specification.column]
+                ]
+            }
         else:
             # Path should be a local directory.
             dataset = load_dataset(

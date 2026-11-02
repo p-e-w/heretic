@@ -819,19 +819,21 @@ class Model:
 
         hook_handles: list[RemovableHandle] = []
 
-        for layer_index in range(len(self.get_layers())):
-            for component, modules in self.get_layer_modules(layer_index).items():
-                for module_index, module in enumerate(modules):
-                    hook_handles.append(
-                        module.register_forward_hook(
-                            get_hook(layer_index, component, module_index)
+        try:
+            for layer_index in range(len(self.get_layers())):
+                for component, modules in self.get_layer_modules(layer_index).items():
+                    for module_index, module in enumerate(modules):
+                        hook_handles.append(
+                            module.register_forward_hook(
+                                get_hook(layer_index, component, module_index)
+                            )
                         )
-                    )
 
-        self.generate(prompts, max_new_tokens=1)
+            self.generate(prompts, max_new_tokens=1)
 
-        for hook_handle in hook_handles:
-            hook_handle.remove()
+        finally:
+            for hook_handle in hook_handles:
+                hook_handle.remove()
 
         return module_io
 

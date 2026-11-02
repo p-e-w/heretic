@@ -618,6 +618,7 @@ class Model:
         inputs, outputs = self.generate(
             prompts,
             max_new_tokens=self.settings.max_response_length,
+            return_dict_in_generate=False,
         )
 
         return self.tokenizer.batch_decode(

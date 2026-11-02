@@ -96,6 +96,7 @@ def collect_reproducibles(path: str):
             cache_path = hf_hub_download(
                 model.id,
                 "reproduce/reproduce.json",
+                revision=commit_hash,
             )
 
             file_path.parent.mkdir(parents=True, exist_ok=True)

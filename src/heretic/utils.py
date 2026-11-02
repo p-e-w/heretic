@@ -692,7 +692,7 @@ def create_reproduce_folder(
 
     checkpoint_filename = Path(checkpoint_path).name
 
-    # Preserve an explicit revision: it identifies the base weights that were loaded.
+    # Preserve the revision selected for loading instead of replacing it with HEAD.
     if settings.model_commit is None:
         settings.model_commit = huggingface_hub.model_info(settings.model).sha
 

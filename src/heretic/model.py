@@ -35,8 +35,10 @@ from .utils import Prompt, batchify, format_exception, print
 
 def get_model_class(
     model: str,
+    revision: str | None = None,
 ) -> type[AutoModelForImageTextToText] | type[AutoModelForCausalLM]:
-    configs = PretrainedConfig.get_config_dict(model)
+    revision_kwargs = {} if revision is None else {"revision": revision}
+    configs = PretrainedConfig.get_config_dict(model, **revision_kwargs)
 
     if any(("vision_config" in config) for config in configs):
         return AutoModelForImageTextToText
@@ -141,7 +143,10 @@ class Model:
 
         # Multimodal models have a processor we'll want to save.
         self.processor = None
-        if get_model_class(settings.model) == AutoModelForImageTextToText:
+        if (
+            get_model_class(settings.model, **self.revision_kwargs)
+            == AutoModelForImageTextToText
+        ):
             self.processor = AutoProcessor.from_pretrained(
                 settings.model,
                 **self.revision_kwargs,
@@ -182,7 +187,9 @@ class Model:
                 if quantization_config is not None:
                     extra_kwargs["quantization_config"] = quantization_config
 
-                self.model = get_model_class(settings.model).from_pretrained(
+                self.model = get_model_class(
+                    settings.model, **self.revision_kwargs
+                ).from_pretrained(
                     settings.model,
                     dtype=dtype,
                     device_map=settings.device_map,
@@ -337,7 +344,9 @@ class Model:
 
             # Load base model in full precision on CPU to avoid VRAM issues
             print("* Loading base model on CPU (this may take a while)...")
-            base_model = get_model_class(self.settings.model).from_pretrained(
+            base_model = get_model_class(
+                self.settings.model, **self.revision_kwargs
+            ).from_pretrained(
                 self.settings.model,
                 torch_dtype=self.model.dtype,
                 device_map="cpu",
@@ -407,7 +416,9 @@ class Model:
         if quantization_config is not None:
             extra_kwargs["quantization_config"] = quantization_config
 
-        self.model = get_model_class(self.settings.model).from_pretrained(
+        self.model = get_model_class(
+            self.settings.model, **self.revision_kwargs
+        ).from_pretrained(
             self.settings.model,
             dtype=self.dtype,
             device_map=self.settings.device_map,

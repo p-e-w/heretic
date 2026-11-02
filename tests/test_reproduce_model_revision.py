@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """The reproduction manifest must identify the model revision actually loaded."""
+
 import json
 import tempfile
 import unittest
@@ -19,22 +20,52 @@ class ReproduceModelRevisionTests(unittest.TestCase):
         checkpoint = directory / "study.jsonl"
         checkpoint.write_text("study evidence\n")
         with ExitStack() as patches:
-            lookup = patches.enter_context(patch.object(
-                utils.huggingface_hub, "model_info",
-                return_value=SimpleNamespace(sha="b" * 40), side_effect=lookup_error,
-            ))
-            patches.enter_context(patch.object(utils, "generate_requirements_txt", return_value=""))
-            patches.enter_context(patch.object(utils, "generate_config_toml", return_value=""))
-            patches.enter_context(patch.object(utils, "generate_reproduce_readme", return_value=""))
-            patches.enter_context(patch.object(utils, "get_requirements_dict", return_value={}))
-            patches.enter_context(patch.object(utils, "get_heretic_version_info", return_value=SimpleNamespace(
-                version="test", is_standard_pypi=True, metadata={},
-            )))
-            utils.create_reproduce_folder(
-                directory / "export", settings, [], checkpoint, trial, {}, False,
+            lookup = patches.enter_context(
+                patch.object(
+                    utils.huggingface_hub,
+                    "model_info",
+                    return_value=SimpleNamespace(sha="b" * 40),
+                    side_effect=lookup_error,
+                )
             )
-        manifest = json.loads((directory / "export/reproduce/reproduce.json").read_text())
-        self.assertEqual((directory / "export/reproduce/study.jsonl").read_text(), "study evidence\n")
+            patches.enter_context(
+                patch.object(utils, "generate_requirements_txt", return_value="")
+            )
+            patches.enter_context(
+                patch.object(utils, "generate_config_toml", return_value="")
+            )
+            patches.enter_context(
+                patch.object(utils, "generate_reproduce_readme", return_value="")
+            )
+            patches.enter_context(
+                patch.object(utils, "get_requirements_dict", return_value={})
+            )
+            patches.enter_context(
+                patch.object(
+                    utils,
+                    "get_heretic_version_info",
+                    return_value=SimpleNamespace(
+                        version="test",
+                        is_standard_pypi=True,
+                        metadata={},
+                    ),
+                )
+            )
+            utils.create_reproduce_folder(
+                directory / "export",
+                settings,
+                [],
+                checkpoint,
+                trial,
+                {},
+                False,
+            )
+        manifest = json.loads(
+            (directory / "export/reproduce/reproduce.json").read_text()
+        )
+        self.assertEqual(
+            (directory / "export/reproduce/study.jsonl").read_text(), "study evidence\n"
+        )
         return settings, manifest, lookup
 
     def test_pinned_revision_is_kept_in_manifest(self):
@@ -46,7 +77,9 @@ class ReproduceModelRevisionTests(unittest.TestCase):
 
     def test_symbolic_revision_selection_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
-            settings, manifest, lookup = self.create_folder(Path(directory), "release-2026")
+            settings, manifest, lookup = self.create_folder(
+                Path(directory), "release-2026"
+            )
         self.assertEqual(settings.model_commit, "release-2026")
         self.assertEqual(manifest["settings"]["model_commit"], "release-2026")
         lookup.assert_not_called()
@@ -54,7 +87,9 @@ class ReproduceModelRevisionTests(unittest.TestCase):
     def test_pinned_revision_needs_no_hub_lookup(self):
         with tempfile.TemporaryDirectory() as directory:
             _, manifest, lookup = self.create_folder(
-                Path(directory), "a" * 40, RuntimeError("Hub unavailable"),
+                Path(directory),
+                "a" * 40,
+                RuntimeError("Hub unavailable"),
             )
         self.assertEqual(manifest["settings"]["model_commit"], "a" * 40)
         lookup.assert_not_called()

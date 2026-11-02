@@ -266,6 +266,8 @@ class BERTClassifier(Scorer):
             inputs,
             batch_size=self.settings.batch_size,
             truncation=True,
-            max_length=self.settings.max_length,
+            max_length=min(
+                self.settings.max_length, self.pipeline.tokenizer.model_max_length
+            ),
         )
         return [result["label"] for result in results]

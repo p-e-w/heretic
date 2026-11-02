@@ -56,6 +56,7 @@ class Evaluator:
             raise ValueError("No scorers configured. Set 'scorers' in config.toml")
 
         scorer_keys: set[str] = set()
+        score_names: set[str] = set()
 
         # Resolve plugin classes from names and validate.
         for config in scorer_configs:
@@ -102,6 +103,12 @@ class Evaluator:
                 if instance_name
                 else scorer.score_name
             )
+            if scorer_instance_name in score_names:
+                raise ValueError(
+                    f"Duplicate score name: {scorer_instance_name}. "
+                    "Use distinct instance_name values or configure distinct score names."
+                )
+            score_names.add(scorer_instance_name)
             self._scorer_entries.append(
                 ScorerEntry(scorer=scorer, config=config, name=scorer_instance_name)
             )

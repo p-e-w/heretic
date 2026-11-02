@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import torch
 import torch.nn.functional as F
 from pydantic import BaseModel, Field
 
@@ -49,11 +50,15 @@ class KLDivergence(Scorer):
 
         print("* Obtaining baseline first-token probability distributions...")
         baseline_logits = ctx.get_logits(self.prompts)
+        if baseline_logits.dtype in (torch.float16, torch.bfloat16):
+            baseline_logits = baseline_logits.float()
 
         self._baseline_logprobs = F.log_softmax(baseline_logits, dim=-1)
 
     def get_score(self, ctx: Context) -> Score:
         logits = ctx.get_logits(self.prompts)
+        if logits.dtype in (torch.float16, torch.bfloat16):
+            logits = logits.float()
         logprobs = F.log_softmax(logits, dim=-1)
 
         kl_divergence = F.kl_div(

@@ -139,19 +139,18 @@ class BERTClassifier(Scorer):
 
     @property
     def reproducible(self) -> bool:
-        # Inference is deterministic: eval mode (no dropout),
-        # argmax over softmax outputs (no sampling), pipeline keeps input order.
-        # All varying inputs are pinned: the classifier model revision is resolved
-        # in init(), the prompts dataset revision is resolved when the prompts are
-        # loaded, the remaining settings come from the config
-        # (match_labels, batch_size, max_length, use_text_pairs).
-        return True
+        # Only a successfully loaded, pinned Hub classifier can be recovered
+        # from reproduction information. Local classifier files are not bundled.
+        # Keep the loaded source identity even if local paths change later.
+        return getattr(self, "_reproducible_classifier", False)
 
     @property
     def score_name(self) -> str:
         return self.settings.score_name
 
     def init(self, ctx: Context) -> None:
+        self._reproducible_classifier = False
+        classifier_is_hub = is_hf_path(self.settings.model)
         print()
         print(
             f"Loading {self.settings.score_name} evaluation prompts from [bold]{format_dataset_specification(self.settings.prompts)}[/]..."
@@ -161,7 +160,7 @@ class BERTClassifier(Scorer):
         print()
         print(f"Loading text classifier: [bold]{self.settings.model}[/]...")
 
-        if self.settings.model_commit is None and is_hf_path(self.settings.model):
+        if self.settings.model_commit is None and classifier_is_hub:
             try:
                 self.settings.model_commit = huggingface_hub.model_info(
                     self.settings.model
@@ -209,6 +208,10 @@ class BERTClassifier(Scorer):
                 f"Unknown match_labels: {sorted(unknown)}. "
                 f"Valid labels: {sorted(valid)}"
             )
+
+        self._reproducible_classifier = (
+            classifier_is_hub and self.settings.model_commit is not None
+        )
 
     def get_score(self, ctx: Context) -> Score:
         responses = ctx.get_responses(self.prompts)

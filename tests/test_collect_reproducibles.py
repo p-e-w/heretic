@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Collection must archive the file revision identified by its filename."""
 
+import errno
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -90,6 +91,43 @@ class CollectReproduciblesTests(unittest.TestCase):
                 f'{{"revision": "{revision}"}}',
             )
         downloaded.assert_not_called()
+
+    @staticmethod
+    def fail_after_partial_copy(source, destination):
+        Path(destination).write_bytes(b"{")
+        raise OSError(errno.ENOSPC, "Injected failure after a partial file copy")
+
+    def test_failed_copy_does_not_publish_a_partial_archive(self):
+        revision = "a" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with patch.object(
+                reproduce.shutil, "copyfile", side_effect=self.fail_after_partial_copy
+            ):
+                with self.assertRaises(OSError) as failure:
+                    self.collect(directory, revision, revision)
+                self.assertEqual(failure.exception.errno, errno.ENOSPC)
+            self.assertFalse(self.archived_file(directory, revision).exists())
+            self.assertEqual(
+                list((directory / "archive/huggingface.co/owner").iterdir()), []
+            )
+
+    def test_failed_copy_is_retried_instead_of_being_marked_already_stored(self):
+        revision = "a" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with patch.object(
+                reproduce.shutil, "copyfile", side_effect=self.fail_after_partial_copy
+            ):
+                with self.assertRaises(OSError) as failure:
+                    self.collect(directory, revision, revision)
+                self.assertEqual(failure.exception.errno, errno.ENOSPC)
+            downloaded = self.collect(directory, revision, revision)
+            downloaded.assert_called_once()
+            self.assertEqual(
+                self.archived_file(directory, revision).read_text(encoding="utf-8"),
+                f'{{"revision": "{revision}"}}',
+            )
 
 
 if __name__ == "__main__":

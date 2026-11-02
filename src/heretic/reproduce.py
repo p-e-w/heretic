@@ -5,6 +5,7 @@ import json
 import platform
 import random
 import shutil
+import tempfile
 from dataclasses import asdict
 from enum import IntEnum
 from pathlib import Path
@@ -100,7 +101,10 @@ def collect_reproducibles(path: str):
             )
 
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(cache_path, file_path)
+            with tempfile.TemporaryDirectory(dir=file_path.parent) as temporary:
+                staged_path = Path(temporary) / file_path.name
+                shutil.copyfile(cache_path, staged_path)
+                staged_path.replace(file_path)
             print(" [green]downloaded[/]")
 
             downloaded += 1

@@ -1204,7 +1204,12 @@ def run():
                                 reset_trial_model()
 
                             if is_hf_path(settings.model):
-                                card = ModelCard.load(settings.model)
+                                card_path = huggingface_hub.hf_hub_download(
+                                    settings.model,
+                                    huggingface_hub.constants.REPOCARD_NAME,
+                                    **model.revision_kwargs,
+                                )
+                                card = ModelCard.load(card_path)
                             else:
                                 card_path = (
                                     Path(settings.model)

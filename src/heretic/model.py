@@ -782,6 +782,7 @@ class Model:
             layer_index: int,
             component: str,
             module_index: int,
+            is_shared_expert: bool,
         ) -> Callable[[Module, tuple[Tensor, ...], Tensor], None]:
             def hook(
                 module: Module,
@@ -802,12 +803,21 @@ class Model:
                 # Each module should be invoked at most once per inference step.
                 assert module_index not in module_io[layer_index][component]
 
-                # inputs[0] and outputs have shape (prompt, position, component),
+                input = inputs[0]
+                output = outputs
+                # Some shared experts flatten all prompt positions before their MLP.
+                # Only the recognized shared module has this all-token layout;
+                # routed individual experts do not preserve prompt/position order.
+                if is_shared_expert and input.ndim == 2:
+                    input = input.reshape(len(prompts), -1, input.shape[-1])
+                    output = output.reshape(len(prompts), -1, output.shape[-1])
+
+                # Tensors now have shape (prompt, position, component),
                 # so this extracts the input/output at the end of each prompt.
                 # Move to CPU to decouple from device assignments, which can
                 # change between model reloads in multi-GPU configurations.
-                input = inputs[0][:, -1, :].detach().clone().cpu()
-                output = outputs[:, -1, :].detach().clone().cpu()
+                input = input[:, -1, :].detach().clone().cpu()
+                output = output[:, -1, :].detach().clone().cpu()
 
                 # The modules associated with a component (e.g. expert MLPs)
                 # are not necessarily invoked in order, nor are all of them
@@ -820,11 +830,19 @@ class Model:
         hook_handles: list[RemovableHandle] = []
 
         for layer_index in range(len(self.get_layers())):
+            mlp = getattr(self.get_layers()[layer_index], "mlp", None)
+            shared_expert = getattr(mlp, "shared_expert", None)
+            shared_down_proj = getattr(shared_expert, "down_proj", None)
             for component, modules in self.get_layer_modules(layer_index).items():
                 for module_index, module in enumerate(modules):
                     hook_handles.append(
                         module.register_forward_hook(
-                            get_hook(layer_index, component, module_index)
+                            get_hook(
+                                layer_index,
+                                component,
+                                module_index,
+                                module is shared_down_proj,
+                            )
                         )
                     )
 

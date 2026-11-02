@@ -692,8 +692,9 @@ def create_reproduce_folder(
 
     checkpoint_filename = Path(checkpoint_path).name
 
-    # Fetch commit hash for the base model.
-    settings.model_commit = huggingface_hub.model_info(settings.model).sha
+    # Preserve an explicit revision: it identifies the base weights that were loaded.
+    if settings.model_commit is None:
+        settings.model_commit = huggingface_hub.model_info(settings.model).sha
 
     # Strip microseconds and timezone for a clean format.
     timestamp = (

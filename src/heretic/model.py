@@ -966,6 +966,7 @@ class Model:
             **inputs,
             streamer=streamer,
             max_new_tokens=4096,
+            return_dict_in_generate=False,
         )  # ty:ignore[call-non-callable]
 
         # This cast is valid because str is the return type

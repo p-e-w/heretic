@@ -1,5 +1,7 @@
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 
 import torch
 from tokenizers import Tokenizer, models, pre_tokenizers
@@ -106,3 +108,28 @@ class ResponseReturnModeTests(unittest.TestCase):
         self.assertEqual(tuple(model.get_logits(prompts).shape), (1, 6))
         self.assertEqual(tuple(model.get_residuals(prompts).shape), (1, 2, 8))
         self.assertTrue(model.model.generation_config.return_dict_in_generate)
+
+    def test_streamed_response_accepts_structured_default(self):
+        model = self.load_model(True)
+        # The zero-weight fixture emits token 0; stop after that token.
+        model.model.generation_config.eos_token_id = 0
+        printed = io.StringIO()
+        with redirect_stdout(printed):
+            response = model.stream_chat_response(
+                [{"role": "user", "content": "hello"}]
+            )
+        self.assertEqual(response, "answer")
+        self.assertEqual(printed.getvalue().strip(), "answer")
+        self.assertTrue(model.model.generation_config.return_dict_in_generate)
+
+    def test_streamed_response_keeps_tensor_default(self):
+        model = self.load_model(False)
+        model.model.generation_config.eos_token_id = 0
+        printed = io.StringIO()
+        with redirect_stdout(printed):
+            response = model.stream_chat_response(
+                [{"role": "user", "content": "hello"}]
+            )
+        self.assertEqual(response, "answer")
+        self.assertEqual(printed.getvalue().strip(), "answer")
+        self.assertFalse(model.model.generation_config.return_dict_in_generate)

@@ -272,11 +272,6 @@ def run():
             reproduction_information["settings"], settings
         )
 
-    if settings.seed is None:
-        settings.seed = random.randint(0, 2**32 - 1)
-
-    transformers.set_seed(settings.seed)
-
     print(get_accelerator_info())
 
     if settings.print_debug_information:
@@ -410,6 +405,11 @@ def run():
             os.unlink(study_checkpoint_file)
             backend = JournalFileBackend(study_checkpoint_file, lock_obj=lock_obj)
             storage = JournalStorage(backend)
+
+    if settings.seed is None:
+        settings.seed = random.randint(0, 2**32 - 1)
+
+    transformers.set_seed(settings.seed)
 
     model = Model(settings)
     print()

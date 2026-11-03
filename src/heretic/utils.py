@@ -344,7 +344,7 @@ def get_readme_intro(
     else:
         reproducibility_instructions = ""
 
-    return f"""# This is a decensored version of {
+    return f"""# This is a {settings.modified_model_type} version of {
         model_link
     }, made using [Heretic](https://heretic-project.org) v{version("heretic-llm")}
 {reproducibility_instructions}
@@ -582,7 +582,7 @@ This directory contains the necessary information and assets to reproduce the re
 - [`requirements.txt`](requirements.txt): The exact versions of all Python packages.
 - [`config.toml`](config.toml): The exact configuration used, including the RNG seed.
 - [`{checkpoint_filename}`]({checkpoint_filename}): The Optuna study journal containing the history of all trials.
-- [`SHA256SUMS`](SHA256SUMS): Cryptographic hashes for all weight files.
+- [`SHA256SUMS.txt`](SHA256SUMS.txt): Cryptographic hashes for all weight files.
 - [`reproduce.json`](reproduce.json): A machine-readable file containing all reproducibility information.
 
 ## How to reproduce
@@ -597,8 +597,8 @@ This directory contains the necessary information and assets to reproduce the re
 1. Place the provided `config.toml` in your working directory.
 1. Run Heretic without any additional arguments: `heretic`
 1. Wait for the run to finish, then select trial **{trial.user_attrs["index"]}** and export the model.
-1. Verify that the weight files have been exactly reproduced by comparing their SHA-256 hashes against those in `SHA256SUMS`:
-   `sha256sum -c SHA256SUMS` (or look at the hashes online if you uploaded to Hugging Face)
+1. Verify that the weight files have been exactly reproduced by comparing their SHA-256 hashes against those in `SHA256SUMS.txt`:
+   `sha256sum -c SHA256SUMS.txt` (or look at the hashes online if you uploaded to Hugging Face)
 
 > [!TIP]
 > To use the included Optuna study journal `{checkpoint_filename}`, place it in the checkpoints directory (usually `checkpoints/`) before running Heretic.
@@ -655,7 +655,7 @@ def generate_reproduce_json(
 
 
 def generate_sha256sums(hashes: dict[str, str]) -> str:
-    """Generates GNU Coreutils compatible SHA256SUMS file content."""
+    """Generates GNU Coreutils compatible content for SHA256SUMS.txt."""
 
     lines = []
 
@@ -711,7 +711,7 @@ def create_reproduce_folder(
     )
 
     if uploaded_model_hashes:
-        (reproduce_dir / "SHA256SUMS").write_text(
+        (reproduce_dir / "SHA256SUMS.txt").write_text(
             generate_sha256sums(uploaded_model_hashes),
             encoding="utf-8",
         )

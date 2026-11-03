@@ -1,0 +1,59 @@
+# This test case is for models with Hyper-Connections (multiple residual streams),
+# using the ARA modifier, which handles residuals differently than Abliteration.
+# After any change related to it, this test should PASS.
+
+model = "tiny-random/deepseek-v4"
+model_commit = "d20cabaa1c8a9f235e9bb50f1d5e98eeb6a530d5"
+
+seed = 12345
+print_debug_information = true
+
+batch_size = 2
+max_response_length = 10
+
+n_trials = 2
+n_startup_trials = 1
+
+# Transformers can't yet save DeepSeek V4 after dequantizing its FP8 weights,
+# so this test checks the LoRA adapter instead of the merged model.
+export_strategy = "adapter"
+checkpoint_action = "restart"
+trial_index = 0
+model_action = "save"
+save_directory = "model"
+
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "train[:5]"
+column = "text"
+
+[[response_prefix_test_prompts]]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "train[:5]"
+column = "text"
+
+[scorer.KLDivergence.prompts]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "test[:5]"
+column = "text"
+
+[scorer.KeywordRate.prompts]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "test[:5]"
+column = "text"
+
+[modifier.ARA.good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+commit = "02c6a92cfcf11bb0c387334f8146d149d65b587f"
+split = "train[:5]"
+column = "text"
+
+[modifier.ARA.bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+commit = "01cead01398926d81f7c52bdb790ee8cf77ebba7"
+split = "train[:5]"
+column = "text"

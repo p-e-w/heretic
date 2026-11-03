@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import os
 from enum import Enum
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -190,6 +191,15 @@ class BenchmarkSpecification(BaseModel):
     )
 
 
+def _config_path() -> str:
+    path = os.environ.get("HERETIC_CONFIG_FILE", "config.toml")
+
+    if "HERETIC_CONFIG_FILE" in os.environ and not os.path.isfile(path):
+        raise SystemExit(f"heretic: configuration file {path} does not exist")
+
+    return path
+
+
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
@@ -201,7 +211,7 @@ class Settings(BaseSettings):
     evaluate_model: str | None = Field(
         default=None,
         description=(
-            "If this model ID or path is set, then instead of abliterating the main model, "
+            "If this model ID or path is set, then instead of modifying the main model, "
             "evaluate this model relative to the main model."
         ),
         exclude=True,
@@ -210,7 +220,7 @@ class Settings(BaseSettings):
     collect_reproducibles: str | None = Field(
         default=None,
         description=(
-            "If this directory path is set, then instead of abliterating a model, "
+            "If this directory path is set, then instead of modifying a model, "
             "download all reproduce.json files from public Heretic model repositories "
             "on Hugging Face, and store them in that directory for archival purposes."
         ),
@@ -221,7 +231,7 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "If this path or URL to a reproduce.json file is set, load reproduction information "
-            "from that file, and attempt to reproduce the abliterated model it originated from."
+            "from that file, and attempt to reproduce the modified model it originated from."
         ),
         exclude=True,
     )
@@ -332,31 +342,31 @@ class Settings(BaseSettings):
         exclude=True,
     )
 
-    chain_of_thought_skips: list[tuple[str, str]] = Field(
+    chain_of_thought_blocks: list[tuple[str, str]] = Field(
         default=[
             # Most thinking models.
             (
                 "<think>",
-                "<think></think>",
+                "</think>",
             ),
             # gpt-oss.
             (
                 "<|channel|>analysis<|message|>",
-                "<|channel|>analysis<|message|><|end|><|start|>assistant<|channel|>final<|message|>",
+                "<|end|><|start|>assistant<|channel|>final<|message|>",
             ),
             # Unknown, suggested by user.
             (
                 "<thought>",
-                "<thought></thought>",
+                "</thought>",
             ),
             # Unknown, suggested by user.
             (
                 "[THINK]",
-                "[THINK][/THINK]",
+                "[/THINK]",
             ),
         ],
         description=(
-            "List of pairs of the form (cot_initializer, closed_cot_block) used to skip "
+            "List of pairs of the form (cot_initializer, cot_finalizer) used to skip "
             "the Chain-of-Thought block in responses, so that evaluation happens "
             "at the start of the actual response."
         ),
@@ -405,7 +415,7 @@ class Settings(BaseSettings):
 
     n_trials: PositiveInt = Field(
         default=100,
-        description="Number of abliteration trials to run during optimization.",
+        description="Number of trials to run during optimization.",
     )
 
     n_startup_trials: NonNegativeInt = Field(
@@ -425,6 +435,11 @@ class Settings(BaseSettings):
         default="checkpoints",
         description="Directory to save and load study progress to/from.",
         exclude=True,
+    )
+
+    modified_model_type: str = Field(
+        default="decensored",
+        description="Adjective describing the type of model produced by the configuration.",
     )
 
     benchmarks: list[BenchmarkSpecification] = Field(
@@ -485,7 +500,7 @@ class Settings(BaseSettings):
                 description="An Adversarial Winograd Schema Challenge at Scale",
             ),
         ],
-        description="Benchmarks to offer to the user for evaluating abliterated models.",
+        description="Benchmarks to offer to the user for evaluating modified models.",
         exclude=True,
     )
 
@@ -516,7 +531,7 @@ class Settings(BaseSettings):
 
     model_action: str | None = Field(
         default=None,
-        description='Action to take with the decensored model: "save", "upload", or unset to prompt the user.',
+        description='Action to take with the modified model: "save", "upload", or unset to prompt the user.',
     )
 
     save_directory: str | None = Field(
@@ -539,6 +554,15 @@ class Settings(BaseSettings):
     upload_reproducibility_information: str | None = Field(
         default=None,
         description='Which reproducibility information to add to the Hugging Face repository: "full", "basic", "none", or unset to prompt the user.',
+    )
+
+    upload_tags: list[str] = Field(
+        default=[
+            "uncensored",
+            "decensored",
+            "abliterated",
+        ],
+        description="Tags to add to the Hugging Face repository when uploading the model.",
     )
 
     ignore_mismatches: bool | None = Field(
@@ -566,7 +590,7 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
-            init_settings,  # Used during resume - should override *all* other sources.
+            init_settings,  # Values passed to the constructor override all other sources.
             CliSettingsSource(
                 settings_cls,
                 cli_parse_args=True,
@@ -576,5 +600,38 @@ class Settings(BaseSettings):
             EnvSettingsSource(settings_cls, env_prefix="HERETIC_"),
             dotenv_settings,
             file_secret_settings,
-            TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
+            TomlConfigSettingsSource(settings_cls, toml_file=_config_path()),
         )
+
+    @classmethod
+    def model_validate_init_only(
+        cls, values: dict[str, Any], current: "Settings"
+    ) -> "Settings":
+        """
+        Validates `values` without reading any other settings source: nothing
+        comes from config.toml, environment variables or the command line, and
+        settings missing from `values` get their defaults. Settings with
+        `exclude=True` (such as `save_directory`) are left out of serialized
+        settings, so they are taken from `current`.
+        """
+        excluded = {
+            name: getattr(current, name)
+            for name, field in cls.model_fields.items()
+            if field.exclude
+        }
+        return InitOnlySettings.model_validate(values | excluded)
+
+
+class InitOnlySettings(Settings):
+    """Settings validated only from the values passed in, without reading any source."""
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (init_settings,)

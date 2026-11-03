@@ -85,7 +85,9 @@ Replace `Qwen/Qwen3-4B-Instruct-2507` with whatever model you want to process.
 **By default, Heretic performs censorship removal (refusal suppression).**
 If you want to do something else, choose one of the configuration files linked
 above, or write your own. See [`config.default.toml`](/config.default.toml)
-for available configuration options.
+for available configuration options. Heretic loads the configuration from
+`config.toml` in the working directory by default, or from the file path in the
+`HERETIC_CONFIG_FILE` environment variable.
 
 > [!IMPORTANT]
 >

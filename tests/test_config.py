@@ -148,7 +148,7 @@ class ConfigFileSelectionTests(unittest.TestCase):
                 if not key.startswith("HERETIC_")
             }
             if heretic_config is not None:
-                environment["HERETIC_CONFIG"] = heretic_config
+                environment["HERETIC_CONFIG_FILE"] = heretic_config
 
             previous_directory = os.getcwd()
             os.chdir(directory)

@@ -192,9 +192,9 @@ class BenchmarkSpecification(BaseModel):
 
 
 def _config_path() -> str:
-    path = os.environ.get("HERETIC_CONFIG", "config.toml")
+    path = os.environ.get("HERETIC_CONFIG_FILE", "config.toml")
 
-    if "HERETIC_CONFIG" in os.environ and not os.path.isfile(path):
+    if "HERETIC_CONFIG_FILE" in os.environ and not os.path.isfile(path):
         raise SystemExit(f"heretic: configuration file {path} does not exist")
 
     return path

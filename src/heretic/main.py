@@ -1009,12 +1009,17 @@ def run():
                             if not token:
                                 continue
 
-                            # Remember the token so that a subsequent upload in the same
-                            # session does not prompt for it again. It is intentionally kept
-                            # out of `settings`, and is never persisted to disk.
-                            upload_token = token
+                            # Validate the token before remembering it, so that a mistyped
+                            # token does not stay cached for the rest of the session.
+                            try:
+                                user = huggingface_hub.whoami(token)
+                            except Exception:
+                                # Clear any cached token so the next upload attempt prompts
+                                # for a replacement. It is intentionally kept out of
+                                # `settings`, and is never persisted to disk.
+                                upload_token = None
+                                raise
 
-                            user = huggingface_hub.whoami(token)
                             fullname = user.get(
                                 "fullname",
                                 user.get("name", "unknown user"),

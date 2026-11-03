@@ -597,6 +597,7 @@ class Model:
             return_tensors="pt",
             padding=True,
             return_token_type_ids=False,
+            add_special_tokens=False,
         ).to(self.model.device)
 
         # FIXME: The type checker has been disabled here because of the extremely complex
@@ -948,6 +949,7 @@ class Model:
             chat_prompt,
             return_tensors="pt",
             return_token_type_ids=False,
+            add_special_tokens=False,
         ).to(self.model.device)
 
         streamer = TextStreamer(

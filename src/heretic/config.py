@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import os
 from enum import Enum
 from typing import Any, Literal, TypeAlias
 
@@ -188,6 +189,15 @@ class BenchmarkSpecification(BaseModel):
     description: str = Field(
         description="Description of the benchmark for presentation purposes."
     )
+
+
+def _config_path() -> str:
+    path = os.environ.get("HERETIC_CONFIG", "config.toml")
+
+    if "HERETIC_CONFIG" in os.environ and not os.path.isfile(path):
+        raise SystemExit(f"heretic: configuration file {path} does not exist")
+
+    return path
 
 
 class Settings(BaseSettings):
@@ -590,7 +600,7 @@ class Settings(BaseSettings):
             EnvSettingsSource(settings_cls, env_prefix="HERETIC_"),
             dotenv_settings,
             file_secret_settings,
-            TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
+            TomlConfigSettingsSource(settings_cls, toml_file=_config_path()),
         )
 
     @classmethod

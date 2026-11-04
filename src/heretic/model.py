@@ -108,6 +108,33 @@ def chat_template_supports_system_role(tokenizer: PreTrainedTokenizerBase) -> bo
 ModuleIO: TypeAlias = list[dict[str, dict[int, tuple[Tensor, Tensor]]]]
 
 
+def _looks_like_gguf(model: str) -> bool:
+    """
+    Return whether a model id or path looks like a GGUF checkpoint.
+
+    Hugging Face GGUF repos usually contain ``-gguf`` or ``_gguf`` in the id
+    (for example ``org/model-q4_0-gguf``). Local GGUF files end with ``.gguf``.
+    The check is purely lexical, so it does not contact the Hub.
+    """
+    normalized = model.strip().replace("\\", "/").lower()
+    basename = normalized.rstrip("/").rsplit("/", 1)[-1]
+    return basename.endswith(".gguf") or "-gguf" in normalized or "_gguf" in normalized
+
+
+def _reject_gguf_model(model: str, *, what: str) -> None:
+    """Exit before tokenizer load if ``model`` looks like GGUF."""
+    if not _looks_like_gguf(model):
+        return
+
+    # SystemExit prints this message and skips the Rich traceback handler
+    # installed in main(). A normal exception would still dump a traceback.
+    raise SystemExit(
+        "heretic: GGUF models are not supported yet "
+        f"({what} '{model}'). "
+        "Use a Safetensors checkpoint or a normal Hugging Face model instead."
+    )
+
+
 class Model:
     model: PreTrainedModel | PeftModel
     tokenizer: PreTrainedTokenizerBase
@@ -121,6 +148,12 @@ class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.needs_reload = False
+
+        # Reject GGUF before AutoTokenizer.from_pretrained. Those ids otherwise
+        # fail with an unrelated sentencepiece/tiktoken ValueError.
+        _reject_gguf_model(settings.model, what="model")
+        if settings.evaluate_model is not None:
+            _reject_gguf_model(settings.evaluate_model, what="evaluation model")
 
         self.revision_kwargs = {}
         if settings.model_commit is not None:

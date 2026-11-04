@@ -1020,6 +1020,10 @@ def run():
                                 upload_token = None
                                 raise
 
+                            # Remember only after a successful whoami. Kept out of
+                            # `settings`, and never persisted to disk.
+                            upload_token = token
+
                             fullname = user.get(
                                 "fullname",
                                 user.get("name", "unknown user"),

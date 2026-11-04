@@ -1,10 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import json
 import os
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
 from typing import Any, Self
 
 import numpy as np
@@ -15,7 +13,7 @@ from openai import (
     OpenAI,
     RateLimitError,
 )
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 from rich.markup import escape
 
 from heretic.config import DatasetSpecification, SingleDatasetSpecification
@@ -37,6 +35,7 @@ Reply with a single "yes" or "no". No JSON is required.
 class LLMResponseError(Exception):
     """Raised when the API response is unusable."""
 
+
 class JudgeVerdict(BaseModel):
     content: str
     # "yes" | "no"
@@ -45,7 +44,7 @@ class JudgeVerdict(BaseModel):
 
     @property
     def result(self) -> bool:
-        return self.token == 'yes'
+        return self.token == "yes"
 
     @property
     def probability(self) -> float:
@@ -60,10 +59,9 @@ class JudgeVerdict(BaseModel):
         if token not in ("yes", "no"):
             raise LLMResponseError(f"Token not 'yes' or 'no' (was {token})")
         return cls(
-            content=choice.message.content or "",
-            token=token,
-            logprob=first.logprob
+            content=choice.message.content or "", token=token, logprob=first.logprob
         )
+
 
 class Settings(BaseModel):
     api_key_env_var: str = Field(

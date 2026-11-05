@@ -1,12 +1,25 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import os
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, TypeAlias, cast
 
 import torch
+from huggingface_hub import list_repo_files
+from huggingface_hub.constants import HF_HUB_CACHE
+from huggingface_hub.utils import (
+    GatedRepoError,
+    HfHubHTTPError,
+    HFValidationError,
+    LocalEntryNotFoundError,
+    OfflineModeIsEnabled,
+    RepositoryNotFoundError,
+    RevisionNotFoundError,
+)
 from peft import LoraConfig, PeftModel, get_peft_model
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
@@ -108,30 +121,185 @@ def chat_template_supports_system_role(tokenizer: PreTrainedTokenizerBase) -> bo
 ModuleIO: TypeAlias = list[dict[str, dict[int, tuple[Tensor, Tensor]]]]
 
 
-def _looks_like_gguf(model: str) -> bool:
+# A listing failure must not block a normal load. Offline use, a missing repo,
+# and a path that is not a repo id all end up here.
+_HUB_LISTING_ERRORS = (
+    GatedRepoError,
+    HFValidationError,
+    HfHubHTTPError,
+    LocalEntryNotFoundError,
+    OfflineModeIsEnabled,
+    RepositoryNotFoundError,
+    RevisionNotFoundError,
+    OSError,
+)
+
+_GGUF_MAGIC = b"GGUF"
+
+
+def _is_standard_weight_filename(name: str) -> bool:
+    """Return whether ``name`` is a weight file Transformers can load on its own."""
+    basename = name.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if basename.endswith((".safetensors", ".safetensors.index.json")):
+        return True
+    return basename.startswith("pytorch_model") and basename.endswith(
+        (".bin", ".bin.index.json")
+    )
+
+
+def _has_gguf_magic(path: Path) -> bool:
+    """Return whether ``path`` starts with the GGUF magic bytes."""
+    try:
+        with path.open("rb") as handle:
+            return handle.read(4) == _GGUF_MAGIC
+    except OSError:
+        return False
+
+
+def _filenames_are_gguf_only(filenames: list[str]) -> bool:
     """
-    Return whether a model id or path looks like a GGUF checkpoint.
+    Return whether a repo file listing is a GGUF checkpoint.
 
-    Hugging Face GGUF repos usually contain ``-gguf`` or ``_gguf`` in the id
-    (for example ``org/model-q4_0-gguf``). Local GGUF files end with ``.gguf``.
-    The check is purely lexical, so it does not contact the Hub.
+    GGUF-only means at least one ``.gguf`` file and no safetensors / PyTorch
+    weights. ``config.json`` does not count: the weights still are not loadable
+    with ``from_pretrained`` unless ``gguf_file`` is passed.
     """
-    normalized = model.strip().replace("\\", "/").lower()
-    basename = normalized.rstrip("/").rsplit("/", 1)[-1]
-    return basename.endswith(".gguf") or "-gguf" in normalized or "_gguf" in normalized
+    has_gguf = False
+    for name in filenames:
+        if _is_standard_weight_filename(name):
+            return False
+        if name.replace("\\", "/").rsplit("/", 1)[-1].lower().endswith(".gguf"):
+            has_gguf = True
+    return has_gguf
 
 
-def _reject_gguf_model(model: str, *, what: str) -> None:
-    """Exit before tokenizer load if ``model`` looks like GGUF."""
-    if not _looks_like_gguf(model):
+def _directory_is_gguf_only(root: Path) -> bool:
+    """Return whether a local directory's files are a GGUF checkpoint."""
+    has_gguf = False
+    has_standard_weights = False
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        # The header is the format. A ``.gguf`` name that is not a GGUF file,
+        # and a GGUF file that is not named ``.gguf``, are both possible.
+        if _has_gguf_magic(path):
+            has_gguf = True
+            continue
+        if _is_standard_weight_filename(path.name):
+            has_standard_weights = True
+    return has_gguf and not has_standard_weights
+
+
+def _hub_cache_root() -> Path:
+    configured = os.environ.get("HF_HUB_CACHE") or os.environ.get(
+        "HUGGINGFACE_HUB_CACHE"
+    )
+    if configured:
+        return Path(configured).expanduser()
+    return Path(HF_HUB_CACHE)
+
+
+def _cached_hub_filenames(repo_id: str, revision: str | None) -> list[str] | None:
+    """
+    Return file names from the local Hub cache, or ``None`` when unavailable.
+
+    Used when the Hub cannot be listed (offline, network error, no token).
+    """
+    if repo_id.count("/") != 1:
+        return None
+
+    root = _hub_cache_root() / f"models--{repo_id.replace('/', '--')}"
+    snapshots = root / "snapshots"
+    if not snapshots.is_dir():
+        return None
+
+    revision_name = revision or "main"
+    commit: str | None = None
+    ref = root / "refs" / revision_name
+    try:
+        if ref.is_file():
+            commit = ref.read_text(encoding="utf-8").strip()
+        elif (snapshots / revision_name).is_dir():
+            commit = revision_name
+    except OSError:
+        return None
+
+    # A revision is a single cache-directory name, never a path.
+    if not commit or commit in {".", ".."} or "/" in commit or "\\" in commit:
+        return None
+
+    folder = snapshots / commit
+    if not folder.is_dir():
+        return None
+
+    try:
+        return [
+            item.relative_to(folder).as_posix()
+            for item in folder.rglob("*")
+            if item.is_file()
+        ]
+    except OSError:
+        return None
+
+
+def _hub_filenames(repo_id: str, revision: str | None) -> list[str] | None:
+    """List a model repo, falling back to the local cache. ``None`` if unknown."""
+    try:
+        return list_repo_files(repo_id, revision=revision, repo_type="model")
+    except _HUB_LISTING_ERRORS:
+        return _cached_hub_filenames(repo_id, revision)
+
+
+def _is_gguf_checkpoint(model: str, revision: str | None = None) -> bool:
+    """
+    Return whether ``model`` is a GGUF checkpoint heretic cannot load.
+
+    Local files are identified by the GGUF magic header. Local directories are
+    identified by that header plus the absence of safetensors or PyTorch
+    weights. Hub ids use the repo file listing (and, offline, the Hub cache).
+    A listing failure does not guess from the id string.
+    """
+    model = model.strip()
+    if not model:
+        return False
+
+    path = Path(model).expanduser()
+    try:
+        if path.is_file():
+            return _has_gguf_magic(path)
+        if path.is_dir():
+            return _directory_is_gguf_only(path)
+    except OSError:
+        return False
+
+    filenames = _hub_filenames(model, revision)
+    if filenames is None:
+        return False
+    return _filenames_are_gguf_only(filenames)
+
+
+def _reject_gguf_checkpoint(
+    model: str,
+    *,
+    what: str,
+    revision: str | None = None,
+) -> None:
+    """Exit before tokenizer load if ``model`` is a GGUF checkpoint."""
+    if not _is_gguf_checkpoint(model, revision=revision):
         return
 
     # SystemExit prints this message and skips the Rich traceback handler
     # installed in main(). A normal exception would still dump a traceback.
     raise SystemExit(
-        "heretic: GGUF models are not supported yet "
-        f"({what} '{model}'). "
-        "Use a Safetensors checkpoint or a normal Hugging Face model instead."
+        f"heretic: {what} '{model}' is a GGUF checkpoint, which heretic cannot load. "
+        "The tokenizer and the weights are stored inside the .gguf file, and there is "
+        "no safetensors checkpoint beside it. Heretic loads models with Transformers' "
+        "from_pretrained without gguf_file, so this fails while looking for a standalone "
+        "tokenizer and weight files (often as an unrelated sentencepiece/tiktoken error). "
+        "Passing gguf_file is not a fit either: packed GGUF modules are not trainable or "
+        "serializable, and architectures outside that packed path (including gemma4) are "
+        "fully dequantized to floating point, which heretic would then have to edit and "
+        "save as safetensors. Use the safetensors checkpoint instead."
     )
 
 
@@ -149,11 +317,19 @@ class Model:
         self.settings = settings
         self.needs_reload = False
 
-        # Reject GGUF before AutoTokenizer.from_pretrained. Those ids otherwise
-        # fail with an unrelated sentencepiece/tiktoken ValueError.
-        _reject_gguf_model(settings.model, what="model")
+        # Reject GGUF before AutoTokenizer.from_pretrained. A GGUF-only repo has
+        # no config.json or tokenizer files, so that call fails with an unrelated
+        # sentencepiece/tiktoken ValueError.
+        _reject_gguf_checkpoint(
+            settings.model,
+            what="model",
+            revision=settings.model_commit,
+        )
         if settings.evaluate_model is not None:
-            _reject_gguf_model(settings.evaluate_model, what="evaluation model")
+            _reject_gguf_checkpoint(
+                settings.evaluate_model,
+                what="evaluation model",
+            )
 
         self.revision_kwargs = {}
         if settings.model_commit is not None:

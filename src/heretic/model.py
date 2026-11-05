@@ -235,6 +235,10 @@ class Model:
                         )
                     ],
                     max_new_tokens=1,
+                    # The KV cache is deliberately left enabled here so we can
+                    # catch dtype errors related to the cache, which we will need
+                    # for generating responses.
+                    # use_cache=False,
                 )
             except Exception as error:
                 self.model = None
@@ -855,7 +859,11 @@ class Model:
                         )
                     )
 
-        self.generate(prompts, max_new_tokens=1)
+        self.generate(
+            prompts,
+            max_new_tokens=1,
+            use_cache=False,
+        )
 
         for hook_handle in hook_handles:
             hook_handle.remove()

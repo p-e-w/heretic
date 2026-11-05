@@ -163,7 +163,7 @@ column = "text"
 # Name that describes what the configured keyword rate measures.
 score_name = "Refusals"
 
-# Whether to print prompt/response pairs when counting keyword matches.
+# Whether to print prompt/response pairs.
 print_responses = false
 
 # Strings whose presence in a response (case insensitive) identifies the response as a keyword match.
@@ -291,6 +291,27 @@ task = "piqa"
 
 # Task metric to use as the benchmark score.
 metric = "acc_norm,none"
+
+
+[scorer.ResponseLength]
+# Whether to strip leading and trailing whitespace from responses before measuring their length.
+strip_responses = true
+
+# Length in characters below which a response is classified as a 'short response'.
+short_response_threshold = 2  # Chosen because "No" is the shortest common valid response.
+
+# Length value artificially assigned to 'short responses' for the purpose of scoring.
+# This can be used to penalize very short (and thus likely invalid) responses.
+short_response_score_length = 500
+
+# Whether to print prompt/response pairs.
+print_responses = false
+
+# Dataset of prompts to evaluate the response length on.
+[scorer.ResponseLength.prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[:100]"
+column = "text"
 
 
 [modifier.ARA]

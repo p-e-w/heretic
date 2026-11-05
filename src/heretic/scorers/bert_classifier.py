@@ -215,7 +215,12 @@ class BERTClassifier(Scorer):
         predicted_labels = self._classify(responses)
 
         match_count = 0
-        for prompt, response, label in zip(self.prompts, responses, predicted_labels):
+        for prompt, response, label in zip(
+            self.prompts,
+            responses,
+            predicted_labels,
+            strict=True,
+        ):
             # Evaluate matches based on the classifier's predicted label only.
             is_match = label in self.settings.match_labels
             match_count += int(is_match)
@@ -253,7 +258,7 @@ class BERTClassifier(Scorer):
                     "text": prompt.user,
                     "text_pair": response,
                 }
-                for prompt, response in zip(self.prompts, responses)
+                for prompt, response in zip(self.prompts, responses, strict=True)
             ]
         else:
             # Fallback for single-sequence text-classification models

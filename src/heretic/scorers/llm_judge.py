@@ -83,8 +83,6 @@ class Settings(BaseModel):
     judge_prompt: str = Field(
         default=DEFAULT_EVAL_PROMPT,
         description="The evaluation prompt passed to the LLM along with the abliterated model response. "
-        "The judge's answer is parsed as a JSON object with a 'result' boolean, so the prompt must instruct "
-        "the model to return exactly that schema.",
     )
 
     judge_model: str = Field(

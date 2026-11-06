@@ -204,8 +204,8 @@ class Settings(BaseSettings):
     model: str = Field(
         description=(
             "Hugging Face model ID, or path to model on disk. "
-            "A GGUF file, or a repository that ships GGUF weights and no "
-            "safetensors or PyTorch weights, is dequantized to a dense model "
+            "A .gguf file, or a repository whose only weight file is a single "
+            ".gguf (a projector sidecar aside), is dequantized to a dense model "
             "on load. Saving writes that reconstruction, not the original "
             "full-precision checkpoint."
         ),

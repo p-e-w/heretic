@@ -1,26 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
-import os
 from collections.abc import Callable
 from contextlib import suppress
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeAlias, cast
 
 import torch
 from huggingface_hub import list_repo_files
-from huggingface_hub.constants import HF_HUB_CACHE
-from huggingface_hub.utils import (
-    GatedRepoError,
-    HfHubHTTPError,
-    HFValidationError,
-    LocalEntryNotFoundError,
-    OfflineModeIsEnabled,
-    RepositoryNotFoundError,
-    RevisionNotFoundError,
-)
 from peft import LoraConfig, PeftModel, get_peft_model
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
@@ -152,241 +140,40 @@ def chat_template_supports_system_role(tokenizer: PreTrainedTokenizerBase) -> bo
 ModuleIO: TypeAlias = list[dict[str, dict[int, tuple[Tensor, Tensor]]]]
 
 
-# A listing failure must not block a normal load. Offline use, a missing repo,
-# and a path that is not a repo id all end up here.
-_HUB_LISTING_ERRORS = (
-    GatedRepoError,
-    HFValidationError,
-    HfHubHTTPError,
-    LocalEntryNotFoundError,
-    OfflineModeIsEnabled,
-    RepositoryNotFoundError,
-    RevisionNotFoundError,
-    OSError,
-)
-
-_GGUF_MAGIC = b"GGUF"
-
-
-def _is_standard_weight_filename(name: str) -> bool:
-    """Return whether ``name`` is a weight file Transformers can load on its own."""
-    basename = name.replace("\\", "/").rsplit("/", 1)[-1].lower()
-    if basename.endswith((".safetensors", ".safetensors.index.json")):
-        return True
-    return basename.startswith("pytorch_model") and basename.endswith(
-        (".bin", ".bin.index.json")
-    )
-
-
-def _has_gguf_magic(path: Path) -> bool:
-    """Return whether ``path`` starts with the GGUF magic bytes."""
-    try:
-        with path.open("rb") as handle:
-            return handle.read(4) == _GGUF_MAGIC
-    except OSError:
-        return False
-
-
-def _filenames_are_gguf_only(filenames: list[str]) -> bool:
+def _only_gguf_file(names: list[str]) -> str | None:
     """
-    Return whether a repo file listing is a GGUF checkpoint.
+    Return the one GGUF file to pass as ``gguf_file``, or ``None``.
 
-    GGUF-only means at least one ``.gguf`` file and no safetensors / PyTorch
-    weights. ``config.json`` does not count: the weights still are not loadable
-    with ``from_pretrained`` unless ``gguf_file`` is passed.
+    Transformers does not pick a file inside a repository. A listing that also
+    contains safetensors or PyTorch weights stays on the normal loader. More
+    than one model file is left unresolved. An ``mmproj`` sidecar is skipped
+    when another ``.gguf`` file is present.
     """
-    has_gguf = False
-    for name in filenames:
-        if _is_standard_weight_filename(name):
-            return False
-        if name.replace("\\", "/").rsplit("/", 1)[-1].lower().endswith(".gguf"):
-            has_gguf = True
-    return has_gguf
-
-
-def _hub_cache_root() -> Path:
-    configured = os.environ.get("HF_HUB_CACHE") or os.environ.get(
-        "HUGGINGFACE_HUB_CACHE"
-    )
-    if configured:
-        return Path(configured).expanduser()
-    return Path(HF_HUB_CACHE)
-
-
-def _cached_hub_filenames(repo_id: str, revision: str | None) -> list[str] | None:
-    """
-    Return file names from the local Hub cache, or ``None`` when unavailable.
-
-    Used when the Hub cannot be listed (offline, network error, no token).
-    """
-    if repo_id.count("/") != 1:
+    if any(
+        ".safetensors" in name or ("pytorch_model" in name and ".bin" in name)
+        for name in names
+    ):
         return None
 
-    root = _hub_cache_root() / f"models--{repo_id.replace('/', '--')}"
-    snapshots = root / "snapshots"
-    if not snapshots.is_dir():
-        return None
-
-    revision_name = revision or "main"
-    commit: str | None = None
-    ref = root / "refs" / revision_name
-    try:
-        if ref.is_file():
-            commit = ref.read_text(encoding="utf-8").strip()
-        elif (snapshots / revision_name).is_dir():
-            commit = revision_name
-    except OSError:
-        return None
-
-    # A revision is a single cache-directory name, never a path.
-    if not commit or commit in {".", ".."} or "/" in commit or "\\" in commit:
-        return None
-
-    folder = snapshots / commit
-    if not folder.is_dir():
-        return None
-
-    try:
-        return [
-            item.relative_to(folder).as_posix()
-            for item in folder.rglob("*")
-            if item.is_file()
-        ]
-    except OSError:
-        return None
+    gguf_files = [name for name in names if name.lower().endswith(".gguf")]
+    model_files = [name for name in gguf_files if "mmproj" not in name.lower()]
+    if len(model_files) == 1:
+        return model_files[0]
+    if len(gguf_files) == 1:
+        return gguf_files[0]
+    return None
 
 
-def _hub_filenames(repo_id: str, revision: str | None) -> list[str] | None:
-    """List a model repo, falling back to the local cache. ``None`` if unknown."""
-    try:
-        return list_repo_files(repo_id, revision=revision, repo_type="model")
-    except _HUB_LISTING_ERRORS:
-        return _cached_hub_filenames(repo_id, revision)
-
-
-# Closer to the original weights first. An unrecognized name sorts last, so a
-# file that names its quant wins over an unlabeled sidecar. ``bf16`` is listed
-# before ``f16`` because the check is a substring search.
-_GGUF_QUANT_RANK = (
-    "f32",
-    "bf16",
-    "f16",
-    "q8_0",
-    "q6_k",
-    "q5_k_m",
-    "q5_k_s",
-    "q5_1",
-    "q5_0",
-    "q4_k_m",
-    "q4_k_s",
-    "q4_1",
-    "q4_0",
-    "q3_k_l",
-    "q3_k_m",
-    "q3_k_s",
-    "q2_k",
-    "iq4_nl",
-    "iq4_xs",
-    "iq3_m",
-    "iq3_s",
-    "iq3_xxs",
-    "iq2_m",
-    "iq2_s",
-    "iq2_xs",
-    "iq2_xxs",
-    "iq1_m",
-    "iq1_s",
-)
-
-
-@dataclass(frozen=True)
-class _GGUFCheckpoint:
-    """
-    Arguments for loading one GGUF file with Transformers.
-
-    ``model_id`` is a Hub repo id or a local directory. ``gguf_file`` is the
-    file inside it, or an absolute path when the checkpoint is a local file.
-    Both ``AutoTokenizer.from_pretrained`` and ``AutoModelForCausalLM.from_pretrained``
-    take that pair.
-    """
-
-    model_id: str
-    gguf_file: str
-    # Other model files in the same checkpoint, not including projector sidecars.
-    alternatives: tuple[str, ...] = ()
-
-
-def _is_mmproj_gguf(name: str) -> bool:
-    """Return whether ``name`` is a multimodal projector sidecar, not the model."""
-    basename = name.replace("\\", "/").rsplit("/", 1)[-1].lower()
-    compact = basename.replace("-", "").replace("_", "")
-    return "mmproj" in compact
-
-
-def _gguf_quant_rank(name: str) -> int:
-    """Rank a GGUF filename by how close its quant is to the original weights."""
-    basename = name.replace("\\", "/").rsplit("/", 1)[-1].lower().replace("-", "_")
-    for index, token in enumerate(_GGUF_QUANT_RANK):
-        if token in basename:
-            return index
-    return len(_GGUF_QUANT_RANK)
-
-
-def _choose_gguf_file(names: list[str]) -> tuple[str, tuple[str, ...]]:
-    """
-    Pick the model GGUF file.
-
-    Projector sidecars (``mmproj``) are skipped when a model file is present.
-    Several model files resolve to the one closest to full precision.
-    """
-    model_files = [name for name in names if not _is_mmproj_gguf(name)]
-    if not model_files:
-        model_files = list(names)
-    chosen = min(model_files, key=lambda name: (_gguf_quant_rank(name), name.lower()))
-    alternatives = tuple(sorted(name for name in model_files if name != chosen))
-    return chosen, alternatives
-
-
-def _directory_gguf_checkpoint(root: Path) -> _GGUFCheckpoint | None:
-    """Return the GGUF file to load from a local directory, or ``None``."""
-    gguf_paths: list[Path] = []
-    has_standard_weights = False
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        # The header is the format. A ``.gguf`` name that is not a GGUF file,
-        # and a GGUF file that is not named ``.gguf``, are both possible.
-        if _has_gguf_magic(path):
-            gguf_paths.append(path)
-            continue
-        if _is_standard_weight_filename(path.name):
-            has_standard_weights = True
-    if has_standard_weights or not gguf_paths:
-        return None
-
-    chosen, alternatives = _choose_gguf_file(
-        [str(path.resolve()) for path in gguf_paths]
-    )
-    return _GGUFCheckpoint(
-        model_id=str(root),
-        gguf_file=chosen,
-        alternatives=alternatives,
-    )
-
-
-def _resolve_gguf_checkpoint(
+def _gguf_load_args(
     model: str,
     revision: str | None = None,
-) -> _GGUFCheckpoint | None:
+) -> tuple[str, str] | None:
     """
-    Return how to load ``model`` when it is a GGUF checkpoint, else ``None``.
+    Return ``(from_pretrained id, gguf_file)`` for one GGUF checkpoint.
 
-    Local files are identified by the GGUF magic header. Local directories are
-    identified by that header plus the absence of safetensors or PyTorch
-    weights. Hub ids use the repo file listing (and, offline, the Hub cache):
-    a ``.gguf`` file and no safetensors or PyTorch weights. A listing failure
-    does not guess from the id string. A repo that also ships safetensors is
-    left to the normal loader.
+    A local ``.gguf`` path is passed through. A directory or Hub repo is used
+    only when :func:`_only_gguf_file` names exactly one file. A Hub listing
+    failure does not guess from the id.
     """
     model = model.strip()
     if not model:
@@ -395,40 +182,31 @@ def _resolve_gguf_checkpoint(
     path = Path(model).expanduser()
     try:
         if path.is_file():
-            if not _has_gguf_magic(path):
+            if path.suffix.lower() != ".gguf":
                 return None
             resolved = path.resolve()
-            return _GGUFCheckpoint(
-                model_id=str(resolved.parent),
-                gguf_file=str(resolved),
-            )
+            return str(resolved.parent), str(resolved)
         if path.is_dir():
-            return _directory_gguf_checkpoint(path.resolve())
+            names = [child.name for child in path.iterdir() if child.is_file()]
+            chosen = _only_gguf_file(names)
+            if chosen is None:
+                return None
+            root = path.resolve()
+            return str(root), str(root / chosen)
     except OSError:
         return None
 
-    filenames = _hub_filenames(model, revision)
-    if filenames is None or not _filenames_are_gguf_only(filenames):
+    # Offline mode, a missing repo, or a path that is not a repo id must not
+    # block the normal loader, and must not be guessed from the id string.
+    try:
+        names = list_repo_files(model, revision=revision, repo_type="model")
+    except Exception:
         return None
 
-    gguf_names = [
-        name
-        for name in filenames
-        if name.replace("\\", "/").rsplit("/", 1)[-1].lower().endswith(".gguf")
-    ]
-    if not gguf_names:
+    chosen = _only_gguf_file(names)
+    if chosen is None:
         return None
-    chosen, alternatives = _choose_gguf_file(gguf_names)
-    return _GGUFCheckpoint(
-        model_id=model,
-        gguf_file=chosen,
-        alternatives=alternatives,
-    )
-
-
-def _is_gguf_checkpoint(model: str, revision: str | None = None) -> bool:
-    """Return whether ``model`` should be loaded with ``gguf_file``."""
-    return _resolve_gguf_checkpoint(model, revision=revision) is not None
+    return model, chosen
 
 
 class Model:
@@ -449,8 +227,6 @@ class Model:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.needs_reload = False
-        self._announced_gguf: set[tuple[str, str]] = set()
-        self._gguf_alternatives: tuple[str, ...] = ()
 
         self.revision_kwargs = {}
         if settings.model_commit is not None:
@@ -640,59 +416,30 @@ class Model:
 
     def _bind_checkpoint(self) -> None:
         """
-        Point this model at ``settings.model``, including a GGUF file if that
-        is what the checkpoint is.
+        Point this model at ``settings.model``.
 
         ``loaded_from`` is the settings string this bind used. ``reset_model``
-        compares it so swapping in ``evaluate_model`` reloads, without listing
-        the Hub again on the fast path.
+        compares it so swapping in ``evaluate_model`` reloads.
         """
-        checkpoint = _resolve_gguf_checkpoint(
+        loaded = _gguf_load_args(
             self.settings.model,
             revision=self.settings.model_commit,
         )
         self.loaded_from = self.settings.model
-        if checkpoint is None:
+        if loaded is None:
             self.pretrained_model_id = self.settings.model
             self.gguf_file = None
-            self._gguf_alternatives = ()
             return
 
-        self.pretrained_model_id = checkpoint.model_id
-        self.gguf_file = checkpoint.gguf_file
-        self._gguf_alternatives = checkpoint.alternatives
-        self._announce_gguf_dequantization()
-
-    def _announce_gguf_dequantization(self) -> None:
-        """Warn once per checkpoint that the loaded weights are a reconstruction."""
-        assert self.gguf_file is not None
-        key = (self.settings.model, self.gguf_file)
-        if key in self._announced_gguf:
-            return
-        self._announced_gguf.add(key)
-
-        extra = ""
-        if self._gguf_alternatives:
-            listed = ", ".join(self._gguf_alternatives)
-            extra = (
-                f" Other GGUF model files were left unused ({listed}). "
-                "This load uses the file closest to full precision."
-            )
+        self.pretrained_model_id, self.gguf_file = loaded
         bnb = ""
         if self.settings.quantization == QuantizationMethod.BNB_4BIT:
-            bnb = (
-                " bitsandbytes 4-bit quantization is not applied, because "
-                "Transformers cannot combine it with loading a GGUF file."
-            )
+            bnb = " bitsandbytes 4-bit is not combined with GGUF loading."
         print(
             "[yellow]WARNING: "
-            f"'{self.settings.model}' is a GGUF checkpoint. Heretic loads "
-            f"[bold]{self.gguf_file}[/] through Transformers with dequantization "
-            "forced. The weights are a dense reconstruction of that quantized "
-            "file, not the original full-precision weights. Saving and uploading "
-            "write the reconstruction as safetensors. Architectures that "
-            "Transformers cannot map from GGUF still fail to load."
-            f"{extra}{bnb}[/]"
+            f"[bold]{self.gguf_file}[/] will be loaded as a dequantized dense "
+            "reconstruction, not the original full-precision weights. Saving "
+            f"writes that reconstruction as safetensors.{bnb}[/]"
         )
 
     def _gguf_file_kwargs(self) -> dict[str, Any]:
@@ -705,13 +452,10 @@ class Model:
         """
         Keyword arguments for ``AutoModelForCausalLM.from_pretrained``.
 
-        A GGUF load always asks Transformers to dequantize. Packed GGUF
-        modules (Qwen3.5, when the ggml kernel is installed) are not trainable
-        and ``save_pretrained`` refuses them. ``GgufConfig(dequantize=True)``
-        unpacks every weight into an ordinary ``Linear`` in the requested
-        dtype. The legacy loader already dequantizes; this forces the packed
-        architectures down the same path. bitsandbytes is a different
-        ``quantization_config`` and cannot be combined with ``gguf_file``.
+        A GGUF load passes ``gguf_file`` and ``GgufConfig(dequantize=True)``.
+        Dequantization is what yields ordinary ``Linear`` weights Heretic can
+        edit and save. bitsandbytes is a different ``quantization_config`` and
+        cannot be combined with ``gguf_file``.
         """
         kwargs: dict[str, Any] = dict(self.revision_kwargs)
         kwargs.update(self._gguf_file_kwargs())

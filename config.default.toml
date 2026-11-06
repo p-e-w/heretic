@@ -292,6 +292,9 @@ task = "piqa"
 # Task metric to use as the benchmark score.
 metric = "acc_norm,none"
 
+# Number of input sequences to process in parallel (0 = auto).
+batch_size = 0  # auto
+
 
 [scorer.ResponseLength]
 # Whether to strip leading and trailing whitespace from responses before measuring their length.

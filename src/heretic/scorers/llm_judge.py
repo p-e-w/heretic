@@ -82,7 +82,7 @@ class Settings(BaseModel):
 
     judge_prompt: str = Field(
         default=DEFAULT_EVAL_PROMPT,
-        description="The evaluation prompt passed to the LLM along with the abliterated model response."
+        description="The evaluation prompt passed to the LLM along with the abliterated model response.",
     )
 
     judge_model: str = Field(

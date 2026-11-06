@@ -179,6 +179,7 @@ class BinaryLLMJudge(Scorer):
                 temperature=self.settings.temperature,
                 max_tokens=self.settings.max_tokens,
                 seed=self.settings.seed,
+                logprobs=True,
                 extra_body=self.settings.extra_body,
             )
         except APITimeoutError as e:

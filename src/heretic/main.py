@@ -124,6 +124,7 @@ def obtain_export_strategy(
 
     if (
         settings.quantization == QuantizationMethod.BNB_4BIT
+        and model.gguf_file is None
         and settings.export_strategy is None
     ):
         print()

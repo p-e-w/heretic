@@ -27,6 +27,7 @@ dependencies = [
     "accelerate~=1.15",
     "bitsandbytes~=0.50",
     "datasets~=5.0",
+    "gguf~=0.19.0",
     "huggingface-hub~=1.33",
     "immutabledict~=4.3",
     "langdetect~=1.0",

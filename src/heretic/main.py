@@ -1465,6 +1465,11 @@ def run():
                     else:
                         print(f"[red]Error: {formatted}[/]")
 
+                    # A predefined action is not retried, so without this, a failed
+                    # headless run would exit as if it had succeeded.
+                    if settings.model_action is not None:
+                        sys.exit(1)
+
 
 def main():
     # Install Rich traceback handler.

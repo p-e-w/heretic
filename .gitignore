@@ -15,6 +15,9 @@ wheels/
 # Editors
 /.vscode/
 
+# ripgrep/fd-specific ignore file
+/.ignore
+
 # Configuration file (root only, not ignored in test directories)
 /config.toml
 

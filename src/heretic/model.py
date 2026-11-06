@@ -65,6 +65,29 @@ def get_model_class(
         return AutoModelForCausalLM
 
 
+def check_model_resident(model: PreTrainedModel | PeftModel) -> None:
+    """
+    Ensure that all of the model's weights are resident in memory.
+    """
+    offloaded = [name for name, param in model.named_parameters() if param.is_meta]
+
+    if not offloaded:
+        return
+
+    raise Exception(
+        "The model does not fit into the available device memory: "
+        f"{len(offloaded)} weights (such as {', '.join(offloaded[:3])}) had to "
+        "be offloaded to CPU or disk. Heretic cannot process offloaded models "
+        "because it requires direct, persistent access to all weights, whereas "
+        "offloaded weights only exist temporarily during forward passes.\n"
+        "Possible remedies:\n"
+        "* Free up memory, e.g. by closing other applications.\n"
+        "* Change the device map (device_map/max_memory settings) so that all "
+        "weights fit into device memory.\n"
+        '* Enable 4-bit quantization (quantization = "bnb_4bit").'
+    )
+
+
 def _collapse_flattened_residual_streams(
     hidden_states: tuple[FloatTensor, ...],
     config: Any,
@@ -524,6 +547,10 @@ class Model:
                         )
                     ],
                     max_new_tokens=1,
+                    # The KV cache is deliberately left enabled here so we can
+                    # catch dtype errors related to the cache, which we will need
+                    # for generating responses.
+                    # use_cache=False,
                 )
             except Exception as error:
                 self.model = None
@@ -546,6 +573,8 @@ class Model:
 
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
+
+        check_model_resident(self.model)
 
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
 
@@ -826,6 +855,8 @@ class Model:
             else None,
             **self._model_load_kwargs(str(self.dtype).split(".")[-1]),
         )
+
+        check_model_resident(self.model)
 
         self.needs_reload = False
 
@@ -1236,7 +1267,11 @@ class Model:
                         )
                     )
 
-        self.generate(prompts, max_new_tokens=1)
+        self.generate(
+            prompts,
+            max_new_tokens=1,
+            use_cache=False,
+        )
 
         for hook_handle in hook_handles:
             hook_handle.remove()

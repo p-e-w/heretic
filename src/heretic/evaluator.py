@@ -174,7 +174,9 @@ class Evaluator:
         """
         records: list[dict[str, Any]] = []
         for (name, score), (baseline_name, baseline) in zip(
-            scores, self.baseline_scores
+            scores,
+            self.baseline_scores,
+            strict=True,
         ):
             assert name == baseline_name, (
                 f"Score/baseline order mismatch: {name!r} != {baseline_name!r}"

@@ -3,7 +3,7 @@
 
 import os
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import Any, Self
+from typing import Any
 
 import numpy as np
 from openai import (
@@ -51,7 +51,7 @@ class JudgeVerdict(BaseModel):
         return np.exp(self.logprob)
 
     @classmethod
-    def from_choice(cls, choice) -> Self:
+    def from_choice(cls, choice) -> "JudgeVerdict":
         if not choice.logprobs or not choice.logprobs.content:
             raise LLMResponseError(f"No logprobs: {choice}")
         first = choice.logprobs.content[0]

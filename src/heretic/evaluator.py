@@ -230,3 +230,10 @@ class Evaluator:
             parse_study_direction(entry.config.optimization)
             for entry in self._objective_entries()
         ]
+
+    def write_settings_to_config(self) -> None:
+        """
+        Write the settings of all scorers to the global configuration.
+        """
+        for entry in self._scorer_entries:
+            entry.scorer.write_settings_to_config("scorer", entry.config.instance_name)

@@ -661,6 +661,18 @@ def run():
     modifier = modifier_entry.modifier
     modifier_name = modifier_entry.name
 
+    def write_plugin_settings_to_config() -> None:
+        # Plugins may mutate their settings at any time (e.g. pinning dataset
+        # commits during initialization, or resolving values during scoring),
+        # so the effective plugin settings are recorded immediately before
+        # every serialization of the settings object, to ensure that the
+        # serialized settings reflect the exact configuration that was used.
+        evaluator.write_settings_to_config()
+        modifier.write_settings_to_config(
+            "modifier",
+            modifier_entry.config.instance_name,
+        )
+
     # Clear cache before starting the optimization study.
     # This should free up memory from temporary objects created while initializing modifiers.
     empty_cache()
@@ -739,6 +751,7 @@ def run():
             load_if_exists=True,
         )
 
+        write_plugin_settings_to_config()
         study.set_user_attr("settings", settings.model_dump_json())
         study.set_user_attr("finished", False)
 
@@ -891,6 +904,7 @@ def run():
                         continue
 
                     settings.n_trials = len(study.trials) + n_additional_trials
+                    write_plugin_settings_to_config()
                     study.set_user_attr("settings", settings.model_dump_json())
                     study.set_user_attr("finished", False)
 
@@ -1243,8 +1257,22 @@ def run():
                                 card.push_to_hub(repo_id, token=token)
 
                             if reproducibility_information != "none":
+                                # Record the final effective plugin settings so that the
+                                # exported config.toml and reproduce.json reflect the exact
+                                # configuration that was used.
+                                write_plugin_settings_to_config()
+                                # Refresh the settings stored in the study journal to allow
+                                # continuation with the current plugin state.
+                                study.set_user_attr(
+                                    "settings",
+                                    settings.model_dump_json(),
+                                )
+
                                 # Set the number of trials to the number of actual completed trials
                                 # for the reproduction configuration.
+                                # These updates are deliberately *not* written to the journal,
+                                # because the purpose of the journal is continuing the study with
+                                # more trials, and potentially choosing a different export strategy.
                                 settings.n_trials = len(study.trials)
                                 current_export_strategy = settings.export_strategy
                                 settings.export_strategy = strategy

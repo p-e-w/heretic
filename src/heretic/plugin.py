@@ -8,7 +8,16 @@ import sys
 import types
 from pathlib import Path
 from types import ModuleType
-from typing import Annotated, Any, TypeVar, Union, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    Any,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from pydantic import BaseModel
 from torch import Tensor
@@ -202,14 +211,23 @@ class Plugin:
         """
         Whether runs using this plugin can be reproduced bit-for-bit.
 
-        Set to False when the plugin's behavior is not deterministic or depends on
+        Set to False if the plugin's behavior is not deterministic or depends on
         state outside the pinned config, for example:
         - It calls an external service (e.g. an LLM judge over the OpenAI API).
         - It reads credentials or config from the environment (env vars, files).
         - It is otherwise non-deterministic (network, wall-clock, unseeded RNG).
 
-        Defaults to False; override to True in your plugin class if any of the
+        Defaults to False; override to True in your plugin class if the
         above DO NOT apply.
+
+        Note: The plugin can use non-deterministic/external state if the plugin
+        evaluates the state during initialization and stores it in its settings
+        object in such a way that re-running the plugin with the modified settings
+        guarantees identical state. A plugin may also do this after initialization
+        (i.e., during execution), but only if setting that state at initialization
+        time during a later run results in identical plugin behavior. This can be
+        used to perform tasks such as pinning dataset commits, or automatically
+        determining batch sizes.
         """
         return False
 
@@ -337,6 +355,28 @@ class Plugin:
         if settings_model is None:
             return None
         return settings_model.model_validate(raw_namespace or {})
+
+    def write_settings_to_config(
+        self,
+        top_namespace: str,
+        instance_name: str | None,
+    ) -> None:
+        """
+        Write the plugin's effective (validated) settings back into
+        `heretic_settings.model_extra`, under the same namespace from which
+        the raw settings were read.
+        """
+        if self.settings is None:
+            return
+
+        class_name = self.__class__.__name__
+        key = class_name if not instance_name else f"{class_name}_{instance_name}"
+
+        # Settings uses extra="allow", so model_extra is always a dictionary.
+        extra = cast(dict[str, Any], self.heretic_settings.model_extra)
+        namespace: dict[str, Any] = extra.setdefault(top_namespace, {})
+
+        namespace[key] = self.settings.model_dump()
 
     def get_dataset_specifications(self) -> list[DatasetSpecification]:
         """

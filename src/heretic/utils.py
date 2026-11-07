@@ -372,10 +372,26 @@ def get_readme_intro(
 """
 
 
+def _strip_none_values(data: Any) -> Any:
+    """Return a copy of the data with all None values removed (TOML has no null value)."""
+    if isinstance(data, dict):
+        return {
+            key: _strip_none_values(value)
+            for key, value in data.items()
+            if value is not None
+        }
+    if isinstance(data, list):
+        return [_strip_none_values(value) for value in data]
+    return data
+
+
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
 
-    return tomli_w.dumps(settings.model_dump(exclude_none=True))
+    # The `exclude_none` option can't be used here because it only applies
+    # to model fields, and does not remove None values contained in extra
+    # (plugin settings) dictionaries.
+    return tomli_w.dumps(_strip_none_values(settings.model_dump()))
 
 
 def generate_requirements_txt() -> str:

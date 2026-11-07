@@ -170,6 +170,77 @@ class WriteSettingsToConfigTests(unittest.TestCase):
 
         self.assertEqual(validated, DummySettings(value=42))
 
+    def test_records_multiple_instances_independently(self) -> None:
+        heretic_settings = self.make_settings()
+        extra = heretic_settings.model_extra
+        assert extra is not None
+
+        first = self.make_plugin(heretic_settings)
+        second = self.make_plugin(heretic_settings)
+
+        # Different values ensure that neither instance overwrites the other.
+        first.settings.value = 10
+        second.settings.value = 20
+
+        first.write_settings_to_config("scorer", "small")
+        second.write_settings_to_config("scorer", "large")
+
+        self.assertEqual(
+            extra["scorer"],
+            {
+                "DummyPlugin_small": {**FULL_SETTINGS, "value": 10},
+                "DummyPlugin_large": {**FULL_SETTINGS, "value": 20},
+            },
+        )
+
+    def test_repeated_writes_update_recorded_settings(self) -> None:
+        heretic_settings = self.make_settings()
+        extra = heretic_settings.model_extra
+        assert extra is not None
+
+        plugin = self.make_plugin(heretic_settings)
+
+        plugin.write_settings_to_config("scorer", None)
+
+        # Subsequent writes must capture settings mutations made at runtime.
+        plugin.settings.value = 123
+        plugin.write_settings_to_config("scorer", None)
+
+        self.assertEqual(
+            extra["scorer"]["DummyPlugin"]["value"],
+            123,
+        )
+
+    def test_nested_none_values_fail_toml_serialization(self) -> None:
+        heretic_settings = self.make_settings()
+        extra = heretic_settings.model_extra
+        assert extra is not None
+
+        # None values inside lists cannot be represented in TOML and must
+        # cause serialization to fail rather than be silently removed.
+        extra["scorer"] = {
+            "DummyPlugin": {
+                "values": [1, None, 3],
+            }
+        }
+
+        with self.assertRaises((TypeError, ValueError)):
+            generate_config_toml(heretic_settings)
+
+    def test_plugins_without_settings_do_not_create_config_entries(self) -> None:
+        heretic_settings = self.make_settings()
+
+        plugin = DummyPluginWithoutSettings(
+            heretic_settings=heretic_settings,
+        )
+        plugin.write_settings_to_config("scorer", None)
+
+        self.assertEqual(heretic_settings.model_extra, {})
+
+
+class DummyPluginWithoutSettings(Plugin):
+    pass
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -227,6 +227,20 @@ class WriteSettingsToConfigTests(unittest.TestCase):
         with self.assertRaises((TypeError, ValueError)):
             generate_config_toml(heretic_settings)
 
+    def test_plugins_without_settings_do_not_create_config_entries(self) -> None:
+        heretic_settings = self.make_settings()
+
+        plugin = DummyPluginWithoutSettings(
+            heretic_settings=heretic_settings,
+        )
+        plugin.write_settings_to_config("scorer", None)
+
+        self.assertEqual(heretic_settings.model_extra, {})
+
+
+class DummyPluginWithoutSettings(Plugin):
+    pass
+
 
 if __name__ == "__main__":
     unittest.main()

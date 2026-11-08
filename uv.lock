@@ -1082,7 +1082,7 @@ wheels = [
 
 [[package]]
 name = "heretic-llm"
-version = "2.1.0.dev0"
+version = "2.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },

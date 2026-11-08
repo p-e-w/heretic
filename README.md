@@ -44,6 +44,7 @@ Heretic can, depending on the configuration:
 * Reduce humor ([`config.nohumor.toml`](/config.nohumor.toml))
 * Reduce sycophancy ([`config.nosyco.toml`](/config.nosyco.toml))
 * Alter emotional alignment ([`config.emotions.toml`](/config.emotions.toml))
+* Shorten response length ([`config.terse.toml`](/config.terse.toml))
 
 and many, many other things.
 
@@ -61,8 +62,8 @@ Heretic models have been independently benchmarked using standard metrics
 like MMLU and GSM8K, and have been found to compare favorably against models
 produced with competing abliteration tools.[^2][^3]
 
-[^2]: https://old.reddit.com/r/LocalLLaMA/comments/1sojjoc/abliterlitics_benchmark_and_tensor_analysis/
-[^3]: https://old.reddit.com/r/LocalLLaMA/comments/1sy18lx/abliterlitics_benchmarks_and_tensor_comparison/
+[^2]: [Qwen2.5-7B: Three-Way Abliteration Comparison](https://huggingface.co/DreamFast/Qwen-2.5-7b-abliterlitics): *"Heretic is the most surgical and most effective."*
+[^3]: [Gemma 4 E4B: 23 Abliteration Variants Compared](https://huggingface.co/DreamFast/Gemma4-e4b-abliterlitics): *"Best overall: heretic."*
 
 &nbsp;
 
@@ -228,10 +229,11 @@ exists on Hugging Face.
 Unlike lots of AI-related software today (and indeed lots of software in general),
 Heretic is **not** "vibe-coded".
 
-All of [my](https://github.com/p-e-w) commits in this project so far were written
-100% by hand, the way I have been doing programming for decades, and while some
-Heretic contributors use coding agents, I review every single line of code that I
-merge very carefully. There's no "LGTM" here!
+All of [my](https://github.com/p-e-w) commits to this project until November 2026
+were written 100% by hand, the way I have been doing programming for decades.
+I have been using LLM assistance *very* sparingly since. While many Heretic contributors
+use coding agents, I carefully review every single line of code that I merge.
+There's no "LGTM" here!
 
 Don't believe me? Check out [this pull request](https://github.com/p-e-w/heretic/pull/53),
 which accumulated **almost 350 human-written comments** over more than 7 months
@@ -239,8 +241,8 @@ as we discussed the implementation.
 And [here is another PR](https://github.com/p-e-w/heretic/pull/191) with
 **more than 200 comments.**
 
-I am the opposite of a luddite and I have used agents for other projects, but
-I am proud of the code I write and so far can't quite bring myself to let a machine
+I am the opposite of a luddite and I have used agents liberally for other projects,
+but I am proud of the code I write and so far can't quite bring myself to let a machine
 write it for me in a project I care so much about. As a result, Heretic has a lean,
 relatively simple codebase that in my opinion, and in that of some others,
 is a pleasure to work on.

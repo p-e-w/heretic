@@ -575,6 +575,15 @@ class Settings(BaseSettings):
         description="System prompt to use when prompting the model.",
     )
 
+    enable_shell: bool = Field(
+        default=False,
+        description=(
+            "Whether to offer the option to open an in-context Python shell in the trial selection menu. "
+            "WARNING: Enabling this feature gives full system access to the user of the Heretic session."
+        ),
+        exclude=True,
+    )
+
     # We intentionally allow extra keys so users can provide plugin-specific
     # configuration in TOML tables like `[scorer.KeywordRate]` which are later
     # consumed via `settings.model_extra` (see `plugin.get_plugin_namespace`).

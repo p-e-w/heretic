@@ -60,10 +60,12 @@ from pathlib import Path
 from typing import Any, cast
 
 import huggingface_hub
+import IPython
 import lm_eval
 import numpy as np
 import optuna
 import questionary
+import rich.traceback
 import torch
 import transformers
 from huggingface_hub import HfApi, ModelCard, ModelCardData
@@ -79,7 +81,6 @@ from questionary import Choice, Style
 from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
-from rich.traceback import install
 
 from .config import (
     DatasetSpecification,
@@ -828,6 +829,14 @@ def run():
                 )
             )
 
+            if settings.enable_shell:
+                choices.append(
+                    Choice(
+                        title="Open in-context Python shell",
+                        value="shell",
+                    )
+                )
+
             choices.append(
                 Choice(
                     title="Exit program",
@@ -921,6 +930,53 @@ def run():
 
                     break
 
+                if settings.enable_shell and trial == "shell":
+                    print()
+                    print(
+                        "[bold blue]This is an IPython shell running inside this Heretic session.[/]"
+                    )
+                    print("Among other things, it has access to the following objects:")
+                    print(
+                        "* [bold]settings[/], which can be both read from and written to"
+                    )
+                    print(
+                        "* [bold]model[/], with the [bold]model.model[/] and [bold]model.tokenizer[/] Transformers objects"
+                    )
+                    print(
+                        "* [bold]study[/], containing all trials in [bold]study.trials[/], and the Pareto front in [bold]study.best_trials[/]"
+                    )
+                    print(
+                        "* The special function [bold]choose_trial(trial)[/], which exits the shell and proceeds with the normal Heretic flow "
+                        "using the given trial object. The trial object is not restricted to trials from the Pareto front, "
+                        "and can even be constructed ad-hoc."
+                    )
+                    print(
+                        "[yellow]The shell is not sandboxed and won't stop you from corrupting objects beyond repair. "
+                        "With great power comes great responsibility.[/]"
+                    )
+
+                    def choose_trial(chosen_trial: Trial) -> None:
+                        nonlocal trial
+                        trial = chosen_trial
+                        IPython.get_ipython().ask_exit()
+
+                    # IPython installs a custom traceback handler
+                    # that overrides the Rich handler we installed.
+                    old_excepthook = sys.excepthook
+
+                    try:
+                        IPython.embed(
+                            display_banner=False,
+                            colors="neutral",
+                            confirm_exit=False,
+                        )
+                    finally:
+                        sys.excepthook = old_excepthook
+
+                    if trial == "shell":
+                        # choose_trial wasn't called inside the shell session.
+                        continue
+
                 print()
                 print(
                     f"Restoring model from trial [bold]{trial.user_attrs['index']}[/]..."
@@ -939,7 +995,7 @@ def run():
                 modifier.reset_model(ctx)
                 print(f"* Modifying model using {modifier_name}...")
                 parameters = modifier.parameters_class.from_dict(
-                    trial.user_attrs["parameters"]
+                    trial.user_attrs["parameters"]  # ty: ignore[unresolved-attribute]
                 )
                 modifier.modify_model(ctx, parameters)
 
@@ -1495,8 +1551,7 @@ def run():
 
 
 def main():
-    # Install Rich traceback handler.
-    install()
+    rich.traceback.install()
 
     try:
         run()

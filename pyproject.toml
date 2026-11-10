@@ -29,6 +29,7 @@ dependencies = [
     "datasets~=5.0",
     "huggingface-hub~=1.33",
     "immutabledict~=4.3",
+    "ipython~=8.39",
     "langdetect~=1.0",
     "lm-eval[hf]~=0.4",
     "numpy~=2.2",

@@ -1029,6 +1029,23 @@ http = [
 ]
 
 [[package]]
+name = "gguf"
+version = "0.19.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/48/ae/17f1308ae45cd7b08ebb521747d5b23f4efc4d172038a4e228dd5106c3ff/gguf-0.19.0.tar.gz", hash = "sha256:dbadcd6cc7ccd44256f2229fe7c2dff5e8aa5cf0612ab987fd2b1a57e428923f", size = 111220, upload-time = "2026-05-06T13:04:03.667Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/bb/d71d6da82763528c2c2ed6b59a9d6142c6595545a4c448e2085d155e88c2/gguf-0.19.0-py3-none-any.whl", hash = "sha256:70bcd10edfe697fb2dad6e40af2234b9d8ece9a41a99761405121ebda1c3c1cd", size = 118475, upload-time = "2026-05-06T13:04:02.588Z" },
+]
+
+[[package]]
 name = "greenlet"
 version = "3.5.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1115,6 +1132,7 @@ dependencies = [
     { name = "accelerate" },
     { name = "bitsandbytes" },
     { name = "datasets" },
+    { name = "gguf" },
     { name = "huggingface-hub" },
     { name = "immutabledict" },
     { name = "ipython" },
@@ -1150,6 +1168,7 @@ requires-dist = [
     { name = "accelerate", specifier = "~=1.15" },
     { name = "bitsandbytes", specifier = "~=0.50" },
     { name = "datasets", specifier = "~=5.0" },
+    { name = "gguf", specifier = "~=0.19.0" },
     { name = "huggingface-hub", specifier = "~=1.33" },
     { name = "immutabledict", specifier = "~=4.3" },
     { name = "ipython", specifier = "~=8.39" },

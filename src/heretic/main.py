@@ -996,7 +996,10 @@ def run():
                             # We don't use huggingface_hub.login() because that stores the token on disk,
                             # and since this program will often be run on rented or shared GPU servers,
                             # it's better to not persist credentials.
-                            token = upload_token or huggingface_hub.get_token()
+                            # A token configured via HF_TOKEN or the HF token file always takes
+                            # precedence. Only a token entered at the prompt is remembered.
+                            token = huggingface_hub.get_token() or upload_token
+                            prompted = False
                             if not token:
                                 # NOTE: Unlike for most other values obtained from interactive inputs, it is
                                 #       not possible to set the token via the settings. This is a security
@@ -1006,6 +1009,7 @@ def run():
                                 token = questionary.password(
                                     "Hugging Face access token:"
                                 ).ask()
+                                prompted = True
                             if not token:
                                 continue
 
@@ -1015,14 +1019,16 @@ def run():
                                 user = huggingface_hub.whoami(token)
                             except Exception:
                                 # Clear any cached token so the next upload attempt prompts
-                                # for a replacement. It is intentionally kept out of
-                                # `settings`, and is never persisted to disk.
+                                # for a replacement. A configured token that fails here is
+                                # used again on the next attempt, as before this change;
+                                # fix HF_TOKEN or the token file to recover from that.
                                 upload_token = None
                                 raise
 
-                            # Remember only after a successful whoami. Kept out of
-                            # `settings`, and never persisted to disk.
-                            upload_token = token
+                            # Remember a prompted token only after a successful whoami. It is
+                            # kept out of `settings`, and never persisted to disk.
+                            if prompted:
+                                upload_token = token
 
                             fullname = user.get(
                                 "fullname",

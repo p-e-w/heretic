@@ -66,6 +66,7 @@ import questionary
 import torch
 import transformers
 from huggingface_hub import HfApi, ModelCard, ModelCardData
+from huggingface_hub.errors import HfHubHTTPError
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -1017,12 +1018,19 @@ def run():
                             # token does not stay cached for the rest of the session.
                             try:
                                 user = huggingface_hub.whoami(token)
-                            except Exception:
-                                # Clear any cached token so the next upload attempt prompts
-                                # for a replacement. A configured token that fails here is
-                                # used again on the next attempt, as before this change;
-                                # fix HF_TOKEN or the token file to recover from that.
-                                upload_token = None
+                            except HfHubHTTPError as error:
+                                # Forget a cached token only when the Hub rejects it (401), so the
+                                # next upload attempt prompts for a replacement. Transient failures
+                                # (network errors, rate limits, server errors) keep it, so a retry
+                                # does not require re-entering a token that may still be valid.
+                                # A configured token that fails here is used again on the next
+                                # attempt, as before this change; fix HF_TOKEN or the token file
+                                # to recover from that.
+                                if (
+                                    error.response is not None
+                                    and error.response.status_code == 401
+                                ):
+                                    upload_token = None
                                 raise
 
                             # Remember a prompted token only after a successful whoami. It is

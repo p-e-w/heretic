@@ -69,6 +69,7 @@ import rich.traceback
 import torch
 import transformers
 from huggingface_hub import HfApi, ModelCard, ModelCardData
+from huggingface_hub.errors import HfHubHTTPError
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -1001,6 +1002,11 @@ def run():
 
             reset_trial_model()
 
+            # The access token is deliberately never written to disk, so a token that
+            # was entered at the prompt is only remembered in memory, for the duration
+            # of the action loop.
+            upload_token: str | None = None
+
             action_loop_active = True
 
             while action_loop_active:
@@ -1122,7 +1128,10 @@ def run():
                             # We don't use huggingface_hub.login() because that stores the token on disk,
                             # and since this program will often be run on rented or shared GPU servers,
                             # it's better to not persist credentials.
-                            token = huggingface_hub.get_token()
+                            # A token configured via HF_TOKEN or the HF token file always takes
+                            # precedence. Only a token entered at the prompt is remembered.
+                            token = huggingface_hub.get_token() or upload_token
+                            prompted = False
                             if not token:
                                 # NOTE: Unlike for most other values obtained from interactive inputs, it is
                                 #       not possible to set the token via the settings. This is a security
@@ -1132,10 +1141,34 @@ def run():
                                 token = questionary.password(
                                     "Hugging Face access token:"
                                 ).ask()
+                                prompted = True
                             if not token:
                                 continue
 
-                            user = huggingface_hub.whoami(token)
+                            # Validate the token before remembering it, so that a mistyped
+                            # token does not stay cached for the rest of the session.
+                            try:
+                                user = huggingface_hub.whoami(token)
+                            except HfHubHTTPError as error:
+                                # Forget a cached token only when the Hub rejects it (401), so the
+                                # next upload attempt prompts for a replacement. Transient failures
+                                # (network errors, rate limits, server errors) keep it, so a retry
+                                # does not require re-entering a token that may still be valid.
+                                # A configured token that fails here is used again on the next
+                                # attempt, as before this change; fix HF_TOKEN or the token file
+                                # to recover from that.
+                                if (
+                                    error.response is not None
+                                    and error.response.status_code == 401
+                                ):
+                                    upload_token = None
+                                raise
+
+                            # Remember a prompted token only after a successful whoami. It is
+                            # kept out of `settings`, and never persisted to disk.
+                            if prompted:
+                                upload_token = token
+
                             fullname = user.get(
                                 "fullname",
                                 user.get("name", "unknown user"),

@@ -1320,16 +1320,15 @@ def run():
 
                                 datasets: list[str] = []
                                 for specification in flat_specifications:
-                                    if not is_hf_path(specification.dataset):
-                                        continue
-                                    dataset_info = huggingface_hub.dataset_info(
-                                        specification.dataset,
-                                    )
-                                    # Prevent private dataset names from leaking on
-                                    # public models and/or cards.
-                                    if not private and dataset_info.private:
-                                        continue
-                                    datasets.append(specification.dataset)
+                                    if is_hf_path(specification.dataset):
+                                        dataset_info = huggingface_hub.dataset_info(
+                                            specification.dataset,
+                                        )
+                                        # Prevent private dataset names from leaking on
+                                        # public models and/or cards.
+                                        if not private and dataset_info.private:
+                                            continue
+                                        datasets.append(specification.dataset)
                                 datasets = list(dict.fromkeys(datasets))
                                 if datasets:
                                     card.data.datasets = datasets

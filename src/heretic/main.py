@@ -1303,7 +1303,10 @@ def run():
                                     card.data.base_model = settings.model
 
                                 # Add the datasets that were used, in the
-                                # `datasets` field of the model card.
+                                # `datasets` field of the model card. Private
+                                # datasets are skipped when the model is uploaded
+                                # publicly. And when the model is uploaded privately,
+                                # the private datasets that were used are listed.
                                 flat_specifications: list[
                                     SingleDatasetSpecification
                                 ] = []
@@ -1315,13 +1318,19 @@ def run():
                                     else:
                                         flat_specifications.extend(specification)
 
-                                datasets: list[str] = list(
-                                    dict.fromkeys(
-                                        specification.dataset
-                                        for specification in flat_specifications
-                                        if is_hf_path(specification.dataset)
+                                datasets: list[str] = []
+                                for specification in flat_specifications:
+                                    if not is_hf_path(specification.dataset):
+                                        continue
+                                    dataset_info = huggingface_hub.dataset_info(
+                                        specification.dataset,
                                     )
-                                )
+                                    # Prevent private dataset names from leaking on
+                                    # public models and/or cards.
+                                    if not private and dataset_info.private:
+                                        continue
+                                    datasets.append(specification.dataset)
+                                datasets = list(dict.fromkeys(datasets))
                                 if datasets:
                                     card.data.datasets = datasets
 

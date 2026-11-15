@@ -86,6 +86,7 @@ from .config import (
     DatasetSpecification,
     ExportStrategy,
     QuantizationMethod,
+    SingleDatasetSpecification,
 )
 from .evaluator import Evaluator
 from .model import Model, get_model_class
@@ -1300,6 +1301,29 @@ def run():
                                 # so local paths are excluded.
                                 if is_hf_path(settings.model):
                                     card.data.base_model = settings.model
+
+                                # Add the datasets that were used, in the
+                                # `datasets` field of the model card.
+                                flat_specifications: list[
+                                    SingleDatasetSpecification
+                                ] = []
+                                for specification in dataset_specifications:
+                                    if isinstance(
+                                        specification, SingleDatasetSpecification
+                                    ):
+                                        flat_specifications.append(specification)
+                                    else:
+                                        flat_specifications.extend(specification)
+
+                                datasets: list[str] = list(
+                                    dict.fromkeys(
+                                        specification.dataset
+                                        for specification in flat_specifications
+                                        if is_hf_path(specification.dataset)
+                                    )
+                                )
+                                if datasets:
+                                    card.data.datasets = datasets
 
                                 card.text = (
                                     get_readme_intro(

@@ -12,7 +12,7 @@
 #
 # For more information, see:
 # Implementation: https://github.com/p-e-w/heretic/pull/500
-# Default classifier model: https://huggingface.co/VINAY-UMRETHE/Refusal-Classifier
+# Default classifier model: https://huggingface.co/VINAY-UMRETHE/Refusal-Classifier-V2
 
 from typing import cast
 
@@ -43,7 +43,7 @@ class Settings(BaseModel):
     )
 
     model: str = Field(
-        default="VINAY-UMRETHE/Refusal-Classifier",
+        default="VINAY-UMRETHE/Refusal-Classifier-V2",
         description="Hugging Face model ID, or path to a text-classification model on disk.",
     )
 

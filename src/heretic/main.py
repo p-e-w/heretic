@@ -1302,11 +1302,12 @@ def run():
                                 if is_hf_path(settings.model):
                                     card.data.base_model = settings.model
 
-                                # Add the datasets that were used, in the
-                                # `datasets` field of the model card. Private
-                                # datasets are skipped when the model is uploaded
-                                # publicly. And when the model is uploaded privately,
-                                # the private datasets that were used are listed.
+                                # If the user opted in to share the reproducibility information,
+                                # then we add the datasets that were used, in the `datasets` field
+                                # of the model card. Private datasets are skipped when the model
+                                # is uploaded publicly. Private datasets are *not* skipped when the
+                                # model is uploaded privately. If the reproducibility information
+                                # is not shared, no datasets are added, regardless of the upload method.
                                 flat_specifications: list[
                                     SingleDatasetSpecification
                                 ] = []
@@ -1330,7 +1331,7 @@ def run():
                                             continue
                                         datasets.append(specification.dataset)
                                 datasets = list(dict.fromkeys(datasets))
-                                if datasets:
+                                if datasets and reproducibility_information != "none":
                                     card.data.datasets = datasets
 
                                 card.text = (

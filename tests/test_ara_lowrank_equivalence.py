@@ -6,6 +6,8 @@ import unittest
 import torch
 import torch.linalg as LA
 
+from heretic.modifiers.ara import mean_distances_to_knn
+
 
 def _dense_output(good_input, W_base, bias, A, B, W_row_norms, preserve):
     # Reference: build the dense effective weight, multiply, then add the bias.
@@ -45,6 +47,24 @@ class LowRankEquivalenceTests(unittest.TestCase):
             torch.allclose(dense, lowrank, rtol=1e-9, atol=1e-9),
             msg=f"max abs diff = {(dense - lowrank).abs().max().item():.2e}",
         )
+
+    def test_knn_mean_matches_sorted_topk_and_gradients(self) -> None:
+        torch.manual_seed(0)
+        a = torch.randn(32, 24, requires_grad=True)
+        b = torch.randn(40, 24, requires_grad=True)
+
+        actual = mean_distances_to_knn(a, b, k=5)
+        expected = torch.cdist(a, b).topk(5, dim=1, largest=False).values.mean(1)
+
+        self.assertTrue(torch.allclose(actual, expected))
+        actual_gradients = torch.autograd.grad(actual.sum(), (a, b), retain_graph=True)
+        expected_gradients = torch.autograd.grad(expected.sum(), (a, b))
+        for actual_gradient, expected_gradient in zip(
+            actual_gradients,
+            expected_gradients,
+            strict=True,
+        ):
+            self.assertTrue(torch.allclose(actual_gradient, expected_gradient))
 
     def test_equivalent_without_row_normalization(self) -> None:
         self._check(preserve=False)

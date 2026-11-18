@@ -117,7 +117,7 @@ class Settings(BaseModel):
 # to the `k` nearest neighbors of the vector among the vectors in the 2D-tensor `b`.
 def mean_distances_to_knn(a: Tensor, b: Tensor, k: int) -> Tensor:
     distances = torch.cdist(a, b)
-    nearest_distances, _ = distances.topk(k, dim=1, largest=False)
+    nearest_distances, _ = distances.topk(k, dim=1, largest=False, sorted=False)
     return nearest_distances.mean(1)
 
 

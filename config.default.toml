@@ -19,6 +19,10 @@ dtypes = [
 # Quantization method to use when loading the model. Options:
 # "none" (no quantization),
 # "bnb_4bit" (4-bit quantization using bitsandbytes).
+# A GGUF checkpoint is not quantized this way. Heretic loads it through
+# Transformers with dequantization forced, then saves the dense
+# reconstruction as safetensors. That is not the original full-precision
+# weights, and bitsandbytes cannot be combined with the GGUF load.
 quantization = "none"
 
 # Device map to pass to Accelerate when loading the model.

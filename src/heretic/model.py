@@ -4,9 +4,11 @@
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, TypeAlias, cast
 
 import torch
+from huggingface_hub import list_repo_files
 from peft import LoraConfig, PeftModel, get_peft_model
 from torch import FloatTensor, LongTensor, Tensor
 from torch.nn import Module, ModuleList
@@ -18,6 +20,7 @@ from transformers import (
     AutoTokenizer,
     BatchEncoding,
     BitsAndBytesConfig,
+    GgufConfig,
     PretrainedConfig,
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -35,8 +38,14 @@ from .utils import Prompt, batchify, format_exception, print
 
 def get_model_class(
     model: str,
+    gguf_file: str | None = None,
 ) -> type[AutoModelForImageTextToText] | type[AutoModelForCausalLM]:
-    configs = PretrainedConfig.get_config_dict(model)
+    # A GGUF repo has no config.json. The architecture lives in the file,
+    # so the same gguf_file passed to from_pretrained has to be passed here.
+    config_kwargs = {}
+    if gguf_file is not None:
+        config_kwargs["gguf_file"] = gguf_file
+    configs = PretrainedConfig.get_config_dict(model, **config_kwargs)
 
     if any(("vision_config" in config) for config in configs):
         return AutoModelForImageTextToText
@@ -131,6 +140,75 @@ def chat_template_supports_system_role(tokenizer: PreTrainedTokenizerBase) -> bo
 ModuleIO: TypeAlias = list[dict[str, dict[int, tuple[Tensor, Tensor]]]]
 
 
+def _only_gguf_file(names: list[str]) -> str | None:
+    """
+    Return the one GGUF file to pass as ``gguf_file``, or ``None``.
+
+    Transformers does not pick a file inside a repository. A listing that also
+    contains safetensors or PyTorch weights stays on the normal loader. More
+    than one model file is left unresolved. An ``mmproj`` sidecar is skipped
+    when another ``.gguf`` file is present.
+    """
+    if any(
+        ".safetensors" in name or ("pytorch_model" in name and ".bin" in name)
+        for name in names
+    ):
+        return None
+
+    gguf_files = [name for name in names if name.lower().endswith(".gguf")]
+    model_files = [name for name in gguf_files if "mmproj" not in name.lower()]
+    if len(model_files) == 1:
+        return model_files[0]
+    if len(gguf_files) == 1:
+        return gguf_files[0]
+    return None
+
+
+def _gguf_load_args(
+    model: str,
+    revision: str | None = None,
+) -> tuple[str, str] | None:
+    """
+    Return ``(from_pretrained id, gguf_file)`` for one GGUF checkpoint.
+
+    A local ``.gguf`` path is passed through. A directory or Hub repo is used
+    only when :func:`_only_gguf_file` names exactly one file. A Hub listing
+    failure does not guess from the id.
+    """
+    model = model.strip()
+    if not model:
+        return None
+
+    path = Path(model).expanduser()
+    try:
+        if path.is_file():
+            if path.suffix.lower() != ".gguf":
+                return None
+            resolved = path.resolve()
+            return str(resolved.parent), str(resolved)
+        if path.is_dir():
+            names = [child.name for child in path.iterdir() if child.is_file()]
+            chosen = _only_gguf_file(names)
+            if chosen is None:
+                return None
+            root = path.resolve()
+            return str(root), str(root / chosen)
+    except OSError:
+        return None
+
+    # Offline mode, a missing repo, or a path that is not a repo id must not
+    # block the normal loader, and must not be guessed from the id string.
+    try:
+        names = list_repo_files(model, revision=revision, repo_type="model")
+    except Exception:
+        return None
+
+    chosen = _only_gguf_file(names)
+    if chosen is None:
+        return None
+    return model, chosen
+
+
 class Model:
     model: PreTrainedModel | PeftModel
     tokenizer: PreTrainedTokenizerBase
@@ -140,6 +218,11 @@ class Model:
     dtype: torch.dtype
     # Whether the model's chat template accepts a system role (see __init__).
     supports_system_role: bool
+    # Hub id or local directory passed to from_pretrained. A single local GGUF
+    # file uses its parent directory, which is what Transformers accepts.
+    pretrained_model_id: str
+    # Set for a GGUF-only checkpoint. None means a normal safetensors load.
+    gguf_file: str | None
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -149,6 +232,11 @@ class Model:
         if settings.model_commit is not None:
             self.revision_kwargs["revision"] = settings.model_commit
 
+        # Resolve before the tokenizer load. A GGUF-only repo has no
+        # config.json or tokenizer files, so from_pretrained without
+        # gguf_file fails with an unrelated sentencepiece/tiktoken error.
+        self._bind_checkpoint()
+
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
@@ -157,16 +245,22 @@ class Model:
         self.tokenizer = cast(
             PreTrainedTokenizerBase,
             AutoTokenizer.from_pretrained(
-                settings.model,
+                self.pretrained_model_id,
                 **self.revision_kwargs,
+                **self._gguf_file_kwargs(),
             ),
         )
 
         # Multimodal models have a processor we'll want to save.
+        # A GGUF-only checkpoint has no processor files. A projector, when
+        # the repo has one, is a separate mmproj file and is not loaded.
         self.processor = None
-        if get_model_class(settings.model) == AutoModelForImageTextToText:
+        if (
+            self.gguf_file is None
+            and get_model_class(self.pretrained_model_id) == AutoModelForImageTextToText
+        ):
             self.processor = AutoProcessor.from_pretrained(
-                settings.model,
+                self.pretrained_model_id,
                 **self.revision_kwargs,
             )
 
@@ -197,24 +291,18 @@ class Model:
             print(f"* Trying dtype [bold]{dtype}[/]...")
 
             try:
-                quantization_config = self._get_quantization_config(dtype)
-
-                extra_kwargs = {}
-                # Only include quantization_config if it's not None
-                # (some models like gpt-oss have issues with explicit None).
-                if quantization_config is not None:
-                    extra_kwargs["quantization_config"] = quantization_config
-
-                self.model = get_model_class(settings.model).from_pretrained(
-                    settings.model,
+                self.model = get_model_class(
+                    self.pretrained_model_id,
+                    gguf_file=self.gguf_file,
+                ).from_pretrained(
+                    self.pretrained_model_id,
                     dtype=dtype,
                     device_map=settings.device_map,
                     max_memory=self.max_memory,
                     trust_remote_code=True
                     if settings.model in self.trusted_models
                     else None,
-                    **self.revision_kwargs,
-                    **extra_kwargs,
+                    **self._model_load_kwargs(dtype),
                 )
 
                 self.dtype = self.model.dtype
@@ -252,7 +340,9 @@ class Model:
 
                 continue
 
-            if settings.quantization == QuantizationMethod.BNB_4BIT:
+            if self.gguf_file is not None:
+                print("* Dequantized GGUF checkpoint to dense weights")
+            elif settings.quantization == QuantizationMethod.BNB_4BIT:
                 print("* Quantized to 4-bit precision")
 
             break
@@ -324,6 +414,62 @@ class Model:
             if ("lora_A" in name or "lora_B" in name) and hasattr(module, "weight"):
                 torch.nn.init.zeros_(module.weight)
 
+    def _bind_checkpoint(self) -> None:
+        """
+        Point this model at ``settings.model``.
+
+        ``loaded_from`` is the settings string this bind used. ``reset_model``
+        compares it so swapping in ``evaluate_model`` reloads.
+        """
+        loaded = _gguf_load_args(
+            self.settings.model,
+            revision=self.settings.model_commit,
+        )
+        self.loaded_from = self.settings.model
+        if loaded is None:
+            self.pretrained_model_id = self.settings.model
+            self.gguf_file = None
+            return
+
+        self.pretrained_model_id, self.gguf_file = loaded
+        bnb = ""
+        if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+            bnb = " bitsandbytes 4-bit is not combined with GGUF loading."
+        print(
+            "[yellow]WARNING: "
+            f"[bold]{self.gguf_file}[/] will be loaded as a dequantized dense "
+            "reconstruction, not the original full-precision weights. Saving "
+            f"writes that reconstruction as safetensors.{bnb}[/]"
+        )
+
+    def _gguf_file_kwargs(self) -> dict[str, Any]:
+        """``gguf_file`` for both the tokenizer and the model, or nothing."""
+        if self.gguf_file is None:
+            return {}
+        return {"gguf_file": self.gguf_file}
+
+    def _model_load_kwargs(self, dtype: str) -> dict[str, Any]:
+        """
+        Keyword arguments for ``AutoModelForCausalLM.from_pretrained``.
+
+        A GGUF load passes ``gguf_file`` and ``GgufConfig(dequantize=True)``.
+        Dequantization is what yields ordinary ``Linear`` weights Heretic can
+        edit and save. bitsandbytes is a different ``quantization_config`` and
+        cannot be combined with ``gguf_file``.
+        """
+        kwargs: dict[str, Any] = dict(self.revision_kwargs)
+        kwargs.update(self._gguf_file_kwargs())
+        if self.gguf_file is not None:
+            kwargs["quantization_config"] = GgufConfig(dequantize=True)
+            return kwargs
+
+        quantization_config = self._get_quantization_config(dtype)
+        # Only include quantization_config if it's not None
+        # (some models like gpt-oss have issues with explicit None).
+        if quantization_config is not None:
+            kwargs["quantization_config"] = quantization_config
+        return kwargs
+
     def _get_quantization_config(self, dtype: str) -> BitsAndBytesConfig | None:
         """
         Creates quantization config based on settings.
@@ -353,8 +499,13 @@ class Model:
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PeftModel)
 
-        # Check if we need special handling for quantized models
-        if self.settings.quantization == QuantizationMethod.BNB_4BIT:
+        # A GGUF checkpoint was dequantized to dense Linear weights, so it
+        # merges like any other full-precision model. bitsandbytes is not
+        # applied on that path (Transformers rejects the combination).
+        if (
+            self.settings.quantization == QuantizationMethod.BNB_4BIT
+            and self.gguf_file is None
+        ):
             # Quantized models need special handling - we must reload the base model
             # in full precision to merge the LoRA adapters
 
@@ -416,7 +567,12 @@ class Model:
         if self.model is not None:
             current_model = getattr(self.model.config, "name_or_path", None)
 
-        if current_model == self.settings.model and not self.needs_reload:
+        if (
+            self.model is not None
+            and current_model == self.pretrained_model_id
+            and self.loaded_from == self.settings.model
+            and not self.needs_reload
+        ):
             # Reset LoRA adapters to zero (identity transformation).
             # Zeroing A as well ensures that adapter weights of modules not modified
             # by the next trial don't depend on what previous trials did.
@@ -427,25 +583,21 @@ class Model:
         self.model = None
         empty_cache()
 
-        quantization_config = self._get_quantization_config(
-            str(self.dtype).split(".")[-1]
-        )
+        # settings.model may have been swapped for evaluate_model.
+        self._bind_checkpoint()
 
-        # Build kwargs, only include quantization_config if it's not None.
-        extra_kwargs = {}
-        if quantization_config is not None:
-            extra_kwargs["quantization_config"] = quantization_config
-
-        self.model = get_model_class(self.settings.model).from_pretrained(
-            self.settings.model,
+        self.model = get_model_class(
+            self.pretrained_model_id,
+            gguf_file=self.gguf_file,
+        ).from_pretrained(
+            self.pretrained_model_id,
             dtype=self.dtype,
             device_map=self.settings.device_map,
             max_memory=self.max_memory,
             trust_remote_code=True
             if self.settings.model in self.trusted_models
             else None,
-            **self.revision_kwargs,
-            **extra_kwargs,
+            **self._model_load_kwargs(str(self.dtype).split(".")[-1]),
         )
 
         check_model_resident(self.model)

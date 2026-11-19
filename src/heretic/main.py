@@ -86,6 +86,7 @@ from .config import (
     DatasetSpecification,
     ExportStrategy,
     QuantizationMethod,
+    SingleDatasetSpecification,
 )
 from .evaluator import Evaluator
 from .model import Model, get_model_class
@@ -1300,6 +1301,38 @@ def run():
                                 # so local paths are excluded.
                                 if is_hf_path(settings.model):
                                     card.data.base_model = settings.model
+
+                                # If the user opted in to share the reproducibility information,
+                                # then we add the datasets that were used, in the `datasets` field
+                                # of the model card. Private datasets are skipped when the model
+                                # is uploaded publicly. Private datasets are *not* skipped when the
+                                # model is uploaded privately. If the reproducibility information
+                                # is not shared, no datasets are added, regardless of the upload method.
+                                flat_specifications: list[
+                                    SingleDatasetSpecification
+                                ] = []
+                                for specification in dataset_specifications:
+                                    if isinstance(
+                                        specification, SingleDatasetSpecification
+                                    ):
+                                        flat_specifications.append(specification)
+                                    else:
+                                        flat_specifications.extend(specification)
+
+                                datasets: list[str] = []
+                                for specification in flat_specifications:
+                                    if is_hf_path(specification.dataset):
+                                        dataset_info = huggingface_hub.dataset_info(
+                                            specification.dataset,
+                                        )
+                                        # Prevent private dataset names from leaking on
+                                        # public models and/or cards.
+                                        if not private and dataset_info.private:
+                                            continue
+                                        datasets.append(specification.dataset)
+                                datasets = list(dict.fromkeys(datasets))
+                                if datasets and reproducibility_information != "none":
+                                    card.data.datasets = datasets
 
                                 card.text = (
                                     get_readme_intro(

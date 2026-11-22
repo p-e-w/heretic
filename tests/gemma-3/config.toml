@@ -54,7 +54,7 @@ column = "text"
 
 [scorer.BERTClassifier]
 model = "VINAY-UMRETHE/tiny-refusal-classifier"
-model_commit = "ca106855daaa6d695bd2a66934eb1a40cbd3f18a"
+model_commit = "f0e03ef4a27003d8b54d7366e72711fc665da9d5"
 print_responses = true
 
 [scorer.BERTClassifier.prompts]

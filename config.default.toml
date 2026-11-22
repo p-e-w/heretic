@@ -87,7 +87,7 @@ modifiers = [
     { plugin = "heretic.modifiers.ara.ARA" },
 ]
 
-# Number of abliteration trials to run during optimization.
+# Number of trials to run during optimization.
 n_trials = 100
 
 # Number of trials that use random sampling for the purpose of exploration.
@@ -95,6 +95,9 @@ n_startup_trials = 30
 
 # Directory to save and load study progress to/from.
 study_checkpoint_dir = "checkpoints"
+
+# Adjective describing the type of model produced by the configuration.
+modified_model_type = "decensored"
 
 # Maximum size for individual safetensors files generated when exporting a model.
 max_shard_size = "5GB"
@@ -108,6 +111,10 @@ upload_tags = [
 
 # System prompt to use when prompting the model.
 system_prompt = "You are a helpful assistant."
+
+# Whether to offer the option to open an in-context Python shell in the trial selection menu.
+# WARNING: Enabling this feature gives full system access to the user of the Heretic session.
+enable_shell = false
 
 # Complete set of output projections, relative to each decoder layer.
 # Edit these lists to add or remove targets; unspecified components are not selected.
@@ -124,6 +131,7 @@ system_prompt = "You are a helpful assistant."
     "mlp.down_proj",
     "mlp.experts.*.down_proj",
     "mlp.shared_experts.down_proj",
+    "mlp.shared_expert.down_proj",
     "block_sparse_moe.experts.*.w2",
     "feed_forward.w2",
     "feed_forward.experts.*.w2",
@@ -182,7 +190,7 @@ column = "text"
 # Name that describes what the configured keyword rate measures.
 score_name = "Refusals"
 
-# Whether to print prompt/response pairs when counting keyword matches.
+# Whether to print prompt/response pairs.
 print_responses = false
 
 # Strings whose presence in a response (case insensitive) identifies the response as a keyword match.
@@ -236,6 +244,71 @@ split = "test[:100]"
 column = "text"
 
 
+# Generic text-classification scorer: classifies each response with a
+# text-classification model and counts the responses whose
+# predicted label is one of the `match_labels`, as an alternative to the
+# `keyword_markers` of the KeywordRate scorer.
+#
+# The default settings detect refusals using a ModernBERT model fine-tuned on refusal
+# classification. Any text-classification model and label set can be used by
+# changing the plugin settings.
+#
+# Add or replace an entry in the `scorers` array above:
+# { plugin = "heretic.scorers.bert_classifier.BERTClassifier", optimization = "minimize" }
+#
+[scorer.BERTClassifier]
+# Name that describes what the configured match rate measures.
+score_name = "Refusals (Classifier)"
+
+# Hugging Face model ID, or path to a text-classification model on disk.
+model = "VINAY-UMRETHE/Refusal-Classifier-V2"
+
+# Hugging Face commit hash of the classifier model.
+# Set this to pin a specific revision; unset means the latest revision
+# is auto-pinned and recorded when the classifier is loaded.
+# When reproducing, the recorded revision is restored and used.
+# model_commit = "<commit-hash>"
+
+# List of PyTorch dtypes to try when loading model tensors.
+# If loading with a dtype fails, the next dtype in the list will be tried.
+dtypes = [
+    "auto",
+    "float16",
+    "bfloat16",
+    "float32",
+]
+
+# Device map to pass to Accelerate when loading the model.
+device_map = "auto"
+
+# Labels predicted by the classifier that identify a response as a match.
+# Defaults to the refusal labels of the default model, which should
+# be counted as refusals.
+# Valid labels: compliant, full_refusal, partial_refusal, capability_limitation, clarification.
+match_labels = ["full_refusal", "partial_refusal"]
+
+# Number of prompt/response pairs to classify in parallel.
+batch_size = 16
+
+# Maximum number of tokens per classifier input (longer inputs are truncated).
+max_length = 8192
+
+# Whether to pass inputs as prompt/response text pairs.
+# Requires a model trained on pairs (e.g. the default refusal classifier).
+# Set to False when using a single-sequence text-classification model
+# to evaluate the response string only (e.g. sentiment analysis).
+use_text_pairs = true
+
+# Whether to print prompt/response pairs and their predicted labels.
+print_responses = false
+
+# Dataset of prompts to evaluate the match rate on.
+[scorer.BERTClassifier.prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "test[:100]"
+column = "text"
+
+
 [scorer.BenchmarkScore]
 # Name that describes what the configured benchmark score measures.
 score_name = "PIQA acc_norm"
@@ -245,6 +318,30 @@ task = "piqa"
 
 # Task metric to use as the benchmark score.
 metric = "acc_norm,none"
+
+# Number of input sequences to process in parallel (0 = auto).
+batch_size = 0  # auto
+
+
+[scorer.ResponseLength]
+# Whether to strip leading and trailing whitespace from responses before measuring their length.
+strip_responses = true
+
+# Length in characters below which a response is classified as a 'short response'.
+short_response_threshold = 2  # Chosen because "No" is the shortest common valid response.
+
+# Length value artificially assigned to 'short responses' for the purpose of scoring.
+# This can be used to penalize very short (and thus likely invalid) responses.
+short_response_score_length = 500
+
+# Whether to print prompt/response pairs.
+print_responses = false
+
+# Dataset of prompts to evaluate the response length on.
+[scorer.ResponseLength.prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[:100]"
+column = "text"
 
 
 [modifier.ARA]

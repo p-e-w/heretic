@@ -3,7 +3,7 @@
 
 import lm_eval
 from lm_eval.models.huggingface import HFLM
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, NonNegativeInt
 
 from heretic.scorer import Context, Score, Scorer
 
@@ -24,6 +24,11 @@ class Settings(BaseModel):
         description="Task metric to use as the benchmark score.",
     )
 
+    batch_size: NonNegativeInt = Field(
+        default=0,  # auto
+        description="Number of input sequences to process in parallel (0 = auto).",
+    )
+
 
 class BenchmarkScore(Scorer):
     """
@@ -40,28 +45,26 @@ class BenchmarkScore(Scorer):
     def score_name(self) -> str:
         return self.settings.score_name
 
-    def init(self, ctx: Context) -> None:
-        model = ctx.get_model()
-
-        self.hflm = HFLM(
-            pretrained=model.model,
-            tokenizer=model.tokenizer,  # ty:ignore[invalid-argument-type]
-            batch_size="auto",
-        )
-
     def get_score(self, ctx: Context) -> Score:
-        # The purpose of this hack, where we initialize the HFLM object once,
-        # then update its internal model every time we calculate the score,
-        # is to get the benefits of batch size caching while allowing for
-        # model reloads, e.g. when using --evaluate-model.
         model = ctx.get_model()
-        self.hflm.pretrained = model.model
-        self.hflm._model = model.model
+
+        hflm = HFLM(
+            pretrained=model.model,
+            tokenizer=model.tokenizer,  # ty: ignore[invalid-argument-type]
+            batch_size="auto"
+            if self.settings.batch_size == 0
+            else self.settings.batch_size,
+        )
 
         results = lm_eval.simple_evaluate(
-            model=self.hflm,
+            model=hflm,
             tasks=[self.settings.task],
         )
+
+        if self.settings.batch_size == 0 and hflm.batch_sizes:
+            # Cache automatically determined batch size to avoid re-determining
+            # the batch size on every future run.
+            self.settings.batch_size = min(hflm.batch_sizes.values())
 
         benchmark_score = float(
             results["results"][self.settings.task][self.settings.metric]

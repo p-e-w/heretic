@@ -1,0 +1,120 @@
+# Rename this file to config.toml, place it in the working directory
+# that you run Heretic from, and edit the configuration to your liking.
+#
+# BERTClassifier scorer for personality/emotion steering.
+#
+# This uses a DistilRoBERTa model fine-tuned on emotion classification
+# and allows minimizing or maximizing specific emotions in the model's responses.
+#
+# Example use: configure two scorer instances, one to minimize negative emotions
+# (e.g. anger, disgust, fear, sadness) and one to maximize positive emotions
+# (e.g joy, surprise) or vice versa.
+#
+# This can be done in one of the two ways:
+#
+# 1. Multi‑objective steering:
+# Here, we use two instances: `negative_emotions` and `positive_emotions` with
+# `optimization = "minimize"` and `optimization = "maximize"` respectively.
+#
+# Minimizing the first score pushes the model *away* from those negative emotions.
+# Maximizing the second score pushes the model *towards* those emotions.
+#
+# 2. Single‑objective steering:
+# With two instances, heretic builds a Pareto front that **balances** both objectives above.
+# Due to which, the model learns to be less angry *and* more joyful **simultaneously**.
+#
+# With only one instance, we have only one objective which can be either minimized or maximized. 
+# Due to which, the model will reduce anger, but it *may* drift towards **anything** that lowers
+# the other most natural instincts (e.g. neutral, overly polite, or wierdly happy).
+#
+# With the first method, you can expect to control both objectives effectively,
+# which is the recommended method and is the default.
+# With the second method, you can only *hope* and *assume* the most expected common/natural
+# behavior, depending upon what you tried to "minimize" or "maximize".
+scorers = [
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
+    # Scorer to minimize negative emotions.
+    { plugin = "heretic.scorers.bert_classifier.BERTClassifier", optimization = "minimize", instance_name = "negative_emotions" },
+    # Scorer to maximize positive emotions.
+    { plugin = "heretic.scorers.bert_classifier.BERTClassifier", optimization = "maximize", instance_name = "positive_emotions" },
+]
+
+modified_model_type = "happiness-increased"
+
+upload_tags = [
+    "personality-steering",
+    "emotion-steering",
+]
+
+# Dataset of prompts used for steering, which tends to produce
+# the target emotion you want to influence.
+# For example:
+# - For minimizing anger: prompts about creative writing which involves those emotions.
+# - For maximizing joy: prompts about celebrations, happy scenarios, good news from user, etc.
+[modifier.ARA.good_prompts]
+dataset = "VINAY-UMRETHE/Positive-Prompts"
+split = "train[:200]"
+column = "prompt"
+
+[modifier.ARA.bad_prompts]
+dataset = "VINAY-UMRETHE/Negative-Prompts"
+split = "train[:200]"
+column = "prompt"
+
+
+[scorer.BERTClassifier_negative_emotions]
+# Name that describes what the configured match rate measures.
+score_name = "Minimize"
+
+# Hugging Face model ID, or path to a text-classification model on disk.
+model = "j-hartmann/emotion-english-distilroberta-base"
+
+# Hugging Face commit hash of the classifier model.
+# Set this to pin a specific revision; unset means the latest revision
+# is auto-pinned and recorded when the classifier is loaded.
+# When reproducing, the recorded revision is restored and used.
+# model_commit = "<commit-hash>"
+
+# Labels predicted by the classifier that identify a response as a match.
+# We want to minimize these emotions.
+match_labels = ["anger", "disgust", "fear", "sadness"]
+
+# Number of prompt/response pairs to classify in parallel.
+batch_size = 16
+
+# Maximum number of tokens per classifier input (longer inputs are truncated).
+max_length = 512
+
+# Whether to pass inputs as prompt/response text pairs.
+# Requires a model trained on pairs (e.g. the default refusal classifier).
+# Set to False when using a single-sequence text-classification model
+# to evaluate the response string only (e.g. sentiment analysis).
+use_text_pairs = false
+
+# Whether to print prompt/response pairs and their predicted labels.
+print_responses = true
+
+# Dataset of prompts to evaluate the match rate on.
+# Use a dataset that tends to produce the target emotions (anger, disgust, fear, sadness).
+[scorer.BERTClassifier_negative_emotions.prompts]
+dataset = "VINAY-UMRETHE/Negative-Prompts"
+split = "train[:100]"
+column = "prompt"
+
+
+[scorer.BERTClassifier_positive_emotions]
+score_name = "Maximize"
+
+model = "j-hartmann/emotion-english-distilroberta-base"
+
+# We want to maximize these emotions.
+match_labels = ["joy", "surprise"]
+
+batch_size = 16
+max_length = 512
+print_responses = true
+
+[scorer.BERTClassifier_positive_emotions.prompts]
+dataset = "VINAY-UMRETHE/Positive-Prompts"
+split = "train[:100]"
+column = "prompt"

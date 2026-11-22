@@ -174,7 +174,9 @@ class Evaluator:
         """
         records: list[dict[str, Any]] = []
         for (name, score), (baseline_name, baseline) in zip(
-            scores, self.baseline_scores
+            scores,
+            self.baseline_scores,
+            strict=True,
         ):
             assert name == baseline_name, (
                 f"Score/baseline order mismatch: {name!r} != {baseline_name!r}"
@@ -228,3 +230,10 @@ class Evaluator:
             parse_study_direction(entry.config.optimization)
             for entry in self._objective_entries()
         ]
+
+    def write_settings_to_config(self) -> None:
+        """
+        Write the settings of all scorers to the global configuration.
+        """
+        for entry in self._scorer_entries:
+            entry.scorer.write_settings_to_config("scorer", entry.config.instance_name)

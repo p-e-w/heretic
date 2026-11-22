@@ -149,9 +149,13 @@ class LayerModuleTargetsTest(unittest.TestCase):
                 self.mlp.experts = nn.ModuleList(
                     [nn.ModuleDict({"down_proj": nn.Linear(8, 4)}) for _ in range(2)]
                 )
+                self.mlp.shared_expert = nn.ModuleDict({"down_proj": nn.Linear(8, 4)})
 
-        model = make_model([MoeLayer()])
-        self.assertEqual(len(model.get_layer_modules(0)["mlp.down_proj"]), 2)
+        layer = MoeLayer()
+        model = make_model([layer])
+        found = model.get_layer_modules(0)["mlp.down_proj"]
+        self.assertEqual(len(found), 3)
+        self.assertIn(layer.get_submodule("mlp.shared_expert.down_proj"), found)
 
     def test_custom_architecture_paths(self):
         model = make_model(
@@ -173,7 +177,7 @@ class LayerModuleTargetsTest(unittest.TestCase):
 
     def test_empty_configuration_selects_nothing(self):
         model = make_model([StandardLayer()], {})
-        with self.assertRaisesRegex(AssertionError, "No abliterable modules"):
+        with self.assertRaisesRegex(AssertionError, "No modifiable modules"):
             model.get_layer_modules(0)
 
     def test_missing_modules_include_diagnostics(self):
@@ -205,7 +209,7 @@ class LayerModuleTargetsTest(unittest.TestCase):
 
     def test_unmatched_pattern_fails_on_layer_discovery(self):
         model = make_model([CustomLayer()], {"mlp.down_proj": ["missing.down_proj"]})
-        with self.assertRaisesRegex(AssertionError, "No abliterable modules"):
+        with self.assertRaisesRegex(AssertionError, "No modifiable modules"):
             model.get_layer_modules(0)
 
     def test_overlapping_patterns_are_deduplicated(self):
@@ -261,7 +265,7 @@ class LayerModuleTargetsTest(unittest.TestCase):
                     internal_name,
                     dict(model.get_layers()[0].named_modules()),
                 )
-                with self.assertRaisesRegex(AssertionError, "No abliterable modules"):
+                with self.assertRaisesRegex(AssertionError, "No modifiable modules"):
                     model.get_layer_modules(0)
 
     def test_incompatible_output_size_is_rejected(self):

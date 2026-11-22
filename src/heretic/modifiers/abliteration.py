@@ -255,7 +255,7 @@ class Abliteration(Modifier[Parameters]):
 
         weight_distributions = {}
 
-        for component in model.get_abliterable_components():
+        for component in model.get_modifiable_components():
             # The parameter ranges are based on experiments with various models
             # and much wider ranges. They are not set in stone and might have to be
             # adjusted for future models.

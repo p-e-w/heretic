@@ -134,6 +134,58 @@ class ModelValidateInitOnlyTests(unittest.TestCase):
         self.assertEqual(settings.max_memory, {"0": "20GiB"})
 
 
+class ConfigFileSelectionTests(unittest.TestCase):
+    def settings(
+        self, config_files: dict[str, str], heretic_config: str | None = None
+    ) -> Settings:
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in config_files.items():
+                Path(directory, name).write_text(content)
+
+            environment = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("HERETIC_")
+            }
+            if heretic_config is not None:
+                environment["HERETIC_CONFIG_FILE"] = heretic_config
+
+            previous_directory = os.getcwd()
+            os.chdir(directory)
+            try:
+                with (
+                    patch.dict(os.environ, environment, clear=True),
+                    patch("sys.argv", ["heretic"]),
+                ):
+                    return Settings(model="dummy")
+            finally:
+                os.chdir(previous_directory)
+
+    def test_environment_variable_selects_file(self) -> None:
+        settings = self.settings({"custom.toml": "n_trials = 42\n"}, "custom.toml")
+
+        self.assertEqual(settings.n_trials, 42)
+
+    def test_default_config_toml_still_loaded(self) -> None:
+        settings = self.settings({"config.toml": "n_trials = 42\n"})
+
+        self.assertEqual(settings.n_trials, 42)
+
+    def test_missing_default_config_file_is_silent(self) -> None:
+        settings = self.settings({})
+
+        self.assertEqual(settings.n_trials, Settings.model_fields["n_trials"].default)
+
+    def test_missing_configured_file_aborts(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "does not exist"):
+            self.settings({}, "missing.toml")
+
+    def test_configured_default_file_missing_aborts(self) -> None:
+        # Unlike a missing implicit default, this counts as a configuration error.
+        with self.assertRaisesRegex(SystemExit, "does not exist"):
+            self.settings({}, "config.toml")
+
+
 class SettingsUploadTagsTests(unittest.TestCase):
     def test_default_upload_tags(self) -> None:
         with patch("sys.argv", ["heretic"]):

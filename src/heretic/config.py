@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import os
 from enum import Enum
 from typing import Any, Literal, TypeAlias
 
@@ -35,6 +36,7 @@ def default_layer_module_targets() -> dict[str, list[str]]:
             "mlp.down_proj",
             "mlp.experts.*.down_proj",
             "mlp.shared_experts.down_proj",
+            "mlp.shared_expert.down_proj",
             "block_sparse_moe.experts.*.w2",
             "feed_forward.w2",
             "feed_forward.experts.*.w2",
@@ -214,6 +216,15 @@ class BenchmarkSpecification(BaseModel):
     )
 
 
+def _config_path() -> str:
+    path = os.environ.get("HERETIC_CONFIG_FILE", "config.toml")
+
+    if "HERETIC_CONFIG_FILE" in os.environ and not os.path.isfile(path):
+        raise SystemExit(f"heretic: configuration file {path} does not exist")
+
+    return path
+
+
 class Settings(BaseSettings):
     model: str = Field(description="Hugging Face model ID, or path to model on disk.")
 
@@ -225,7 +236,7 @@ class Settings(BaseSettings):
     evaluate_model: str | None = Field(
         default=None,
         description=(
-            "If this model ID or path is set, then instead of abliterating the main model, "
+            "If this model ID or path is set, then instead of modifying the main model, "
             "evaluate this model relative to the main model."
         ),
         exclude=True,
@@ -234,7 +245,7 @@ class Settings(BaseSettings):
     collect_reproducibles: str | None = Field(
         default=None,
         description=(
-            "If this directory path is set, then instead of abliterating a model, "
+            "If this directory path is set, then instead of modifying a model, "
             "download all reproduce.json files from public Heretic model repositories "
             "on Hugging Face, and store them in that directory for archival purposes."
         ),
@@ -245,7 +256,7 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "If this path or URL to a reproduce.json file is set, load reproduction information "
-            "from that file, and attempt to reproduce the abliterated model it originated from."
+            "from that file, and attempt to reproduce the modified model it originated from."
         ),
         exclude=True,
     )
@@ -286,7 +297,7 @@ class Settings(BaseSettings):
     layer_module_targets: dict[str, list[str]] = Field(
         default_factory=default_layer_module_targets,
         description=(
-            "Complete set of abliterable module paths, grouped by component name. "
+            "Complete set of modifiable module paths, grouped by component name. "
             "Patterns use fnmatch syntax and are relative to each decoder layer."
         ),
     )
@@ -452,7 +463,7 @@ class Settings(BaseSettings):
 
     n_trials: PositiveInt = Field(
         default=100,
-        description="Number of abliteration trials to run during optimization.",
+        description="Number of trials to run during optimization.",
     )
 
     n_startup_trials: NonNegativeInt = Field(
@@ -472,6 +483,11 @@ class Settings(BaseSettings):
         default="checkpoints",
         description="Directory to save and load study progress to/from.",
         exclude=True,
+    )
+
+    modified_model_type: str = Field(
+        default="decensored",
+        description="Adjective describing the type of model produced by the configuration.",
     )
 
     benchmarks: list[BenchmarkSpecification] = Field(
@@ -532,7 +548,7 @@ class Settings(BaseSettings):
                 description="An Adversarial Winograd Schema Challenge at Scale",
             ),
         ],
-        description="Benchmarks to offer to the user for evaluating abliterated models.",
+        description="Benchmarks to offer to the user for evaluating modified models.",
         exclude=True,
     )
 
@@ -563,7 +579,7 @@ class Settings(BaseSettings):
 
     model_action: str | None = Field(
         default=None,
-        description='Action to take with the decensored model: "save", "upload", or unset to prompt the user.',
+        description='Action to take with the modified model: "save", "upload", or unset to prompt the user.',
     )
 
     save_directory: str | None = Field(
@@ -607,6 +623,15 @@ class Settings(BaseSettings):
         description="System prompt to use when prompting the model.",
     )
 
+    enable_shell: bool = Field(
+        default=False,
+        description=(
+            "Whether to offer the option to open an in-context Python shell in the trial selection menu. "
+            "WARNING: Enabling this feature gives full system access to the user of the Heretic session."
+        ),
+        exclude=True,
+    )
+
     # We intentionally allow extra keys so users can provide plugin-specific
     # configuration in TOML tables like `[scorer.KeywordRate]` which are later
     # consumed via `settings.model_extra` (see `plugin.get_plugin_namespace`).
@@ -632,7 +657,7 @@ class Settings(BaseSettings):
             EnvSettingsSource(settings_cls, env_prefix="HERETIC_"),
             dotenv_settings,
             file_secret_settings,
-            TomlConfigSettingsSource(settings_cls, toml_file="config.toml"),
+            TomlConfigSettingsSource(settings_cls, toml_file=_config_path()),
         )
 
     @classmethod

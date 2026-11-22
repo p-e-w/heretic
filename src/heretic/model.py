@@ -46,6 +46,55 @@ def get_model_class(
         return AutoModelForCausalLM
 
 
+def check_model_resident(model: PreTrainedModel | PeftModel) -> None:
+    """
+    Ensure that all of the model's weights are resident in memory.
+    """
+    offloaded = [name for name, param in model.named_parameters() if param.is_meta]
+
+    if not offloaded:
+        return
+
+    raise Exception(
+        "The model does not fit into the available device memory: "
+        f"{len(offloaded)} weights (such as {', '.join(offloaded[:3])}) had to "
+        "be offloaded to CPU or disk. Heretic cannot process offloaded models "
+        "because it requires direct, persistent access to all weights, whereas "
+        "offloaded weights only exist temporarily during forward passes.\n"
+        "Possible remedies:\n"
+        "* Free up memory, e.g. by closing other applications.\n"
+        "* Change the device map (device_map/max_memory settings) so that all "
+        "weights fit into device memory.\n"
+        '* Enable 4-bit quantization (quantization = "bnb_4bit").'
+    )
+
+
+def _collapse_flattened_residual_streams(
+    hidden_states: tuple[FloatTensor, ...],
+    config: Any,
+) -> tuple[FloatTensor, ...]:
+    """
+    Average flattened multi-stream hidden states to hidden_size.
+
+    Some models (e.g. Qwen4-Exp) flatten their residual streams into the
+    component dimension instead of exposing a separate stream dimension, so
+    their hidden states have shape (prompt, position, streams * hidden_size).
+    The final entry is the merged model output (hidden_size) and is unchanged.
+    """
+    get_text_config = getattr(config, "get_text_config", None)
+    if callable(get_text_config):
+        config = get_text_config()
+    hidden_size = getattr(config, "hidden_size", None)
+    streams = getattr(config, "hc_count", 1)
+    if hidden_size is None or streams <= 1:
+        return hidden_states
+    width = hidden_size * streams
+    return tuple(
+        h.unflatten(-1, (streams, hidden_size)).mean(-2) if h.shape[-1] == width else h
+        for h in hidden_states
+    )
+
+
 # Some chat templates (e.g. gpt-oss) insert the current date into the prompt,
 # which makes the residuals, and therefore the modified model, depend on the day
 # Heretic is run. Rendering templates with a fixed date keeps results reproducible.
@@ -188,6 +237,10 @@ class Model:
                         )
                     ],
                     max_new_tokens=1,
+                    # The KV cache is deliberately left enabled here so we can
+                    # catch dtype errors related to the cache, which we will need
+                    # for generating responses.
+                    # use_cache=False,
                 )
             except Exception as error:
                 self.model = None
@@ -209,6 +262,8 @@ class Model:
         if self.model is None:
             raise Exception("Failed to load model with all configured dtypes.")
 
+        check_model_resident(self.model)
+
         print(f"* Transformer model with [bold]{len(self.get_layers())}[/] layers")
 
         all_components = {}
@@ -218,7 +273,7 @@ class Model:
                     all_components[component] = 0
                 all_components[component] += len(modules)
 
-        print("* Abliterable components:")
+        print("* Modifiable components:")
         for component, count in all_components.items():
             print(f"  * [bold]{component}[/]: [bold]{count}[/] modules total")
 
@@ -226,7 +281,7 @@ class Model:
         # Guard against calling this method at the wrong time.
         assert isinstance(self.model, PreTrainedModel)
 
-        # Always use LoRA adapters for abliteration (faster reload, no weight modification).
+        # Always use LoRA adapters for modification (faster reload, no weight modification).
         # Collect actual leaf module names from the model for LoRA targeting.
         # This is more robust than splitting component keys (e.g. "attn.o_proj" -> "o_proj")
         # because hybrid models like Qwen3.5 MoE have modules with different names
@@ -395,6 +450,8 @@ class Model:
             **extra_kwargs,
         )
 
+        check_model_resident(self.model)
+
         self.needs_reload = False
 
         return False
@@ -425,7 +482,7 @@ class Model:
 
             if isinstance(module, BaseTunerLayer):
                 # Treat PEFT wrappers as leaves. Their base layer and adapter modules
-                # are implementation details, not additional abliterable projections.
+                # are implementation details, not additional modifiable projections.
                 peft_wrapper_prefixes.append(f"{name}." if name else "")
 
             yield name, module
@@ -472,9 +529,7 @@ class Model:
                     continue
                 modules.setdefault(component, []).append(module)
 
-        # We need at least one module across all components for abliteration to work.
-        total_modules = sum(len(mods) for mods in modules.values())
-        if total_modules == 0:
+        if not modules:
             candidates = [
                 f"{name} ({module.in_features}->{module.out_features})"
                 for name, module in layer.named_modules()
@@ -484,14 +539,14 @@ class Model:
             if len(candidates) > 20:
                 summary += ", ..."
             raise AssertionError(
-                f"No abliterable modules found in layer {layer_index} "
+                f"No modifiable modules found in layer {layer_index} "
                 f"({type(layer).__name__}). Linear submodules: {summary}. "
-                "Configure layer_module_targets in config.toml."
+                "Configure layer_module_targets in your TOML configuration file."
             )
 
         return modules
 
-    def get_abliterable_components(self) -> list[str]:
+    def get_modifiable_components(self) -> list[str]:
         components: set[str] = set()
 
         # Scan all layers because hybrid models (e.g. Qwen3.5 MoE) have different
@@ -656,6 +711,11 @@ class Model:
             for layer_hidden_states in hidden_states
         )
 
+        hidden_states = _collapse_flattened_residual_streams(
+            cast(tuple[FloatTensor, ...], hidden_states),
+            self.model.config,
+        )
+
         # The returned tensor has shape (prompt, layer, component).
         residuals = torch.stack(
             # layer_hidden_states has shape (prompt, position, component),
@@ -795,7 +855,11 @@ class Model:
                         )
                     )
 
-        self.generate(prompts, max_new_tokens=1)
+        self.generate(
+            prompts,
+            max_new_tokens=1,
+            use_cache=False,
+        )
 
         for hook_handle in hook_handles:
             hook_handle.remove()

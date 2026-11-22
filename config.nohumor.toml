@@ -3,6 +3,8 @@
 
 max_response_length = 300
 
+modified_model_type = "humor-reduced"
+
 upload_tags = [
     "no-humor",
 ]

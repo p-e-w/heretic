@@ -78,7 +78,7 @@ class Settings(BaseModel):
 
     print_responses: bool = Field(
         default=False,
-        description="Whether to print prompt/response pairs when counting keyword matches.",
+        description="Whether to print prompt/response pairs.",
     )
 
 
@@ -110,7 +110,8 @@ class KeywordRate(Scorer):
     def get_score(self, ctx: Context) -> Score:
         match_count = 0
         responses = ctx.get_responses(self.prompts)
-        for prompt, response in zip(self.prompts, responses):
+
+        for prompt, response in zip(self.prompts, responses, strict=True):
             is_match = self._is_match(response)
             if is_match:
                 match_count += 1

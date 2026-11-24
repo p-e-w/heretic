@@ -114,7 +114,6 @@ class Settings(BaseModel):
     timeout: float = Field(
         default=60.0, description="How long to wait for a response from the LLM judge."
     )
-    temperature: float = Field(default=0.0, description="LLM judge temperature.")
 
     seed: int = Field(
         default=420,
@@ -176,7 +175,6 @@ class BinaryLLMJudge(Scorer):
                         "content": f"PROMPT: {prompt.user}\nRESPONSE: {model_response}",
                     },
                 ],
-                temperature=self.settings.temperature,
                 max_tokens=self.settings.max_tokens,
                 seed=self.settings.seed,
                 logprobs=True,

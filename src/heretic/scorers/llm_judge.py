@@ -70,11 +70,6 @@ class Settings(BaseModel):
 
     api_base_url: str = Field(description="Base API URL of the OpenAI-compatible API.")
 
-    continue_on_fail: bool = Field(
-        default=True,
-        description="Whether to continue scoring if the judge LLM call fails.",
-    )
-
     extra_body: dict[str, Any] = Field(
         default={},
         description="Provider-specific fields merged into the request body.",
@@ -115,6 +110,12 @@ class Settings(BaseModel):
         default=60.0, description="How long to wait for a response from the LLM judge."
     )
 
+    max_retries: int = Field(
+        default=3,
+        description="How many times to retry failed judge requests. "
+        "Retries use exponential backoff.",
+    )
+
     seed: int = Field(
         default=420,
         description="LLM judge seed (best-effort). Plugin is still not considered reproducible.",
@@ -153,6 +154,7 @@ class BinaryLLMJudge(Scorer):
             base_url=self.settings.api_base_url,
             api_key=api_key,
             timeout=self.settings.timeout,
+            max_retries=self.settings.max_retries,
         )
         print("API client initialized.")
 
@@ -203,7 +205,7 @@ class BinaryLLMJudge(Scorer):
     def get_score(self, ctx: Context) -> Score:
         match_count = 0
         responses = ctx.get_responses(self.prompts)
-        total_successful_calls = len(responses)
+        total = len(responses)
 
         # Judge calls are I/O-bound, so run them concurrently.
         # Results are consumed in prompt order to keep the output deterministic.
@@ -218,16 +220,8 @@ class BinaryLLMJudge(Scorer):
             ]
 
             for prompt, response, future in zip(self.prompts, responses, futures):
-                try:
-                    verdict = None if future is None else future.result()
-                except LLMResponseError as error:
-                    if self.settings.continue_on_fail:
-                        print(f"Error generating the judge response: {error}")
-                        # Don't let a judge failure bias the score downwards.
-                        total_successful_calls -= 1
-                        continue
-                    else:
-                        raise
+                # Judge failures are fatal; a partial score would be biased.
+                verdict = None if future is None else future.result()
 
                 is_match = self.is_match(response, verdict)
                 if is_match:
@@ -252,7 +246,7 @@ class BinaryLLMJudge(Scorer):
             print()
 
         return Score(
-            value=float(match_count / total_successful_calls),
-            rich_display=f"{match_count}/{total_successful_calls}",
-            md_display=f"{match_count}/{total_successful_calls}",
+            value=float(match_count / total),
+            rich_display=f"{match_count}/{total}",
+            md_display=f"{match_count}/{total}",
         )

@@ -116,6 +116,29 @@ system_prompt = "You are a helpful assistant."
 # WARNING: Enabling this feature gives full system access to the user of the Heretic session.
 enable_shell = false
 
+# Complete set of output projections, relative to each decoder layer.
+# Edit these lists to add or remove targets; unspecified components are not selected.
+# Patterns can match multiple modules, including MoE experts.
+[layer_module_targets]
+"attn.o_proj" = [
+    "self_attn.o_proj",
+    "linear_attn.out_proj",
+    "self_attn.o_b_proj",
+    "conv.out_proj",
+    "self_attn.out_proj",
+]
+"mlp.down_proj" = [
+    "mlp.down_proj",
+    "mlp.experts.*.down_proj",
+    "mlp.shared_experts.down_proj",
+    "mlp.shared_expert.down_proj",
+    "block_sparse_moe.experts.*.w2",
+    "feed_forward.w2",
+    "feed_forward.experts.*.w2",
+    "shared_mlp.output_linear",
+    "moe.experts.*.output_linear",
+]
+
 # Dataset of prompts to use for automatically determining the optimal batch size.
 [batch_size_test_prompts]
 dataset = "mlabonne/harmless_alpaca"

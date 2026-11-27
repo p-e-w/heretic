@@ -293,14 +293,14 @@ def format_dataset_specification(specification: DatasetSpecification) -> str:
 # Cache the lookup results so the same datasets are not checked again.
 # Use `_is_public_dataset.cache_clear()` in tests when mocking.
 @cache
-def _is_public_dataset(dataset: str) -> bool:
-    """Checks whether a dataset refers to a publicly available Hugging Face dataset."""
+def _is_public_dataset(dataset_id: str) -> bool:
+    """Checks whether a dataset ID refers to a publicly available Hugging Face dataset."""
 
-    if not is_hf_path(dataset):
+    if not is_hf_path(dataset_id):
         return False
 
     try:
-        return not huggingface_hub.dataset_info(dataset).private
+        return not huggingface_hub.dataset_info(dataset_id).private
     except Exception:
         # If the dataset cannot be inspected, do not claim it is publicly available.
         return False

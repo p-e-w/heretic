@@ -25,7 +25,7 @@ You may add a new test case with a new model when implementing new plugins *(e.g
 
 * **Example**: [tiny-random/minicpm5](https://huggingface.co/tiny-random/minicpm5).
 
-2. Clone that model repository using **Git** and generate the `SHA256SUMS` file using the `sha256sum` tool:
+2. Clone that model repository using **Git** and generate the `SHA256SUMS.LABEL` file using the `sha256sum` tool:
 
 > [!IMPORTANT]
 > Delete the unnecessary files such as `README.md` and `.gitattributes` before generating the hash file.
@@ -78,7 +78,7 @@ Application     sha256sum.exe                                      0.0.0.0    C:
 uv run run_tests.py
 ```
 
-The output hashes should **FAIL** against the `Valid hashes` in `SHA256SUMS` file of the test model you added. This is **expected** since Heretic modifies the model. Without **Step 2**, the test model's folder will simply be ignored because it will not have a checksums file to compare against.
+The output hashes should **FAIL** against the `Valid hashes` in `SHA256SUMS.LABEL` file of the test model you added. This is **expected** since Heretic modifies the model. Without **Step 2**, the test model's folder will simply be ignored because it will not have a checksums file to compare against.
 
 4. After that, go to the output folder `TEST_MODEL_DIR/model` and re-generate the actual hashes based on the system you are using.
 

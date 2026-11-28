@@ -93,6 +93,35 @@ def _collapse_flattened_residual_streams(
     )
 
 
+def _select_final_token_activations(
+    tensor: Tensor,
+    batch_size: int,
+    sequence_length: int,
+) -> Tensor:
+    """
+    Extract the final-position activation vector for each prompt.
+
+    Most projections receive 3D tensors of shape (prompt, position, feature).
+    Some MoE projections (e.g. shared_expert.down_proj in Qwen3.5/3.6 MoE)
+    receive a flattened 2D token grid of shape (prompt * position, feature).
+    """
+    if tensor.dim() == 3:
+        return tensor[:, -1, :]
+    if tensor.dim() == 2:
+        expected_tokens = batch_size * sequence_length
+        if tensor.shape[0] != expected_tokens:
+            raise ValueError(
+                f"Unexpected 2D module activation shape {tuple(tensor.shape)} "
+                f"for batch_size={batch_size}, sequence_length={sequence_length} "
+                f"(expected leading dimension {expected_tokens})"
+            )
+        return tensor.unflatten(0, (batch_size, sequence_length))[:, -1, :]
+    raise ValueError(
+        f"Expected 2D or 3D module activation tensor, got {tensor.dim()}D "
+        f"tensor with shape {tuple(tensor.shape)}"
+    )
+
+
 # Some chat templates (e.g. gpt-oss) insert the current date into the prompt,
 # which makes the residuals, and therefore the modified model, depend on the day
 # Heretic is run. Rendering templates with a fixed date keeps results reproducible.
@@ -588,11 +617,7 @@ class Model:
             result.append({"role": "user", "content": "\n\n".join(pending)})
         return result
 
-    def generate(
-        self,
-        prompts: list[Prompt],
-        **kwargs: Any,
-    ) -> tuple[BatchEncoding, GenerateDecoderOnlyOutput | LongTensor]:
+    def _tokenize_prompts(self, prompts: list[Prompt]) -> BatchEncoding:
         chats = [
             self._apply_system_role(
                 [
@@ -623,22 +648,34 @@ class Model:
                 prompt + self.settings.response_prefix for prompt in chat_prompts
             ]
 
-        inputs = self.tokenizer(
+        return self.tokenizer(
             chat_prompts,
             return_tensors="pt",
             padding=True,
             return_token_type_ids=False,
         ).to(self.model.device)
 
+    def _generate_inputs(
+        self,
+        inputs: BatchEncoding,
+        **kwargs: Any,
+    ) -> GenerateDecoderOnlyOutput | LongTensor:
         # FIXME: The type checker has been disabled here because of the extremely complex
         #        interplay between different generate() signatures and dynamic delegation.
-        outputs = self.model.generate(
+        return self.model.generate(
             **inputs,
             **kwargs,
             pad_token_id=self.tokenizer.pad_token_id,
             do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
         )  # ty:ignore[call-non-callable]
 
+    def generate(
+        self,
+        prompts: list[Prompt],
+        **kwargs: Any,
+    ) -> tuple[BatchEncoding, GenerateDecoderOnlyOutput | LongTensor]:
+        inputs = self._tokenize_prompts(prompts)
+        outputs = self._generate_inputs(inputs, **kwargs)
         return inputs, outputs
 
     def get_responses(
@@ -809,6 +846,10 @@ class Model:
         # tensors of shape (prompt, component).
         module_io: ModuleIO = []
 
+        inputs = self._tokenize_prompts(prompts)
+        input_ids = cast(Tensor, inputs["input_ids"])
+        batch_size, sequence_length = input_ids.shape[0], input_ids.shape[1]
+
         def get_hook(
             layer_index: int,
             component: str,
@@ -834,11 +875,26 @@ class Model:
                 assert module_index not in module_io[layer_index][component]
 
                 # inputs[0] and outputs have shape (prompt, position, component),
-                # so this extracts the input/output at the end of each prompt.
-                # Move to CPU to decouple from device assignments, which can
+                # or (prompt * position, component) for MoE projections that flatten
+                # the token grid. Extract the input/output at the end of each prompt
+                # and move to CPU to decouple from device assignments, which can
                 # change between model reloads in multi-GPU configurations.
-                input = inputs[0][:, -1, :].detach().clone().cpu()
-                output = outputs[:, -1, :].detach().clone().cpu()
+                input = (
+                    _select_final_token_activations(
+                        inputs[0], batch_size, sequence_length
+                    )
+                    .detach()
+                    .clone()
+                    .cpu()
+                )
+                output = (
+                    _select_final_token_activations(
+                        outputs, batch_size, sequence_length
+                    )
+                    .detach()
+                    .clone()
+                    .cpu()
+                )
 
                 # The modules associated with a component (e.g. expert MLPs)
                 # are not necessarily invoked in order, nor are all of them
@@ -859,14 +915,15 @@ class Model:
                         )
                     )
 
-        self.generate(
-            prompts,
-            max_new_tokens=1,
-            use_cache=False,
-        )
-
-        for hook_handle in hook_handles:
-            hook_handle.remove()
+        try:
+            self._generate_inputs(
+                inputs,
+                max_new_tokens=1,
+                use_cache=False,
+            )
+        finally:
+            for hook_handle in hook_handles:
+                hook_handle.remove()
 
         return module_io
 

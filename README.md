@@ -1,3 +1,5 @@
+# THIS REPOSITORY HAS BEEN ARCHIVED. See https://github.com/p-e-w/heretic/issues/601 for more information.
+
 <div align="center">
 
 <img width="128" alt="Heretic logo" src="https://github.com/user-attachments/assets/df5f2840-2f92-4991-aa57-252747d7182e" />

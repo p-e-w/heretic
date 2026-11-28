@@ -9,8 +9,10 @@ import os
 import platform
 import tempfile
 import traceback
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import cache
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -288,15 +290,51 @@ def format_dataset_specification(specification: DatasetSpecification) -> str:
         )
 
 
-def is_dataset_specification_reproducible(specification: DatasetSpecification) -> bool:
+# Cache the lookup results so the same datasets are not checked again.
+# Use `_is_public_dataset.cache_clear()` in tests when mocking.
+@cache
+def _is_public_dataset(dataset_id: str) -> bool:
+    """Checks whether a dataset ID refers to a publicly available Hugging Face dataset."""
+
+    if not is_hf_path(dataset_id):
+        return False
+
+    try:
+        return not huggingface_hub.dataset_info(dataset_id).private
+    except Exception:
+        # If the dataset cannot be inspected, do not claim it is publicly available.
+        return False
+
+
+def iter_single_datasets(
+    specification: DatasetSpecification,
+) -> Iterator[SingleDatasetSpecification]:
+    """
+    Flattens a dataset specification into individual dataset entries.
+
+    Args:
+        specification: A single dataset specification or a collection of them.
+
+    Yields:
+        Each `SingleDatasetSpecification` in order.
+    """
     if isinstance(specification, SingleDatasetSpecification):
-        return is_hf_path(specification.dataset) and specification.commit is not None
+        yield specification
     else:
-        return all(
-            is_hf_path(single_specification.dataset)
-            and single_specification.commit is not None
-            for single_specification in specification
-        )
+        yield from specification
+
+
+def is_dataset_specification_reproducible(specification: DatasetSpecification) -> bool:
+    """
+    Checks whether all datasets in the specification have a valid Hugging Face
+    repository ID, are publicly accessible, and are pinned to a commit.
+    """
+    return all(
+        is_hf_path(single_dataset.dataset)
+        and _is_public_dataset(single_dataset.dataset)
+        and single_dataset.commit is not None
+        for single_dataset in iter_single_datasets(specification)
+    )
 
 
 def batchify(items: list[T], batch_size: int) -> list[list[T]]:

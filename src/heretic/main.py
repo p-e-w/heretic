@@ -106,6 +106,7 @@ from .utils import (
     get_readme_intro,
     is_dataset_specification_reproducible,
     is_hf_path,
+    iter_single_datasets,
     load_prompts,
     print,
     print_memory_usage,
@@ -1300,6 +1301,26 @@ def run():
                                 # so local paths are excluded.
                                 if is_hf_path(settings.model):
                                     card.data.base_model = settings.model
+
+                                # If the user opted in to share the reproducibility information,
+                                # then we add the datasets that were used, in the `datasets` field
+                                # of the model card. If the reproducibility information is not
+                                # shared, no datasets are added, regardless of the upload method.
+                                if reproducibility_information != "none":
+                                    # Reproducibility checks for the datasets already validate HF path,
+                                    # public availability, and commit pinning when reproducibility
+                                    # information is shared. So `is_hf_path` would be redundant here.
+                                    datasets: list[str] = list(
+                                        dict.fromkeys(
+                                            single_dataset.dataset
+                                            for specification in dataset_specifications
+                                            for single_dataset in iter_single_datasets(
+                                                specification,
+                                            )
+                                        )
+                                    )
+                                    if datasets:
+                                        card.data.datasets = datasets
 
                                 card.text = (
                                     get_readme_intro(
